@@ -664,6 +664,8 @@ pub(crate) struct Model {
     pub(crate) has_key: bool,
     /// What the cursor carries; nothing moves locally, the server's updates settle the bags.
     pub(crate) cursor: Option<cursor::CursorPayload>,
+    #[cfg(feature = "pfui")]
+    pub(crate) pfui_cursor: Option<super::pfui_host::equipment_actions::CursorState>,
     /// The cursor's one grid latch, `[0xb4da24]`: set by a setter that showed a bar's drop grid,
     /// cleared by `ClearCursor`'s tail, which hides the pet bar's for a held pet action and the
     /// action bar's otherwise (`0x49529b`).
@@ -1445,6 +1447,8 @@ impl Model {
             container_cooldowns: HashMap::new(),
             has_key: false,
             cursor: None,
+            #[cfg(feature = "pfui")]
+            pfui_cursor: None,
             cursor_grid: false,
             world_pick: cursor::WorldPick::default(),
             container_moves: Vec::new(),

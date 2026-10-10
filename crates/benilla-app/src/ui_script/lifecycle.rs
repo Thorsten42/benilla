@@ -148,6 +148,8 @@ fn new_vm<E: std::fmt::Display>(
             return None;
         }
     };
+    #[cfg(feature = "pfui")]
+    crate::pfui::enable_vm(world, &script);
     seed_vm_clock(world, &mut script);
     install_addon_asset_resolvers(world, &mut script);
     info!("ui_script: new VM, session {}", script.session());

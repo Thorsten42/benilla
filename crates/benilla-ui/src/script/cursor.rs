@@ -280,6 +280,8 @@ pub(crate) fn clear(model: &mut Model, how: Clear) {
         }
     }
     model.end_cursor_view();
+    #[cfg(feature = "pfui")]
+    super::pfui_host::equipment_actions::cursor_changed(model);
     model.raise("CURSOR_UPDATE", Vec::new());
 }
 
@@ -327,6 +329,8 @@ pub(crate) fn put(model: &mut Model, payload: CursorPayload) {
                 model.raise("ACTIONBAR_SHOWGRID", Vec::new());
                 model.cursor_grid = true;
             }
+            #[cfg(feature = "pfui")]
+            super::pfui_host::equipment_actions::cursor_changed(model);
             model.raise("CURSOR_UPDATE", Vec::new());
         }
         Tail::BarGrid => {

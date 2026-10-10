@@ -39,6 +39,7 @@ use crate::ui_chat::{default_color, ChatEventKind};
 use crate::vplates::{gx_px, plate_basis, text_px, VPlateSet, VPlates};
 use benilla_world::view::WorldCamera;
 
+
 /// The two bubble CVars (registrar `0x603280`), booting at the reference's defaults.
 #[derive(Resource)]
 pub(crate) struct BubbleConfig {

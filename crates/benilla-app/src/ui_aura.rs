@@ -6,6 +6,8 @@
 //! pet with no live object, its roster record.
 
 mod clock;
+#[cfg(feature = "pfui")]
+pub(crate) mod pfui;
 mod units;
 
 use std::collections::HashMap;
@@ -634,6 +636,8 @@ fn feed_auras(
         }
     }
 
+    #[cfg(feature = "pfui")]
+    pfui::player(&script, self_guid.0, &cache.auras, &list);
     script.set_player_auras(list);
     script.set_tracking(tracking);
     if changed {

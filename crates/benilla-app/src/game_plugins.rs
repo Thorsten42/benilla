@@ -325,6 +325,8 @@ pub(crate) mod schedule_tests {
             connect: false,
             start: crate::char_select::ClientState::Login,
         });
+        #[cfg(feature = "pfui")]
+        app.add_plugins(crate::pfui::PfuiPlugin);
         app.finish();
         app.cleanup();
         app
@@ -872,7 +874,12 @@ pub(crate) mod schedule_tests {
     ///
     /// MONKEY (merge upstream e175209f, 2026-10-12): upstream 4,980 → 4,689; 4,689 + 19 of ours by
     /// arithmetic. NOT yet read off a test run of the merged tree.
+    #[cfg(not(feature = "pfui"))]
     const UPDATE_ACTIONABLE_CEILING: usize = 4_708;
+    // The optional feeds order stock producers before their consumers; retain a separate ratchet,
+    // the same 72 under the stock number as before the sync. By arithmetic, as above.
+    #[cfg(feature = "pfui")]
+    const UPDATE_ACTIONABLE_CEILING: usize = 4_636;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {

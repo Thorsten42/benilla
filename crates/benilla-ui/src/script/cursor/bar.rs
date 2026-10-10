@@ -107,6 +107,14 @@ pub(super) fn pickup_action(lua: &Lua, id: u32) -> bool {
 /// and the slot after, as `0x4e62e0` writes the slot past the setter, so the cursor's events read
 /// the slot as it was. Returns whether to repaint.
 pub(crate) fn place_action(lua: &Lua, id: u32) -> bool {
+    // The extension owns its cursor tag; the stock packet packer must never transmit it.
+    #[cfg(feature = "pfui")]
+    if lua
+        .app_data_ref::<Model>()
+        .is_some_and(|model| crate::script::pfui_host::equipment_actions::held_set(&model).is_some())
+    {
+        return false;
+    }
     let (placed, displaced) = match verb(lua, |model| plan_place(model, id)) {
         Place::Refused => return false,
         // The held action is already the slot's: `ClearCursor(1,1)` and no write (`0x4e63d4`,
