@@ -580,6 +580,8 @@ pub(crate) fn tick_script(
             let rows: Vec<(u32, u32, u16, u64)> = requests
                 .iter()
                 .map(|r| {
+                    #[cfg(feature = "pfui")]
+                    crate::ui_text::inline_texture::set_scale(&mut atlas.lock(), s * r.scale);
                     let n = crate::ui_text::measure_wrapped_rows(
                         &mut atlas.lock(),
                         &r.text,
@@ -1543,6 +1545,8 @@ fn convert_entry(
             let (Some(atlas), Some(text)) = (font_atlas.as_deref_mut(), text) else {
                 return;
             };
+            #[cfg(feature = "pfui")]
+            crate::ui_text::inline_texture::prepare(atlas, &text, assets, images);
             text::emit(
                 atlas,
                 &text,

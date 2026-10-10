@@ -107,7 +107,7 @@ fn line_extent_dev(
     for c in text {
         #[cfg(feature = "pfui")]
         {
-            inline_w += e.inline.advance_char(c, r.ppem);
+            inline_w += e.inline.advance_char(c, r.ppem, r.radius);
         }
         match e.char_cell(r.face, r.ppem, c) {
             Some(cell) if !cell.glyphs.is_empty() => {
@@ -309,6 +309,15 @@ pub(crate) fn measure_wrapped_rows(
     let r = resolve(e, &font);
     e.ensure_metrics(r.face, r.ppem, text);
     let rows = wrapped_rows(e, r, text, wrap_width);
+    // A line grown by a tall texture takes the rows that hold it.
+    #[cfg(feature = "pfui")]
+    let rows = rows
+        + e.inline.extra_rows(
+            fontstring_lines(text, [1.0, 1.0, 1.0, 1.0])
+                .iter()
+                .flat_map(|line| wrap_line(e, r, line, wrap_width)),
+            r.ppem,
+        );
     rows.clamp(1, usize::from(u16::MAX)) as u16
 }
 
