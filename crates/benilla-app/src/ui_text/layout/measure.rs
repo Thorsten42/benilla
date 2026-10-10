@@ -101,7 +101,14 @@ fn line_extent_dev(
     let mut glyphs: Vec<GlyphRef> = Vec::new();
     // A glyphless character after the last glyph: a code the look-ahead steps to.
     let mut code_after: Option<Option<GlyphRef>> = None;
+    // The inline textures of the line, which draw no glyph and step by their own width.
+    #[cfg(feature = "pfui")]
+    let mut inline_w = 0.0f32;
     for c in text {
+        #[cfg(feature = "pfui")]
+        {
+            inline_w += e.inline.advance_char(c, r.ppem);
+        }
         match e.char_cell(r.face, r.ppem, c) {
             Some(cell) if !cell.glyphs.is_empty() => {
                 glyphs.extend_from_slice(&cell.glyphs);
@@ -112,6 +119,9 @@ fn line_extent_dev(
         }
     }
     let (Some(&first), Some(&last)) = (glyphs.first(), glyphs.last()) else {
+        #[cfg(feature = "pfui")]
+        return (inline_w, None, None);
+        #[cfg(not(feature = "pfui"))]
         return (0.0, None, None);
     };
     let step = |a: &GlyphRef, b: Option<&GlyphRef>| e.step(r.face, r.ppem, r.step_extra, a, b);
@@ -125,6 +135,10 @@ fn line_extent_dev(
             .unwrap_or(ink),
         None => ink,
     };
+    #[cfg(feature = "pfui")]
+    {
+        w += inline_w;
+    }
     (w, Some(first), Some(last))
 }
 
@@ -239,6 +253,10 @@ pub(crate) fn measure_text(
     wrap_width: Option<f32>,
     font: FontSpec,
 ) -> (f32, f32) {
+    #[cfg(feature = "pfui")]
+    let inlined = e.inline.substitute(text);
+    #[cfg(feature = "pfui")]
+    let text = inlined.as_ref();
     let r = resolve(e, &font);
     // Metrics only: a string measured and never drawn costs no raster.
     e.ensure_metrics(r.face, r.ppem, text);
@@ -257,7 +275,15 @@ pub(crate) fn measure_text(
         }
         _ => (string_width(e, text, font, font.shadow_x), lines.len()),
     };
-    (w, block_height(rows, r))
+    let height = block_height(rows, r);
+    // A texture taller than its line grows the block; counted per source line.
+    #[cfg(feature = "pfui")]
+    let height = height
+        + lines
+            .iter()
+            .map(|line| e.inline.extra_height(line, r.ppem, e.dpi()))
+            .sum::<f32>();
+    (w, height)
 }
 
 /// `text`'s unwrapped height, its lines and the gaps between them ([`measure_text`]'s, without a
@@ -276,6 +302,10 @@ pub(crate) fn measure_wrapped_rows(
     wrap_width: f32,
     font: FontSpec,
 ) -> u16 {
+    #[cfg(feature = "pfui")]
+    let inlined = e.inline.substitute(text);
+    #[cfg(feature = "pfui")]
+    let text = inlined.as_ref();
     let r = resolve(e, &font);
     e.ensure_metrics(r.face, r.ppem, text);
     let rows = wrapped_rows(e, r, text, wrap_width);
@@ -357,6 +387,11 @@ pub(crate) fn ellipsize_to_fit(
     }
     let display = {
         let mut e = atlas.lock();
+        // A prefix must never end inside an escape, so the walk backs off over placeholders.
+        #[cfg(feature = "pfui")]
+        let inlined = e.inline.substitute(text);
+        #[cfg(feature = "pfui")]
+        let text = inlined.as_ref();
         let r = resolve(&mut e, &font);
         // Every candidate is a prefix of `text` plus "...", so these two cover the whole walk.
         e.ensure_metrics(r.face, r.ppem, text);
