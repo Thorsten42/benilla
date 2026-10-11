@@ -79,6 +79,8 @@ mod glue;
 mod glue_strings;
 mod go_anim;
 mod go_templates;
+#[cfg(not(target_arch = "wasm32"))]
+mod hd_patches;
 #[cfg(feature = "dev")]
 mod hover_log;
 mod items;
@@ -300,6 +302,9 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
             );
         }
     }
+    // Before anything opens the patch chain: whether the lettered archives are part of it.
+    #[cfg(not(target_arch = "wasm32"))]
+    hd_patches::apply_saved();
 
     // From here on a panic leaves `benilla-config/Diagnostics/crash-<unix>.txt` behind (decision
     // 2266 §B2) — armed before the `App` exists, so a panic while plugins build is a report too.
@@ -324,6 +329,9 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     app.set_error_handler(bevy::ecs::error::warn);
     // The panel footer and the build banner read the stamp back.
     app.insert_resource(build);
+    // `restartClient`: quit and start again, for a setting read only at start.
+    #[cfg(not(target_arch = "wasm32"))]
+    app.add_observer(hd_patches::on_cvar);
     // Static-scene transform tracking pinned on: the default threshold re-decides every frame with
     // two full scans of the rows the tracking exists to skip, and this scene is static-heavy. It
     // costs more only when most rows move in one frame (a load burst into a near-empty world).
@@ -533,5 +541,8 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
 
     // Returns the app's exit status: a failed capture sets `AppExit::error()`
     // (`capture::drive_capture`), which must not exit 0 with no PNG on disk.
-    app.run()
+    let exit = app.run();
+    #[cfg(not(target_arch = "wasm32"))]
+    hd_patches::relaunch_if_requested();
+    exit
 }
