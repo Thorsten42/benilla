@@ -109,7 +109,9 @@ function PlaceAction(slot)
     return true
   elseif displaced and bridge.hasCursor() then
     -- Let the stock filters reject passive spells and non-placeable items without losing the set.
-    local placed=original.PlaceAction(slot)
+    -- The stock verb answers nothing, as in 1.12; the slot says whether it took the payload.
+    original.PlaceAction(slot)
+    local placed=bridge.hasServerAction(slot)
     if placed then
       buttons()[slot]=nil
       api.PickupEquipmentSet(displaced)

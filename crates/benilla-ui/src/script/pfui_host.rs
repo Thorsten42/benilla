@@ -21,6 +21,14 @@ pub(crate) mod tooltip_subjects;
 pub mod totems;
 pub mod units;
 
+/// The key a frame registers under for an event the 1.12 table lacks: the name as given, once the
+/// extension is installed in an in-game VM. ClassicAPI's events (`PLAYER_SWING`, the modern aura
+/// and cast events) are the extension's to fire, and the stock table would drop their listeners.
+pub(crate) fn extension_event(model: &super::Model, name: &str) -> Option<String> {
+    (model.pfui_cursor.is_some() && model.vm == super::glue::VmKind::InGame)
+        .then(|| name.to_string())
+}
+
 /// Timer callbacks are protected individually, but errors still belong in the VM error stream.
 pub fn report_error(lua: &Lua, message: String) {
     lua.app_data_mut::<super::Model>()

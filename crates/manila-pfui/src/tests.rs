@@ -63,6 +63,8 @@ fn pfui_colour_strings_reach_native_paint_channels() {
       text:SetTextColor('.4','.25','.1')
       check(text:GetTextColor())
       local bar=CreateFrame('StatusBar')
+      -- A bar with no texture keeps no colour (`0x782dd0`).
+      bar:SetStatusBarTexture('Interface\\TargetingFrame\\UI-StatusBar')
       bar:SetStatusBarColor('.4','.25','.1')
       check(bar:GetStatusBarColor())
       texture:SetGradient('HORIZONTAL','.4','.25','.1','.4','.25','.1')
@@ -107,6 +109,8 @@ fn spell_tooltip_subjects_follow_builders_and_late_views_then_clear() {
       local name,rank,id=tip:GetSpell()
       assert(tip:HasSpell() and name=='Fireball' and rank=='Rank 1' and id==133)
       tip:Hide(); assert(not tip:HasSpell() and select('#',tip:GetSpell())==0)
+      -- Hide un-owned the plate; a builder shows nothing on a plate with no owner.
+      tip:SetOwner(UIParent,'ANCHOR_NONE')
       tip:SetSpellByID(143); assert(not tip:HasSpell())
     "#,
         )
@@ -1132,9 +1136,11 @@ fn aura_tooltips_use_the_modern_index_space_and_existing_spell_renderer() {
     );
     script.run(r#"
         local tip=CreateFrame('GameTooltip','ProbeTooltip')
+        tip:SetOwner(WorldFrame or CreateFrame('Frame'),'ANCHOR_NONE')
         tip:SetUnitAura('target',1,'HARMFUL')
         assert(ProbeTooltipTextLeft1:GetText()=='Effect' and ProbeTooltipTextLeft2:GetText()=='Aura description')
         tip:SetUnitAura('target',1,'HELPFUL'); assert(tip:NumLines()==0)
+        tip:SetOwner(WorldFrame or CreateFrame('Frame'),'ANCHOR_NONE')
         tip:SetSpellByID(123); assert(ProbeTooltipTextLeft1:GetText()=='Effect')
     "#).unwrap();
     assert!(script.errors().is_empty(), "{:?}", script.errors());
@@ -3522,8 +3528,9 @@ fn modern_handlers_and_hooks_preserve_nil_payloads_and_legacy_globals() {
     script.run("assert(calls == 'abc' and this == 'outer' and event == 'outer event' and arg1 == 'outer first' and arg3 == 'outer last')").unwrap();
     assert!(script.errors().is_empty(), "{:?}", script.errors());
     let mut stock = UiScript::new().unwrap();
-    stock.run("f=CreateFrame('Frame'); f:RegisterEvent('EXAMPLE'); f:SetScript('OnEvent', function(...) stockArgs=arg.n end)").unwrap();
-    stock.fire_event("EXAMPLE", vec![]);
+    // A stock VM registers only a name its event table has.
+    stock.run("f=CreateFrame('Frame'); f:RegisterEvent('PLAYER_ENTERING_WORLD'); f:SetScript('OnEvent', function(...) stockArgs=arg.n end)").unwrap();
+    stock.fire_event("PLAYER_ENTERING_WORLD", vec![]);
     assert_eq!(stock.eval::<i64>("return stockArgs").unwrap(), 0);
 }
 

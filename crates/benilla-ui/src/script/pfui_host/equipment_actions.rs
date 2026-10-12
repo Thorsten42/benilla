@@ -46,8 +46,32 @@ fn cursor_state(model: &Model) -> CursorState {
     CursorState { kind, id }
 }
 
+thread_local! {
+    /// Set while a setter's inner clear runs ([`hold`]).
+    static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Releases [`hold`] when dropped.
+pub(crate) struct Hold;
+
+impl Drop for Hold {
+    fn drop(&mut self) {
+        HELD.with(|held| held.set(false));
+    }
+}
+
+/// Keep [`cursor_changed`] quiet through a setter's inner clear, so the setter reports its one
+/// transition, old payload to new, once the new payload is on.
+pub(crate) fn hold() -> Hold {
+    HELD.with(|held| held.set(true));
+    Hold
+}
+
 /// ClassicAPI's CURSOR_CHANGED describes each actual transition, before the stock update event.
 pub(crate) fn cursor_changed(model: &mut Model) {
+    if HELD.with(std::cell::Cell::get) {
+        return;
+    }
     let Some(previous) = model.pfui_cursor else {
         return;
     };

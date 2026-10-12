@@ -20,7 +20,11 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
             let h = frame_handle_of(lua, &this)?;
             let mut model = lua.app_data_mut::<Model>().expect("model");
             // A name the VM's event table lacks registers nothing and raises nothing (`0x702140`).
-            let Some(event) = model.vm.event_key(&event).map(str::to_string) else {
+            let key = model.vm.event_key(&event).map(str::to_string);
+            // The extension's own events are not in the 1.12 table.
+            #[cfg(feature = "pfui")]
+            let key = key.or_else(|| crate::script::pfui_host::extension_event(&model, &event));
+            let Some(event) = key else {
                 return Ok(());
             };
             // Dispatch follows registration order, as the reference's listener list does; a
@@ -39,7 +43,11 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
             let h = frame_handle_of(lua, &this)?;
             let mut model = lua.app_data_mut::<Model>().expect("model");
             // Matched as `RegisterEvent` matches (`0x702280`).
-            let Some(event) = model.vm.event_key(&event).map(str::to_string) else {
+            let key = model.vm.event_key(&event).map(str::to_string);
+            // The extension's own events are not in the 1.12 table.
+            #[cfg(feature = "pfui")]
+            let key = key.or_else(|| crate::script::pfui_host::extension_event(&model, &event));
+            let Some(event) = key else {
                 return Ok(());
             };
             if let Some(list) = model.event_to_frames.get_mut(&event) {
