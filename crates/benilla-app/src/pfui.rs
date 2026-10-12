@@ -84,7 +84,7 @@ pub(crate) fn enable_vm(world: &World, script: &UiScript) {
             .lua()
             .set_named_registry_value("manila.pfui.enabled", true)
         {
-            script.report_script_error(&format!("pfUI VM activation: {error}"));
+            script.report_script_error(&format!("pfUI VM activation: {error}"), &format!("pfUI VM activation: {error}"));
         }
         // Before any addon loads: pfUI reads `gxResolution` once, as it loads.
         if let Some(pixels) = world.get_resource::<WindowPixels>() {
@@ -126,7 +126,7 @@ pub(crate) fn feed_friend_guids(
             .zip(guids)
             .map(|(friend, guid)| (friend.name.as_str(), *guid)),
     ) {
-        script.report_script_error(&format!("pfUI friend GUIDs: {error}"));
+        script.report_script_error(&format!("pfUI friend GUIDs: {error}"), &format!("pfUI friend GUIDs: {error}"));
     }
 }
 
@@ -209,7 +209,7 @@ fn feed_window_pixels(script: Option<NonSend<UiScript>>, pixels: Res<WindowPixel
         if let Err(error) =
             manila_pfui::display::set_window_pixels(script.lua(), pixels.0, pixels.1)
         {
-            script.report_script_error(&format!("pfUI window size: {error}"));
+            script.report_script_error(&format!("pfUI window size: {error}"), &format!("pfUI window size: {error}"));
         }
     }
 }
@@ -221,7 +221,7 @@ fn feed_clock(script: Option<NonSendMut<UiScript>>, clock: Res<crate::net::Serve
     if let Err(error) =
         manila_pfui::clock::update(script.lua(), clock.0.and_then(|c| c.pfui_local_epoch()))
     {
-        script.report_script_error(&format!("pfUI clock: {error}"));
+        script.report_script_error(&format!("pfUI clock: {error}"), &format!("pfUI clock: {error}"));
     }
 }
 

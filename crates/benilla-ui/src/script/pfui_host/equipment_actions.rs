@@ -100,16 +100,20 @@ pub(super) fn install(lua: &Lua, bridge: &Table) -> mlua::Result<()> {
     bridge.set(
         "setCursor",
         lua.create_function(|lua, (id, texture): (Option<u32>, Option<String>)| {
-            let mut model = lua.app_data_mut::<Model>().expect("model");
-            cursor::clear_cursor(&mut model);
-            if let Some(id) = id {
-                model.cursor = Some(CursorPayload::Action(CursorAction {
-                    src_slot: 0,
-                    kind: SET_CURSOR,
-                    action: id,
-                    texture,
-                }));
-                cursor::queue_cursor_update(&mut model);
+            // Through the engine's own setter, so the clear and the set each fire their events
+            // inside this call, as any cursor verb's do.
+            match id {
+                Some(id) => {
+                    cursor::set_cursor(lua, true, move |_| {
+                        Some(CursorPayload::Action(CursorAction {
+                            src_slot: 0,
+                            kind: SET_CURSOR,
+                            action: id,
+                            texture,
+                        }))
+                    });
+                }
+                None => crate::script::tick::verb(lua, cursor::clear_cursor),
             }
             Ok(())
         })?,
@@ -120,20 +124,27 @@ pub(super) fn install(lua: &Lua, bridge: &Table) -> mlua::Result<()> {
             if !(1..=120).contains(&slot) {
                 return Ok(false);
             }
-            let mut model = lua.app_data_mut::<Model>().expect("model");
-            let displaced = model.actions.remove(&slot);
-            if displaced.is_some() {
-                model.action_sets.push((slot, 0));
+            let displaced = {
+                let mut model = lua.app_data_mut::<Model>().expect("model");
+                let displaced = model.actions.remove(&slot);
+                if displaced.is_some() {
+                    model.action_sets.push((slot, 0));
+                }
+                displaced
+            };
+            match displaced {
+                Some(action) => {
+                    cursor::set_cursor(lua, true, move |_| {
+                        Some(CursorPayload::Action(CursorAction {
+                            src_slot: slot,
+                            kind: action.kind,
+                            action: action.action,
+                            texture: action.texture,
+                        }))
+                    });
+                }
+                None => crate::script::tick::verb(lua, cursor::clear_cursor),
             }
-            model.cursor = displaced.map(|action| {
-                CursorPayload::Action(CursorAction {
-                    src_slot: slot,
-                    kind: action.kind,
-                    action: action.action,
-                    texture: action.texture,
-                })
-            });
-            cursor::queue_cursor_update(&mut model);
             Ok(true)
         })?,
     )?;

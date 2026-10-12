@@ -315,7 +315,8 @@ pub(crate) fn measure_wrapped_rows(
         + e.inline.extra_rows(
             fontstring_lines(text, [1.0, 1.0, 1.0, 1.0])
                 .iter()
-                .flat_map(|line| wrap_line(e, r, line, wrap_width)),
+                .flat_map(|line| wrap_line(e, r, line, wrap_width))
+                .map(|(row, _)| row),
             r.ppem,
         );
     rows.clamp(1, usize::from(u16::MAX)) as u16

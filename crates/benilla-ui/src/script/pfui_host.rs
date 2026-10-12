@@ -25,7 +25,7 @@ pub mod units;
 pub fn report_error(lua: &Lua, message: String) {
     lua.app_data_mut::<super::Model>()
         .expect("model")
-        .record_script_error(message);
+        .record_script_error(message.clone(), message);
 }
 
 /// Extension-owned event payloads use the stock protected dispatcher and legacy argN globals.

@@ -14,7 +14,17 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             let mut result = Vec::new();
             let (kind, id) = match payload {
                 CursorPayload::Item(item) => ("item", item.item_id),
-                CursorPayload::Spell(spell) => ("spell", spell.book_slot),
+                // The cursor holds the spell alone now; its book slot is looked up, 0 when the
+                // spell has left the book.
+                CursorPayload::Spell(spell) => (
+                    "spell",
+                    model
+                        .spellbook
+                        .slots
+                        .iter()
+                        .position(|slot| slot.spell_id == spell.spell_id)
+                        .map_or(0, |at| at as u32 + 1),
+                ),
                 CursorPayload::Macro(macro_) => ("macro", macro_.index),
                 CursorPayload::Merchant(item) => ("merchant", item.row + 1),
                 CursorPayload::Money(money) => ("money", money.copper),
@@ -29,7 +39,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     }
                 }
                 CursorPayload::Spell(spell) => {
-                    result.push(Value::String(lua.create_string(&spell.book_type)?));
+                    result.push(Value::String(lua.create_string("spell")?));
                     result.push(Value::Integer(i64::from(spell.spell_id)));
                 }
                 _ => {}

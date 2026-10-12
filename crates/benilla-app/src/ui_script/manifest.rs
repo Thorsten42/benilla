@@ -218,7 +218,7 @@ pub(super) fn load_core(script: &UiScript) -> Vec<String> {
 pub(super) fn open_core(script: &UiScript) -> Option<(Addon, Vec<String>)> {
     #[cfg(feature = "pfui")]
     if let Err(error) = crate::pfui::prepare(script) {
-        script.report_script_error(&error);
+        script.report_script_error(&error, &error);
         return None;
     }
     match reference_ui::core() {

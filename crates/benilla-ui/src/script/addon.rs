@@ -814,7 +814,8 @@ fn run_files(lua: &Lua, name: &str, read: &Reader, files: &[String], toc: &mut S
     let _pfui_scope = match super::pfui_host::addon_scope(lua, name) {
         Ok(scope) => Some(scope),
         Err(error) => {
-            log_error(lua, &error.to_string());
+            let message = error.to_string();
+            log_error(lua, &message, &message);
             return;
         }
     };

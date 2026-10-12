@@ -59,6 +59,6 @@ fn dispatch(lua: &Lua, id: u32, event: &str, frame: &Table) {
     ) {
         lua.app_data_mut::<Model>()
             .expect("model")
-            .record_script_error(error.to_string());
+            .record_script_error(error.to_string(), error.to_string());
     }
 }

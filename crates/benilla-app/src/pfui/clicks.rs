@@ -35,7 +35,7 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
             if let Err(error) =
                 attributes::run_script(script.lua(), &body, cast.targeting.selection.guid)
             {
-                script.report_script_error(&format!("Nampower queued script: {error}"));
+                script.report_script_error(&format!("Nampower queued script: {error}"), &format!("Nampower queued script: {error}"));
             }
         }
         ClickAction::PetSpell { spell_id, target } => {
@@ -96,7 +96,7 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
             if let Err(error) =
                 attributes::run_macro(script.lua(), &input, named, cast.targeting.selection.guid)
             {
-                script.report_script_error(&format!("pfUI click macro: {error}"));
+                script.report_script_error(&format!("pfUI click macro: {error}"), &format!("pfUI click macro: {error}"));
             }
         }
     }

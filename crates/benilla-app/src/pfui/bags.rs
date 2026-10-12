@@ -105,6 +105,6 @@ fn drain(
         for guid in owned.into_iter().flatten().filter(|guid| *guid != 0) {
             transitions.0.extend(pending.clear_by_guid(guid));
         }
-        script.report_script_error(&message);
+        script.report_script_error(&message, &message);
     }
 }

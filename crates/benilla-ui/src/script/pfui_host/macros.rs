@@ -50,7 +50,7 @@ pub(crate) fn install(lua: &Lua) -> mlua::Result<()> {
                 opt_string(args.get(1)),
                 icon(args.get(2)).map(Some),
                 opt_string(args.get(3)),
-                None,
+                false,
             ))
         })?,
     )?;

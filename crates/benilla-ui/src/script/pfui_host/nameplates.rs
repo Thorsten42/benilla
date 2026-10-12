@@ -118,7 +118,7 @@ pub(crate) fn after_sync(lua: &Lua) {
             Err(error) => lua
                 .app_data_mut::<Model>()
                 .expect("model")
-                .record_script_error(error.to_string()),
+                .record_script_error(error.to_string(), error.to_string()),
         }
     }
     for index in added {

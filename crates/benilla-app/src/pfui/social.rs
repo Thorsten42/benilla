@@ -33,7 +33,7 @@ fn receive(In(event): In<SessionEvent>, script: Option<NonSend<UiScript>>) {
     if let Err(error) =
         manila_pfui::player_cache::observe_name(script.lua(), guid, &name, class, race, gender)
     {
-        script.report_script_error(&format!("pfUI name cache: {error}"));
+        script.report_script_error(&format!("pfUI name cache: {error}"), &format!("pfUI name cache: {error}"));
     }
     manila_pfui::loot::resolve_player(script.lua(), guid, &name, class);
 }
