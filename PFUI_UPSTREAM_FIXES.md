@@ -5,6 +5,9 @@ Branch `feat/pfui-compatibility` on `Thorsten42/manila`, rebased on `Adrinalin4i
 cherry-picked alone. The pfUI extension itself (`crates/manila-pfui`, the `pfui_host` files and
 the `#[cfg(feature = "pfui")]` hooks) is not listed here.
 
+The commit ids below are on `feat/pfui-compatibility`. `feat/pfui-on-benilla-sync` carries the
+same commits rebased onto the benilla sync, under other ids, without items 1, 2 and 16.
+
 **Disclaimer:** everything on this branch, this list included, was written by an AI assistant
 (Claude), directed by the fork's owner. It was verified locally on Linux: it builds, the test
 suites were run, and most fixes were checked in game against a local Turtle server. Where a fix

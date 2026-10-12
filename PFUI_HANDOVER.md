@@ -774,3 +774,32 @@ across upstream merges.
   token in the owner's session was not captured; a stale `npc` or `focus` guid is the likely
   one. The normal mouseover path was reproduced live through a nameplate hover without error.
 
+## Addendum: stacked on the benilla sync (2026-10-12)
+
+Branch `feat/pfui-on-benilla-sync` is `feat/pfui-compatibility` rebased onto
+`sync/benilla-2026-10-12` (manila `7e71f725` merged with benilla `e175209f`). The old branch is
+kept as it was.
+
+- Dropped in the rebase, because benilla fixed them itself: the `GetWidth`/`GetHeight` scale
+  fix, the tooltip `SetOwner` hide and the options-page width fix. The test-fixture repair is on
+  the sync branch already.
+- Re-seated on code benilla rewrote: the cursor hooks (events fire inside the verb now, one
+  `CURSOR_CHANGED` per setter through `equipment_actions::hold`), the tooltip sizing (the content
+  setters' shared tail pays the relayout), the inline-texture width (one line measure,
+  `line_extent_dev`), the thin-edge seat (backdrops are ordinary texture quads now, so it sits in
+  the texture arm) and the error-report calls.
+- New seam: `RegisterEvent` takes only names of the 1.12 event table. With the extension
+  installed in an in-game VM a name the table lacks registers as given
+  (`pfui_host::extension_event`), and the app's event gate skips the extension's files.
+- **Not re-attached: pfUI's chat bubble skin.** Benilla draws bubbles as engine frames now and
+  the old bridge (`pfui/bubbles.rs`) was removed. `C_ChatBubbles` still exists and answers
+  nothing, so bubbles show in the stock look.
+- The pfui schedule ceiling (4,636) is arithmetic, like the sync's own two.
+- Also new on this branch: a negative aura duration reads as none (the "50d" on a shapeshift
+  form), and a border thinner than a device pixel is seated on a pixel row (the world map's
+  close button).
+
+Checked on Linux: manila-pfui 125 pass; benilla-ui with `pfui` 2,233 pass; app lib with `pfui`
+4,683 pass with the ten failures known before the sync; feature-off and wasm32 checks pass; one
+unattended live run with pfUI, pfQuest and Atlas loaded and no script error.
+
