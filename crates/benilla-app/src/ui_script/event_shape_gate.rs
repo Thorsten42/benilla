@@ -275,6 +275,9 @@ fn every_event_we_fire_is_in_the_reference_table() {
     let mut off: Vec<String> = fire_sites()
         .into_iter()
         .filter(|(name, _, _)| !names.contains(name.as_str()))
+        // The pfUI extension fires ClassicAPI's own events, which its listeners register through
+        // its own key (`pfui_host::extension_event`), not the 1.12 table.
+        .filter(|(_, _, at)| !at.contains("pfui"))
         .map(|(name, _, at)| format!("{name} from {at}"))
         .collect();
     off.sort();

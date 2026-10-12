@@ -440,6 +440,8 @@ mod tests {
             path: None,
             height: Some(12.0),
             outline: Outline::None,
+            spacing: 0.0,
+            shadow_x: 0.0,
             alpha_gradient: None,
         };
         let literal = measure_text(&mut e, "a|Tfoo:20|tb", None, spec).0;
