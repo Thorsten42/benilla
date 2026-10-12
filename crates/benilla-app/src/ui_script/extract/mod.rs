@@ -1494,6 +1494,10 @@ fn convert_entry(
             // A pathless Texture region is a solid color; a textured one tints by it.
             let mut color = color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
             color[3] *= eq.alpha;
+            // A quad thinner than a device pixel, a backdrop's border piece among them, is
+            // seated on a pixel row.
+            #[cfg(feature = "pfui")]
+            let rect = crate::pfui::thin_edge::seat(rect, dpi);
             out.push(UiQuad {
                 rect,
                 z_key: eq.z,

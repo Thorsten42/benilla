@@ -15,6 +15,7 @@ mod social;
 pub(crate) mod spell_queue;
 mod spells;
 mod swing;
+pub(crate) mod thin_edge;
 mod totems;
 pub(crate) mod unit_pane;
 mod units;
