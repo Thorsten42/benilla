@@ -1689,7 +1689,6 @@ pub(super) fn drain_bind_confirm_answers(
 /// The pending state is one cell, taken on the first accept, so a doubled accept does nothing.
 pub(super) fn drain_bind_on_use_confirms(
     script: Option<NonSendMut<UiScript>>,
-    #[cfg(feature = "pfui")] pending_items: Res<PendingItemOps>,
     targeting: crate::spell::cast_target::CastTargeting,
     mut ladder: crate::spell::CastLadder,
     mut ui_errors: ResMut<crate::ui_action::UiErrorKeys>,
@@ -1716,7 +1715,6 @@ pub(super) fn drain_bind_on_use_confirms(
         &mut ladder,
         &mut gate,
         &mut ui_errors,
-        &pending_items,
     ) {
         return;
     }

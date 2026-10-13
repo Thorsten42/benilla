@@ -2022,16 +2022,18 @@ fn equipment_buttons_use_the_real_swap_queue_and_refuse_locked_items() {
         1,
         benilla_ui::script::ContainerSlot {
             item_id: 38,
-            locked: true,
+            guid: 0x4000_0000_0000_0026,
             ..Default::default()
         },
     );
     script.set_container(0, Some(bag.clone()));
+    // The lock is the item's own now, by guid.
+    script.lock_item(0x4000_0000_0000_0026);
     script
         .run("assert(IsUsableAction(4)==nil); UseAction(4); assert(wearEvents==1 and errors==1)")
         .unwrap();
     assert!(script.take_container_moves().is_empty());
-    bag.slots.get_mut(&1).unwrap().locked = false;
+    script.unlock_item(0x4000_0000_0000_0026);
     script.set_container(0, Some(bag));
     let mut slots: benilla_ui::script::InventorySlots = Default::default();
     slots[4] = Some(InvSlotView {
@@ -3915,6 +3917,7 @@ fn bag_operations_use_the_paced_queue_and_openables_follow_instance_locks() {
     bag.slots.insert(
         1,
         ContainerSlot {
+            guid: 0x4000_0000_0000_0031,
             item_id: 10,
             count: 5,
             ..Default::default()
@@ -3948,8 +3951,9 @@ fn bag_operations_use_the_paced_queue_and_openables_follow_instance_locks() {
         }]
     );
     bag.slots.get_mut(&1).unwrap().flags = 4;
-    bag.slots.get_mut(&1).unwrap().locked = true;
+    let locked = bag.slots.get(&1).unwrap().guid;
     script.set_container(0, Some(bag));
+    script.lock_item(locked);
     script.run("local _,canOpen=C_Container.IsContainerItemOpenable(0,1); assert(canOpen); assert(not C_Container.SwapItems(0,1,0,2))").unwrap();
     assert!(benilla_ui::script::pfui_host::items::take_bag_moves(script.lua()).is_empty());
 }

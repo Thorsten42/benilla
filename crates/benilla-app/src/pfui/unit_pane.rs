@@ -34,7 +34,7 @@ pub(crate) fn emit(
     unit: Option<&str>,
     rect: Rect,
     clip: Option<Rect>,
-    z_key: u64,
+    z_key: u128,
     alpha: f32,
     booths: &mut BoothBridge,
     assets: &mut Option<ResMut<benilla_assets::WorldAssets>>,

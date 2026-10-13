@@ -10,13 +10,13 @@ pub(super) fn locked(model: &Model, bag: i64, slot: u32) -> bool {
             .inventory_slots
             .get(slot as usize)
             .and_then(|s| s.as_ref())
-            .is_some_and(|s| s.locked || s.flags & 4 != 0)
+            .is_some_and(|s| crate::script::cursor::item_locked(model, s.guid) || s.flags & 4 != 0)
     } else {
         model
             .containers
             .get(&bag)
             .and_then(|b| b.slots.get(&slot))
-            .is_some_and(|s| s.locked || s.flags & 4 != 0)
+            .is_some_and(|s| crate::script::cursor::item_locked(model, s.guid) || s.flags & 4 != 0)
     }
 }
 

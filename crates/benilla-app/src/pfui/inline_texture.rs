@@ -275,7 +275,7 @@ impl Line {
         origin_dev_x: f32,
         cell_top_dev: f32,
         dpi: f32,
-        z_key: u64,
+        z_key: u128,
     ) {
         for p in self.pending.drain(..) {
             let Some(texture) = p.texture else { continue };

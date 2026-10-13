@@ -473,7 +473,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     else {
                         return Ok(false);
                     };
-                    if src.locked || src.count == 0 {
+                    if crate::script::cursor::item_locked(&model, src.guid) || src.count == 0 {
                         return Ok(false);
                     }
                     let Some(dst) = model.containers.get(&dst_bag) else {
@@ -481,7 +481,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     };
                     if dst_slot == 0
                         || dst_slot > dst.num_slots
-                        || dst.slots.get(&dst_slot).is_some_and(|s| s.locked)
+                        || dst.slots.get(&dst_slot).is_some_and(|s| crate::script::cursor::item_locked(&model, s.guid))
                     {
                         return Ok(false);
                     }

@@ -134,6 +134,8 @@ pub(super) fn install(lua: &Lua, bridge: &Table) -> mlua::Result<()> {
                             kind: SET_CURSOR,
                             action: id,
                             texture,
+                            count: 0,
+                            consumable: false,
                         }))
                     });
                 }
@@ -164,6 +166,8 @@ pub(super) fn install(lua: &Lua, bridge: &Table) -> mlua::Result<()> {
                             kind: action.kind,
                             action: action.action,
                             texture: action.texture,
+                            count: action.count,
+                            consumable: action.consumable,
                         }))
                     });
                 }

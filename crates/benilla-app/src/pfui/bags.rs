@@ -29,8 +29,6 @@ fn drain(
     self_q: Query<&crate::net::ObjectStore, With<crate::net::SelfPlayer>>,
     objects: crate::net::Objects,
     templates: Res<crate::items::Items>,
-    mut pending: ResMut<crate::pending_item_ops::PendingItemOps>,
-    mut transitions: ResMut<crate::pending_item_ops::LockTransitions>,
     mut gate: crate::ui_bind_confirm::BindGate,
     mut memo: Local<crate::ui_script::VmMemo<Executor>>,
     time: Res<Time>,
@@ -52,6 +50,8 @@ fn drain(
         }
     }
     if error.is_none() {
+        // The client's locks are per item now, by guid; an empty slot holds none.
+        let locks = script.item_locks();
         let read = |bag, slot| {
             if !items::bag_position_available(script.lua(), bag, slot) {
                 return None;
@@ -63,10 +63,7 @@ fn drain(
                 &objects,
             );
             let Some(guid) = guid else {
-                return Some(Slot {
-                    locked: pending.contains(bag, slot),
-                    ..Default::default()
-                });
+                return Some(Slot::default());
             };
             let fields = objects.object(guid)?;
             let id = fields.object_entry()?;
@@ -76,7 +73,7 @@ fn drain(
                 id,
                 count: fields.item_stack_count()?,
                 max_stack: template.stackable.max(1),
-                locked: pending.contains(bag, slot),
+                locked: locks.contains(&guid),
             })
         };
         match worker.next(time.elapsed_secs_f64(), read) {
@@ -88,7 +85,6 @@ fn drain(
                     &templates,
                     &commands,
                     Some(store),
-                    &mut pending,
                     movement,
                     false,
                 ) {
@@ -102,9 +98,6 @@ fn drain(
     }
     items::set_bag_busy(script.lua(), worker.busy());
     if let Some(message) = error {
-        for guid in owned.into_iter().flatten().filter(|guid| *guid != 0) {
-            transitions.0.extend(pending.clear_by_guid(guid));
-        }
         script.report_script_error(&message, &message);
     }
 }

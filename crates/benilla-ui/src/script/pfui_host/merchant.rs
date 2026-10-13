@@ -18,7 +18,7 @@ fn junk(lua: &Lua) -> Vec<(i64, u32, u64)> {
             }
             let state = model.containers.get(&bag)?.slots.get(&slot)?;
             let template = model.item_templates.get(&item.item_id)?;
-            (item.guid != 0 && !state.locked && template.quality == 0)
+            (item.guid != 0 && !crate::script::cursor::item_locked(&model, state.guid) && template.quality == 0)
                 .then_some((bag, slot, item.guid))
         })
         .collect();

@@ -45,25 +45,26 @@ fn position(
     None
 }
 
-fn resolved(ladder: &crate::spell::CastLadder, guid: u64) -> Option<Clicked> {
+/// The item's send data and the arm the use dispatcher takes for it (`0x5d8d00`): never the
+/// equip fork, which is `UseContainerItem`'s own.
+fn resolved(ladder: &crate::spell::CastLadder, guid: u64) -> Option<(Clicked, UseFork)> {
     let obj = ladder.objects.object(guid)?;
     let entry = obj.object_entry()?;
     let t = ladder.items.template(entry, guid, &ladder.commands)?;
-    Some(Clicked {
+    let item_text_id = obj.item_text_id().unwrap_or(0);
+    let fork = dispatch_fork(t, obj.item_flags().unwrap_or(0), item_text_id);
+    let clicked = Clicked {
         guid,
         entry,
-        inventory_type: t.inventory_type,
         display_info_id: t.display_info_id,
-        item_text_id: obj.item_text_id().unwrap_or(0),
+        item_text_id,
         start_quest: t.start_quest,
         spell_index: t.use_spell_index().unwrap_or(0),
         use_spell: t.use_spell.map(|u| u.spell_id),
-        unwraps_gift: t.unwraps_gift(obj.item_flags().unwrap_or(0)),
-        begins_gift_wrap: t.begins_gift_wrap(obj.item_flags().unwrap_or(0)),
-        opens_loot: t.opens_loot(),
         page_text: t.page_text,
         is_charter: t.flags & benilla_protocol::messages::ITEM_FLAG_CHARTER != 0,
-    })
+    };
+    Some((clicked, fork))
 }
 
 fn request(c: Clicked, bag: i64, slot: u32) -> Option<super::super::ItemUse> {
@@ -97,30 +98,31 @@ impl ScriptItemUse<'_, '_> {
         else {
             return;
         };
-        if self.pending_items.contains(bag, slot) {
+        // A locked item is not used, as the stock call refuses it.
+        if script.item_locks().contains(&guid) {
             return;
         }
-        let Some(c) = resolved(&self.ladder, guid) else {
+        let Some((c, fork)) = resolved(&self.ladder, guid) else {
             return;
         };
         let Some(it) = request(c, bag, slot) else {
             return;
         };
-        if c.unwraps_gift {
-            let _ = self.ladder.commands.0.send(ClientCommand::OpenItem {
-                bag_index: it.bag_index,
-                slot: it.slot,
-            });
-            return;
-        }
-        if c.begins_gift_wrap {
-            script.arm_gift_wrap(bag, slot);
-            return;
-        }
-        if c.start_quest == 0 {
-            if c.page_text != 0 || c.item_text_id != 0 {
+        match fork {
+            UseFork::Unwrap => {
+                let _ = self.ladder.commands.0.send(ClientCommand::OpenItem {
+                    bag_index: it.bag_index,
+                    slot: it.slot,
+                });
+                return;
+            }
+            UseFork::WrapPaper => {
+                script.arm_gift_wrap(bag, slot);
+                return;
+            }
+            UseFork::Read | UseFork::Letter => {
                 if !self.item_text.toggle_closed(guid) {
-                    if c.page_text != 0 {
+                    if fork == UseFork::Read {
                         self.item_text.open_pages(guid)
                     } else {
                         self.item_text.open_letter(guid, c.item_text_id)
@@ -128,22 +130,17 @@ impl ScriptItemUse<'_, '_> {
                 }
                 return;
             }
-            if c.opens_loot {
+            // The latch and the lock go up before the send, as the stock open arm's do.
+            UseFork::Open => {
                 self.loot_latch.0 = Some(guid);
-                let (_, count) = self
-                    .self_q
-                    .iter()
-                    .next()
-                    .map(|store| slot_guid_count(Some(store), bag, slot, &self.ladder.objects))
-                    .unwrap_or((0, 0));
-                self.pending_items.add([(bag, slot, guid, count)]);
-                script.fire_event("ITEM_LOCK_CHANGED", Vec::new());
+                script.lock_item(guid);
                 let _ = self.ladder.commands.0.send(ClientCommand::OpenItem {
                     bag_index: it.bag_index,
                     slot: it.slot,
                 });
                 return;
             }
+            UseFork::Quest | UseFork::Plain | UseFork::Equip => {}
         }
         let serial = self.gate.pfui_item_use.as_ref().map(|state| state.serial);
         super::super::send_item_use(
@@ -183,7 +180,6 @@ pub(super) fn confirm(
     ladder: &mut crate::spell::CastLadder,
     gate: &mut crate::ui_bind_confirm::BindGate,
     errors: &mut crate::ui_action::UiErrorKeys,
-    pending_items: &PendingItemOps,
 ) -> bool {
     let Some(pending) = gate
         .pfui_item_use
@@ -224,10 +220,10 @@ pub(super) fn confirm(
     else {
         return true;
     };
-    if pending_items.contains(bag, slot) {
+    if script.item_locks().contains(&pending.item) {
         return true;
     }
-    let Some(c) = resolved(ladder, pending.item) else {
+    let Some((c, _)) = resolved(ladder, pending.item) else {
         return true;
     };
     let Some(current) = request(c, bag, slot) else {

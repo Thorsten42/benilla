@@ -140,7 +140,7 @@ fn invalid_missing_bank_and_locked_items_cannot_invent_an_item_use() {
                 ContainerSlot {
                     item_id: 12345,
                     count: 1,
-                    locked: true,
+                    guid: 0x4000_0000_0000_0001,
                     ..Default::default()
                 },
             )]
@@ -148,6 +148,7 @@ fn invalid_missing_bank_and_locked_items_cannot_invent_an_item_use() {
             ..Default::default()
         }),
     );
+    script.lock_item(0x4000_0000_0000_0001);
     script.run("C_Item.UseItemByName(12345)").unwrap();
     assert!(
         script.take_script_calls().is_empty(),
@@ -168,7 +169,11 @@ fn item_clicks_capture_the_frame_unit_and_keep_the_documented_bag_click_path() {
     );
     for attributes in ["button:SetAttribute('item','0 1')", "button:SetAttribute('item',nil);button:SetAttribute('bag',0);button:SetAttribute('slot',1)"] {
         script.run(&format!("{attributes};button:Click('LeftButton')")).unwrap();
-        assert_eq!(script.take_script_calls(),vec![ScriptCall::UseContainerItem { bag:0,slot:1 }]);
+        let calls = script.take_script_calls();
+        assert!(
+            matches!(calls.as_slice(), [ScriptCall::UseContainerItem(u)] if u.bag == 0 && u.slot == 1),
+            "{calls:?}"
+        );
     }
 }
 

@@ -52,6 +52,7 @@ fn fixture(bind: bool) -> (App, crossbeam_channel::Receiver<ClientCommand>) {
                     ContainerSlot {
                         item_id: ENTRY,
                         count: 1,
+                        guid: ITEM,
                         ..Default::default()
                     },
                 ),
@@ -60,6 +61,7 @@ fn fixture(bind: bool) -> (App, crossbeam_channel::Receiver<ClientCommand>) {
                     ContainerSlot {
                         item_id: ENTRY,
                         count: 1,
+                        guid: OTHER_ITEM,
                         ..Default::default()
                     },
                 ),
@@ -232,8 +234,8 @@ fn missing_target_item_or_pending_slot_refuses_before_a_bind_prompt() {
             1 => set_slots(&mut app, 0, OTHER_ITEM),
             _ => app
                 .world_mut()
-                .resource_mut::<PendingItemOps>()
-                .add([(0, 1, ITEM, 1)]),
+                .non_send_resource_mut::<UiScript>()
+                .lock_item(ITEM),
         }
         app.world_mut()
             .run_system_once(crate::script_calls::apply_script_calls)
@@ -285,8 +287,8 @@ fn changed_items_units_locks_or_vm_invalidate_the_owned_confirmation() {
             1 => set_slots(&mut app, 0, OTHER_ITEM),
             2 => app
                 .world_mut()
-                .resource_mut::<PendingItemOps>()
-                .add([(0, 1, ITEM, 1)]),
+                .non_send_resource_mut::<UiScript>()
+                .lock_item(ITEM),
             3 => {
                 let mut template = crate::items::test_template("Transformed item");
                 template.start_quest = 42;

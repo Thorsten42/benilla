@@ -425,6 +425,7 @@ fn repair_cost_and_mail_links_read_the_stock_feeds() {
                 ..Default::default()
             },
         ],
+        open: true,
     }));
     let link = "|cffffffff|Hitem:2589:0:0:0|h[Linen Cloth]|h|r";
     script.set_container(
