@@ -427,6 +427,36 @@ mod tests {
     /// Measure and draw agree: the icon widens the string by its own width, the glyphs after it
     /// start past it, and no glyph is drawn for the escape's bytes.
     #[test]
+    /// `GetStringWidth`'s measure, which a tooltip sizes its cells by, counts an icon as the draw
+    /// does and never as the bytes of its markup.
+    #[test]
+    fn the_string_width_counts_an_icon_and_not_its_markup() {
+        use crate::ui_text::layout::{string_width, FontSpec};
+        use benilla_ui::script::Outline;
+
+        let Some(mut e) = crate::ui_text::engine::test_engine(1.0) else {
+            return;
+        };
+        let spec = FontSpec {
+            path: None,
+            height: Some(12.0),
+            outline: Outline::None,
+            spacing: 0.0,
+            shadow_x: 0.0,
+            alpha_gradient: None,
+        };
+        e.inline.enabled = true;
+        set_scale(&mut e, 1.0);
+        let plain = string_width(&mut e, "ab", spec, 0.0);
+        let coin = "a|TInterface\\MoneyFrame\\UI-MoneyIcons:20:20:2:0:64:16:32:48:0:16|tb";
+        let with_icon = string_width(&mut e, coin, spec, 0.0);
+        assert!(
+            with_icon > plain && with_icon < plain + 40.0,
+            "one 20 px icon, got {with_icon} against {plain}"
+        );
+    }
+
+    #[test]
     fn a_measured_icon_is_as_wide_as_it_draws() {
         use crate::ui_text::layout::{
             layout_text_quads, measure_text, FontSpec, Justify, TextSeat,

@@ -151,6 +151,12 @@ fn line_extent_dev(
 /// leave `[ebp-0x10]`), so in its measure each later line opens with the step from the last glyph
 /// before it, kerned as any step, and without the seed.
 pub(crate) fn string_width(e: &mut TextEngine, text: &str, font: FontSpec, shadow_x: f32) -> f32 {
+    // An inline texture measures as it draws, not as the bytes of its markup; text that came
+    // through [`measure_text`] is substituted already, which this leaves as it is.
+    #[cfg(feature = "pfui")]
+    let inlined = e.inline.substitute(text);
+    #[cfg(feature = "pfui")]
+    let text = inlined.as_ref();
     let r = resolve(e, &font);
     e.ensure_metrics(r.face, r.ppem, text);
     let e = &*e;
