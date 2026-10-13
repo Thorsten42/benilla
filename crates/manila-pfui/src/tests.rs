@@ -352,62 +352,77 @@ fn quest_events_ignore_bulk_sync_wait_for_templates_and_keep_turnin_before_remov
 }
 
 #[test]
-fn chat_bubbles_publish_real_regions_and_refresh_replaced_and_recycled_frames() {
-    let script = extended();
+fn run_next_frame_waits_for_the_frame_after_the_one_that_asked() {
+    let mut script = extended();
     script
         .run(
             r#"
-      WorldFrame=CreateFrame('Frame','WorldFrame'); WorldFrame:SetSize(1024,768)
-      UIParent=CreateFrame('Frame','UIParent'); STANDARD_TEXT_FONT='Fonts\\FRIZQT__.TTF'
-      GameFontNormal=CreateFont('GameFontNormal'); GameFontNormal:SetFont(STANDARD_TEXT_FONT,14)
+      ran=0
+      local f=CreateFrame('Frame'); f:RegisterEvent('PLAYER_ENTERING_WORLD')
+      f:SetScript('OnEvent',function() RunNextFrame(function() ran=ran+1 end) end)
+    "#,
+        )
+        .unwrap();
+    script.fire_event("PLAYER_ENTERING_WORLD", vec![]);
+    script.tick(0.01);
+    assert_eq!(script.eval::<i64>("return ran").unwrap(), 0, "not in the event's own frame");
+    script.tick(0.01);
+    assert_eq!(script.eval::<i64>("return ran").unwrap(), 1);
+    script.tick(0.01);
+    assert_eq!(script.eval::<i64>("return ran").unwrap(), 1, "once");
+}
+
+#[test]
+fn chat_bubbles_list_the_engines_own_frames() {
+    use benilla_ui::script::{BubbleGeometry, BubbleState};
+    let mut script = extended();
+    script
+        .run(
+            r#"
+      WorldFrame=CreateFrame('Frame','WorldFrame'); WorldFrame:SetWidth(1024); WorldFrame:SetHeight(768)
+      local other=CreateFrame('Frame',nil,WorldFrame)
+      other:CreateTexture():SetTexture('Interface\\Buttons\\WHITE8X8')
       assert(#C_ChatBubbles.GetAllChatBubbles()==0)
     "#,
         )
         .unwrap();
-    let bubble = |guid, born, text| super::bubbles::Bubble {
-        guid,
-        born,
-        text,
-        color: [1.0, 0.5, 0.0],
-        alpha: 0.5,
-        visible: true,
-        x: 300.0,
-        bottom: 400.0,
-        wrap: 200.0,
-        margin: 4.0,
-        border: 8.0,
-        font_height: 14.0,
+    let geometry = BubbleGeometry {
+        border: 16.0,
+        margin: 16.0,
+        wrap_cap: 300.0,
+        text_height: 14.0,
+        device_px: 1.0,
     };
-    super::bubbles::sync(script.lua(), [bubble(1, 1.0, "First line")]).unwrap();
+    let line = |key, text: &str, shown| BubbleState {
+        key,
+        line: key,
+        text: text.into(),
+        colour: [1.0, 1.0, 1.0],
+        shown,
+        alpha: 1.0,
+        seat: (400.0, 300.0),
+    };
+    script.sync_chat_bubbles(geometry, &[line(1, "First line", true), line(2, "Out of sight", false)]);
     script
         .run(
             r#"
       local list=C_ChatBubbles.GetAllChatBubbles()
-      first=list[1]; assert(#list==1 and first:GetParent()==WorldFrame and first:IsShown())
-      for _,region in ipairs({first:GetRegions()}) do
-        if region:GetObjectType()=='FontString' then first.source=region end
+      assert(#list==2, 'both bubbles, the hidden one too, and no other child')
+      local texts={}
+      for _,bubble in ipairs(list) do
+        for _,region in ipairs({bubble:GetRegions()}) do
+          if region:GetObjectType()=='FontString' then texts[region:GetText()]=bubble:IsShown() end
+        end
       end
-      assert(first.source:GetText()=='First line' and first:GetAlpha()==0.5)
-      list[1]=nil; assert(#C_ChatBubbles.GetAllChatBubbles()==1)
-      shown=0
-      first:SetScript('OnShow',function(self)
-        assert(self==first and this==first)
-        copied=self.source:GetText(); shown=shown+1
-      end)
-      first.source:Hide()
+      assert(texts['First line']==1 and texts['Out of sight']==nil)
+      list[1]=nil; assert(#C_ChatBubbles.GetAllChatBubbles()==2, 'each call answers a fresh list')
     "#,
         )
         .unwrap();
-    super::bubbles::sync(script.lua(), [bubble(1, 2.0, "Second line")]).unwrap();
+    script.sync_chat_bubbles(geometry, &[]);
     script
-        .run("assert(copied=='Second line' and shown==1 and not first.source:IsShown())")
+        .run("for _,bubble in ipairs(C_ChatBubbles.GetAllChatBubbles()) do assert(not bubble:IsShown()) end")
         .unwrap();
-    super::bubbles::sync(script.lua(), []).unwrap();
-    script
-        .run("assert(#C_ChatBubbles.GetAllChatBubbles()==0 and not first:IsShown())")
-        .unwrap();
-    super::bubbles::sync(script.lua(), [bubble(2, 3.0, "Another speaker")]).unwrap();
-    script.run("assert(C_ChatBubbles.GetAllChatBubbles()[1]==first and copied=='Another speaker' and shown==2)").unwrap();
     assert!(script.errors().is_empty(), "{:?}", script.errors());
 }
 

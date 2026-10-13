@@ -7,7 +7,6 @@
 
 mod attributes;
 pub mod bags;
-pub mod bubbles;
 pub mod clock;
 pub mod creature;
 pub mod display;
@@ -202,7 +201,6 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
             Ok(())
         })?)?;
     widgets::install(lua)?;
-    bubbles::install(lua)?;
     benilla_ui::script::pfui_host::install(lua)?;
     icons::install(lua)?;
     loot::install(lua)?;

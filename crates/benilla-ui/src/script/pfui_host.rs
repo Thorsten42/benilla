@@ -4,6 +4,7 @@
 use mlua::{Function, Lua, MultiValue, Table, Value};
 
 mod addons;
+mod bubbles;
 pub mod attributes;
 pub mod auras;
 pub mod casts;
@@ -132,6 +133,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     cursor::install(lua)?;
     merchant::install(lua)?;
     addons::install(lua)?;
+    bubbles::install(lua)?;
     descriptors::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;

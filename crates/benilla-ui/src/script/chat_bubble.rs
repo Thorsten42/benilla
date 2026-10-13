@@ -144,6 +144,12 @@ pub(super) fn is_bubble(model: &Model, frame: FrameHandle) -> bool {
     model.chat_bubbles.by_frame.contains_key(&frame)
 }
 
+/// The pooled bubble frames in pool order, for the pfUI extension's `C_ChatBubbles`.
+#[cfg(feature = "pfui")]
+pub(super) fn frames(model: &Model) -> Vec<FrameHandle> {
+    model.chat_bubbles.bubbles.iter().map(|b| b.frame).collect()
+}
+
 /// The per-frame drive; returns the `Show`/`Hide` calls to run, in order.
 fn sync(
     model: &mut Model,

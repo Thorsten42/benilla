@@ -791,9 +791,13 @@ kept as it was.
 - New seam: `RegisterEvent` takes only names of the 1.12 event table. With the extension
   installed in an in-game VM a name the table lacks registers as given
   (`pfui_host::extension_event`), and the app's event gate skips the extension's files.
-- **Not re-attached: pfUI's chat bubble skin.** Benilla draws bubbles as engine frames now and
-  the old bridge (`pfui/bubbles.rs`) was removed. `C_ChatBubbles` still exists and answers
-  nothing, so bubbles show in the stock look.
+- pfUI's chat bubble skin is attached again, on the engine's own bubbles: benilla builds each
+  bubble as a frame under `WorldFrame`, and `C_ChatBubbles.GetAllChatBubbles`
+  (`pfui_host/bubbles.rs`) lists the pool's frames, hidden ones included. `RunNextFrame` now
+  waits for the frame after the one that asked; it ran in the event's own frame before, ahead
+  of the bubble's creation, so pfUI's scan found nothing. Checked live that pfUI skins the
+  frame; not seen on a visible speaker, as the probe character is an invisible GM whose own
+  bubble fades at once.
 - The pfui schedule ceiling (4,636) is arithmetic, like the sync's own two.
 - Also new on this branch: a negative aura duration reads as none (the "50d" on a shapeshift
   form), and a border thinner than a device pixel is seated on a pixel row (the world map's

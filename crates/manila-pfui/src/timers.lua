@@ -7,12 +7,16 @@ local Handle = {}
 function Handle:Cancel() self.cancelled = true; self.callback = nil end
 function Handle:IsCancelled() return self.cancelled == true end
 
+-- Update passes run so far, and whether one is running: what "the next frame" is counted from.
+local passes, updating = 0, false
 local function update()
+  passes = passes + 1
+  updating = true
   local due, pending = {}, {}
   local now = GetTime()
   for _, timer in ipairs(timers) do
     if not timer.cancelled then
-      if now >= timer.deadline then table.insert(due, timer)
+      if now >= timer.deadline and passes >= (timer.pass or 0) then table.insert(due, timer)
       else table.insert(pending, timer) end
     end
   end
@@ -33,6 +37,7 @@ local function update()
       if not success then reportError(tostring(message)) end
     end
   end
+  updating = false
   if table.getn(timers) == 0 then frame:SetScript("OnUpdate", nil) end
 end
 
@@ -62,4 +67,9 @@ function C_Timer.NewTicker(seconds, callback, iterations)
   end
   return schedule(seconds, callback, iterations)
 end
-function RunNextFrame(callback) C_Timer.After(0, callback) end
+-- The frame after this one: an event handler runs before its own frame's update pass, so that
+-- pass is skipped; a callback already inside a pass waits for the next.
+function RunNextFrame(callback)
+  local timer = schedule(0, function() callback() end, 1)
+  timer.pass = passes + (updating and 1 or 2)
+end
