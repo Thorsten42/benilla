@@ -519,7 +519,7 @@ fn a_shown_plate_answers_its_size_in_the_same_call_with_a_font_engine() {
     s.run(
         r#"
         local a = CreateFrame("Button", "A7"); a:SetPoint("TOPLEFT", 100, -100); a:SetWidth(10); a:SetHeight(10)
-        local tt = CreateFrame("GameTooltip", "TT7")
+        local tt = CreateFrame("GameTooltip", "TT7", nil, "TestTooltipTemplate")
         tt:SetOwner(a, "ANCHOR_RIGHT")
         tt:AddLine("Tough Jerky")
         tt:AddDoubleLine("One-Hand", "Sword")
