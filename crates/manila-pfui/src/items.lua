@@ -12,6 +12,14 @@ function Methods:GetItemID()
   if self.id then return self.id end
   return C_Item.GetItemID(self.location)
 end
+function Methods:IsItemEmpty()
+  local id = self:GetItemID()
+  return id == nil or id == 0
+end
+function Methods:IsItemDataCached()
+  local id = self:GetItemID()
+  return id ~= nil and id ~= 0 and C_Item.IsItemDataCachedByID(id) and true or false
+end
 function Methods:GetItemName()
   return C_Item.GetItemNameByID(self:GetItemID())
 end

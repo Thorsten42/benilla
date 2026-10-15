@@ -3845,6 +3845,9 @@ fn item_queries_wait_for_real_cache_arrivals_and_preserve_the_wide_tuple() {
             assert(select(4, C_Item.GetItemInfo(6948)) == 1)
         end)
         assert(loaded == 0 and C_Item.GetItemInfo(6948) == nil)
+        -- pfUI's inspect skin and loot history ask these before they wait for the data.
+        assert(not item:IsItemEmpty() and not item:IsItemDataCached())
+        assert(Item:CreateFromItemID(nil):IsItemEmpty() and Item:CreateFromItemID(0):IsItemEmpty())
     "#,
         )
         .unwrap();
@@ -3859,6 +3862,9 @@ fn item_queries_wait_for_real_cache_arrivals_and_preserve_the_wide_tuple() {
         },
     );
     script.run("assert(loaded == 1); Item:CreateFromItemID(6948):ContinueOnItemLoad(function() loaded=loaded+1 end); assert(loaded==2)").unwrap();
+    script
+        .run("assert(Item:CreateFromItemID(6948):IsItemDataCached())")
+        .unwrap();
     assert!(!script.has_script_errors());
     let stock = &mut UiScript::new().unwrap();
     stock.run("arrivals=0; local f=CreateFrame('Frame'); f:RegisterEvent('GET_ITEM_INFO_RECEIVED'); f:SetScript('OnEvent', function() arrivals=arrivals+1 end)").unwrap();
