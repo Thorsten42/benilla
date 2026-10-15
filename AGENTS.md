@@ -14,6 +14,15 @@ fix or ship something here. The path from a merge to a running realm is document
 [wenilla-realm/docs/RELEASE.md](https://github.com/Arnesen/wenilla-realm/blob/main/docs/RELEASE.md);
 syncing upstream is [docs/UPSTREAM.md](docs/UPSTREAM.md).
 
+What the real client does comes from [benilla-re](https://github.com/samwhosung/benilla-re), the
+reverse engineering of 1.12.1, before you build: clone it beside this repo and grep it, or look an
+address up at `https://samwhosung.github.io/benilla-re/?0x5e6853`. `docs/CONTRIBUTING.md`, "The
+reference", says how to read it and what to do when it has a gap.
+
+The rest of the root is code and data: `crates/` the workspace, `reference/` benilla-re's
+tables vendored at a pinned commit, which the tests check against, `scripts/` the gates and
+instruments, `third_party/` vendored code.
+
 ## What lives where
 
 | path | what | whose |

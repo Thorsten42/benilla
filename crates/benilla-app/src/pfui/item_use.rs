@@ -120,14 +120,13 @@ impl ScriptItemUse<'_, '_> {
                 script.arm_gift_wrap(bag, slot);
                 return;
             }
-            UseFork::Read | UseFork::Letter => {
-                if !self.item_text.toggle_closed(guid) {
-                    if fork == UseFork::Read {
-                        self.item_text.open_pages(guid)
-                    } else {
-                        self.item_text.open_letter(guid, c.item_text_id)
-                    }
-                }
+            // The reader, as the stock arms open it; a re-click closes it.
+            UseFork::Read => {
+                self.item_text.read_pages(guid);
+                return;
+            }
+            UseFork::Letter => {
+                self.item_text.read_letter(guid, c.item_text_id);
                 return;
             }
             // The latch and the lock go up before the send, as the stock open arm's do.

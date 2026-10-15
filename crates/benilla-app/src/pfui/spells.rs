@@ -51,7 +51,11 @@ fn feed(
     range_units: crate::spell::RangeUnits,
     factions: Option<Res<crate::target::Factions>>,
     reputations: Res<crate::net::Reputations>,
-    supplies: (Res<crate::items::Items>, Res<crate::net::NetCommands>),
+    supplies: (
+        Res<crate::items::Items>,
+        Res<crate::net::NetCommands>,
+        Option<Res<crate::player::Player>>,
+    ),
     mut memo: Local<crate::ui_script::VmMemo<Memo>>,
     mut ranges: Local<crate::ui_script::VmMemo<Option<Arc<HashMap<u32, RangeSpell>>>>>,
 ) {
@@ -113,7 +117,7 @@ fn feed(
     let carried = me
         .map(|(store, _)| crate::ui_items::carried_counts(&store.0, &objects))
         .unwrap_or_default();
-    let (items, commands) = &supplies;
+    let (items, commands, player) = &supplies;
     let usable = me
         .map(|(store, _)| {
             let context = crate::spell::usable::UsableCtx {
@@ -127,6 +131,7 @@ fn feed(
                 reputations: &reputations,
                 cooldowns: &cooldowns,
                 spell_mods: &mods,
+                control_lost: player.as_ref().is_some_and(|p| p.own_control_lost),
                 carried: &carried,
             };
             actions

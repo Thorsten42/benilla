@@ -17,7 +17,6 @@ mod spells;
 mod swing;
 pub(crate) mod thin_edge;
 mod totems;
-pub(crate) mod unit_pane;
 mod units;
 
 pub(crate) fn prepare(script: &UiScript) -> Result<(), String> {

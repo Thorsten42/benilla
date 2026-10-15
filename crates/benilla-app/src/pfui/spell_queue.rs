@@ -654,7 +654,7 @@ pub(crate) fn before(
         }),
         kind,
         failures: cast.ladder.cast_errors.0.len(),
-        pending: cast.ladder.pending.committed(Instant::now()),
+        pending: cast.ladder.pending.current(Instant::now()),
         strike: cast.ladder.queued_melee.current(),
         call: call.clone(),
         on_self,
@@ -692,7 +692,7 @@ pub(crate) fn after(script: &UiScript, attempt: Option<Attempt>, cast: &crate::s
         );
         return;
     }
-    if (cast.ladder.pending.committed(Instant::now()) == Some(a.spell)
+    if (cast.ladder.pending.current(Instant::now()) == Some(a.spell)
         && a.pending != Some(a.spell))
         || (a.kind == 2
             && cast.ladder.queued_melee.current() == Some(a.spell)

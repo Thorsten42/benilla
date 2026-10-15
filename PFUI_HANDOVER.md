@@ -717,9 +717,9 @@ across upstream merges.
   pfUI's status bars divide by `GetEffectiveScale()` themselves, so every bar overfilled under a
   UI scale below 1 and an empty one drew a mirrored sliver beside its frame. Read from the
   install's own `WoW_org.exe` with `objdump`; nothing was copied.
-- **3D portraits.** `QuadContent::ModelPane` now carries the pane's `SetUnit` token (ungated,
-  three small hunks), and `benilla-app/src/pfui/unit_pane.rs` draws the round-portrait bake
-  for a pane no stock window claims.
+- **3D portraits.** Drawn by the client since benilla b727e30f, which gives every character
+  model frame its own `SetUnit` subject; the pfUI pane hook (`pfui/unit_pane.rs`) and the
+  `ModelPane` unit token were retired at that sync.
 - **Game menu.** The client's own Edit Mode and Support rungs take pfUI's button skin.
 - **Addons.** Atlas, AtlasQuest, pfQuest and pfQuest-turtle load cleanly. AtlasLoot does not:
   it sets an `OnTooltipSetItem` script and inherits two templates the loader does not find.

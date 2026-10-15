@@ -36,14 +36,13 @@ fn feed(
     {
         return;
     }
-    let owner = |guid| {
+    let by_guid = |guid| {
         stores
             .iter()
             .find(|(id, _)| id.0 == guid)
             .map(|(_, store)| (*store).clone())
     };
     let held = super::held::HeldUnits {
-        owner_store: &owner,
         names: &names,
         commands: &commands,
         factions: factions.as_deref(),
@@ -52,6 +51,7 @@ fn feed(
         self_store: self_q.single().ok(),
         classes: tables.classes(),
         types: tables.types(&names),
+        by_guid: &by_guid,
     };
     units::set_traits(
         script.lua(),

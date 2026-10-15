@@ -8,7 +8,7 @@ impl super::Cooldowns {
         self.records
             .iter()
             .filter(|record| record.gcd_category == category)
-            .map(|record| record.gcd.remaining(now).as_secs_f64() * 1000.0)
+            .map(|record| record.gcd_remaining(now).as_secs_f64() * 1000.0)
             .fold(0.0, f64::max)
     }
 
@@ -17,12 +17,12 @@ impl super::Cooldowns {
         self.records
             .iter()
             .filter(|record| {
-                record.gcd_category == category && !record.gcd.remaining(now).is_zero()
+                record.gcd_category == category && !record.gcd_remaining(now).is_zero()
             })
-            .map(|record| record.gcd)
-            .max_by_key(|timer| timer.remaining(now))
-            .map_or(0.0, |timer| {
-                let end = timer.start + timer.duration;
+            .max_by_key(|record| record.gcd_remaining(now))
+            .map_or(0.0, |record| {
+                // The GCD runs from the recovery's start ([`super::Cooldowns`]' `Record::gcd`).
+                let end = record.recovery.start + record.gcd;
                 let offset = if end >= clock.anchor {
                     end.duration_since(clock.anchor).as_secs_f64()
                 } else {

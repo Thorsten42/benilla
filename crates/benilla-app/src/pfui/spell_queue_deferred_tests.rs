@@ -55,11 +55,7 @@ fn pfui_auto_attack_buttons_keep_the_stock_toggle_while_a_cast_is_pending() {
                 kind: ACTION_KIND_SPELL,
             },
         );
-    world.resource_mut::<crate::spell::PendingCast>().arm(
-        HEAL,
-        bevy::platform::time::Instant::now(),
-        true,
-    );
+    world.resource_mut::<crate::spell::PendingCast>().push(HEAL, None, bevy::platform::time::Instant::now());
     let mut script = world.non_send_resource_mut::<UiScript>();
     manila_pfui::install(&script).unwrap();
     script.set_action(

@@ -164,7 +164,7 @@ fn quickcast_settings_and_noqueue_use_the_same_validated_terrain_commit() {
     aim(&mut app, Some(Vec3::ZERO));
     app.world_mut()
         .resource_mut::<crate::spell::PendingCast>()
-        .arm(OTHER, Instant::now(), true);
+        .push(OTHER, None, Instant::now());
     run(&mut app, "CastSpellByNameNoQueue('Heal2050')");
     assert!(
         terrain_packets(&rx).is_empty(),

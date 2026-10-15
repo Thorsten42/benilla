@@ -471,7 +471,7 @@ fn forced_queue_waits_outside_window_and_a_noqueue_attempt_does_not_replace_it()
     casting(&app, Some(10000.0));
     app.world_mut()
         .resource_mut::<crate::spell::PendingCast>()
-        .arm(OTHER, Instant::now(), true);
+        .push(OTHER, None, Instant::now());
     run(
         &mut app,
         "QueueSpellByName('Heal2050');CastSpellByNameNoQueue('Heal2052',1)",

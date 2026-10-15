@@ -835,7 +835,7 @@ mod faux_scroll_tests;
 #[cfg(test)]
 mod panel_template_tests;
 
-/// The return-shape gate: `reference/1.12-shapes.tsv` against what this client answers.
+/// The return-shape gate: `reference/bindings.tsv` against what this client answers.
 #[cfg(test)]
 mod shape_gate;
 
@@ -843,11 +843,15 @@ mod shape_gate;
 #[cfg(test)]
 mod surface_gate;
 
-/// The event argument-shape gate: every fire site against `reference/1.12-events.tsv`.
+/// The reader of every fire site, for the event gates.
+#[cfg(test)]
+mod fire_scan;
+
+/// The event argument-shape gate: every fire site against `reference/event_args.tsv`.
 #[cfg(test)]
 mod event_shape_gate;
 
-/// The verb-fired event gate, against `reference/1.12-verb-events.tsv`.
+/// The verb-fired event gate, against `reference/verb_events.tsv`.
 #[cfg(test)]
 mod verb_event_gate;
 

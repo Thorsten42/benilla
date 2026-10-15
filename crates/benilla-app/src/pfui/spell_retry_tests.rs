@@ -336,7 +336,7 @@ fn a_local_refusal_is_never_remembered_as_a_server_retry() {
     let (mut app, rx) = fixture();
     app.world_mut()
         .resource_mut::<crate::spell::PendingCast>()
-        .arm(OTHER, bevy::platform::time::Instant::now(), true);
+        .push(OTHER, None, bevy::platform::time::Instant::now());
     run(
         &mut app,
         "SetCVar('NP_QueueInstantSpells',0);CastSpellByName('Heal2050',1)",

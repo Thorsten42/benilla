@@ -27,7 +27,7 @@ use super::group_relation::{GroupInputs, GroupRoster};
 use crate::creature_type::CreatureTypeSources;
 use crate::names::NameCache;
 use crate::net::{GuidIndex, ObjectStore, Reputations, SelfGuid, SelfPlayer};
-use crate::target::{can_assist, can_attack, Factions, Selection};
+use crate::target::{can_assist, can_attack, Assist, Factions, Selection};
 use benilla_protocol::messages::OwnerFallback;
 
 #[cfg(feature = "pfui")]
@@ -154,6 +154,7 @@ impl TargetRelations<'_> {
                 self.reputations,
                 self.self_store,
                 |_| self.target_owner_store.cloned(),
+                Assist::PlayerToUnit,
             )
     }
 

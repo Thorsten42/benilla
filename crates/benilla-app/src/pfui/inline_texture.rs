@@ -444,6 +444,8 @@ mod tests {
             spacing: 0.0,
             shadow_x: 0.0,
             alpha_gradient: None,
+            non_space_wrap: false,
+            max_lines: 0,
         };
         e.inline.enabled = true;
         set_scale(&mut e, 1.0);
@@ -473,6 +475,8 @@ mod tests {
             spacing: 0.0,
             shadow_x: 0.0,
             alpha_gradient: None,
+            non_space_wrap: false,
+            max_lines: 0,
         };
         let literal = measure_text(&mut e, "a|Tfoo:20|tb", None, spec).0;
         e.inline.enabled = true;
@@ -561,6 +565,7 @@ mod tests {
                 text: registry.substitute(text).into_owned(),
                 color: [1.0; 4],
                 link: None,
+                marks: 0,
             }]
         };
         let tall = line(&mut registry, "a|Tfoo:12|t");
