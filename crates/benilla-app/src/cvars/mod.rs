@@ -2060,7 +2060,10 @@ mod tests {
                     ("characterShadows", to.to_string())
                 } else {
                     let v: f32 = values[col].parse().unwrap();
-                    let to = if *k == "farclip" {
+                    // A slider step, down from the top rung, which sits on the ceiling.
+                    let to = if *k == "farclip" && v + 60.0 > benilla_world::view::FARCLIP_MAX {
+                        v - 60.0
+                    } else if *k == "farclip" {
                         v + 60.0
                     } else if v == 0.0 {
                         1.0
@@ -2475,7 +2478,8 @@ mod tests {
         assert_eq!(apply(&mut app, "farclip", "50"), SetOutcome::Vetoed);
         assert_eq!(res::<ViewDistance>(&app).farclip, 400.0);
         assert_eq!(res::<Cvars>(&app).get("farclip"), Some("400"));
-        assert_eq!(apply(&mut app, "farclip", "1000"), SetOutcome::Vetoed);
+        // MONKEY (presets): the ceiling is 1497 (`check_farclip`).
+        assert_eq!(apply(&mut app, "farclip", "1500"), SetOutcome::Vetoed);
         assert_eq!(res::<ViewDistance>(&app).farclip, 400.0);
         assert!(FARCLIP_RANGE.contains(&res::<ViewDistance>(&app).farclip));
         // `nearclip` clamps to the callback's `[0.01, 0.33]` (`0x688d90`).
@@ -2850,8 +2854,9 @@ mod tests {
             ),
             ("baseMip 5", "BaseMip must be 0 or 1", "baseMip", "0"),
             (
-                "farclip 1000",
-                "FarClip must be in range 177.0 - 777.0.",
+                // MONKEY (presets): the ceiling is 1497 (`check_farclip`).
+                "farclip 1500",
+                "FarClip must be in range 177.0 - 1497.0.",
                 "farclip",
                 "350",
             ),
