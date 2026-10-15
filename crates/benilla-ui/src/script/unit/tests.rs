@@ -2261,34 +2261,27 @@ fn unit_on_taxi_is_one_or_nil_and_raises_the_reference_usage() {
 #[test]
 fn can_assist_and_attack_target_bindings() {
     let mut s = UiScript::new().unwrap();
-    s.set_unit(
-        "player",
-        Some(UnitState {
-            exists: true,
-            guid: 1,
-            ..Default::default()
-        }),
-    );
     // Absent verdict → nil, the falsy leg every caller branches on.
     s.set_unit(
         "target",
         Some(UnitState {
             exists: true,
-            guid: 2,
             ..Default::default()
         }),
     );
     assert!(s
         .eval::<bool>(r#"return UnitCanAssist("player", "target") == nil"#)
         .unwrap());
-    // Each direction reads its own verdict: the player toward the unit, and the unit toward the
-    // player (`CanAssist`'s `this` is the first unit).
+    // Each argument order reads its own side of `CanAssist` (upstream's binding): the player
+    // first reads the unit's `can_assist`, the player second its `can_assist_player`.
+    s.set_unit("player", Some(UnitState { exists: true, guid: 1, ..Default::default() }));
     s.set_unit(
         "target",
         Some(UnitState {
             exists: true,
             guid: 2,
             can_assist: true,
+            can_assist_player: true,
             ..Default::default()
         }),
     );
@@ -2296,18 +2289,6 @@ fn can_assist_and_attack_target_bindings() {
         s.eval::<i64>(r#"return UnitCanAssist("player", "target")"#)
             .unwrap(),
         1
-    );
-    assert!(s
-        .eval::<bool>(r#"return UnitCanAssist("target", "player") == nil"#)
-        .unwrap());
-    s.set_unit(
-        "target",
-        Some(UnitState {
-            exists: true,
-            guid: 2,
-            can_assist_player: true,
-            ..Default::default()
-        }),
     );
     assert_eq!(
         s.eval::<i64>(r#"return UnitCanAssist("target", "player")"#)

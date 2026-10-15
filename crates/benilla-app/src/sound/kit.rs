@@ -913,8 +913,9 @@ impl SoundKits {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            // An addon's loose file, then the chain ([`benilla_assets::read_loose_or_chain`]):
-            // `PlaySoundFile` is by path, and addon audio lives on disk, never in an MPQ.
+            // **Two stores, one rule** — the chain, then an addon's own loose file
+            // (upstream's `read_file_or_loose`, decision 1322's resolver): `PlaySoundFile` is a
+            // by-path verb, and the audio an addon ships lives on disk, never in an MPQ.
             let bytes = assets
                 .read_file_or_loose(path)
                 .with_context(|| format!("reading {path}"))?;
@@ -925,6 +926,7 @@ impl SoundKits {
             DECODES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok(Some(data))
         }
+
     }
 }
 

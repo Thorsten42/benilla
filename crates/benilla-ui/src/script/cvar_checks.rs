@@ -137,20 +137,17 @@ pub fn check_refresh(value: &str, _applied: &str) -> CvarVerdict {
     ))
 }
 
-/// MONKEY (presets): `benilla_world::view::FARCLIP_MAX`, which this crate cannot name.
-const FARCLIP_MAX: f32 = 1497.0;
-
 /// `farclip`'s callback (`0x688d40`): `SStrToFloat` (`0x64aaa0`), refused below 177
 /// (`[0x81021c]`) or above 777 (`[0x80fed8]`) with "FarClip must be in range 177.0 - 777.0."
 /// (`0x869a94`). As in `texLodBias`'s, the lower test reads the parse as is and the upper one the
 /// float it was stored to (`0x688d4c`, `0x688d5c`), and a NaN passes both, unordered
 /// (`0x688d57`, `0x688d67`). Neither bound clamps.
-///
-/// MONKEY (presets) deviation: the upper bound is `benilla_world::view::FARCLIP_MAX` (1497), not
-/// 777, so the High and Ultra rungs' longer view is not refused; the message names it.
 pub fn check_farclip(value: &str, _applied: &str) -> CvarVerdict {
     let v = s_str_to_float(value);
-    if v < 177.0 || v as f32 > FARCLIP_MAX {
+    // MONKEY (presets) deviation: the ceiling is `benilla_world::view::FARCLIP_MAX`, 1497, not the
+    // reference's 777 — the Ultra preset's extended view distance (see `FARCLIP_RANGE`). The two
+    // numbers must move together; `benilla-ui` does not depend on `benilla-world`.
+    if v < 177.0 || v as f32 > 1497.0 {
         CvarVerdict::refuse("FarClip must be in range 177.0 - 1497.0.")
     } else {
         CvarVerdict::accept()

@@ -833,14 +833,10 @@ pub(crate) mod schedule_tests {
     /// MONKEY (merge upstream e175209f, 2026-10-12): upstream 371 → 377, ours was 466 = 371 + 95,
     /// so 377 + 95 by arithmetic. NOT yet read off a test run of the merged tree.
     ///
-    /// MONKEY (merge upstream b220d6a4, 2026-10-15): upstream 377 → 378 (one is
-    /// `glue::backdrop::fit_tiled_backgrounds`'s `ImageNode` rect against bevy's private
-    /// accessibility `image_changed`, which reads only the change tick for a label); 378 + 95 by
-    /// arithmetic, as above.
-    #[cfg(not(feature = "pfui"))]
-    const POST_UPDATE_CEILING: usize = 473;
-    // The pfUI build's own number, read off this merge's test run.
-    #[cfg(feature = "pfui")]
+    /// MONKEY (merge upstream b220d6a4, 2026-10-15): upstream 377 → 378 (one pair it explains:
+    /// `fit_tiled_backgrounds` against bevy's accessibility `image_changed`). Read off the merged
+    /// tree's test run: 551. The tree before this merge already read 550 against its 472 (the
+    /// Update ceiling failed first, so this one was never reached); the merge adds upstream's one.
     const POST_UPDATE_CEILING: usize = 551;
     const POST_UPDATE_SLACK: usize = 20;
     /// The actionable pairs in `Update`: conflicting access, no declared order, and nothing
@@ -927,18 +923,18 @@ pub(crate) mod schedule_tests {
     /// arithmetic, as above.
     ///
     /// MONKEY (merge upstream 94eb6a8b, 2026-10-14): upstream 4,642 → 4,603; 4,603 + 19 of ours by
-    /// arithmetic, as above.
+    /// arithmetic, as above. That arithmetic was wrong: the merged tree read 4,661, so ours is 58,
+    /// not 19 — the 39 the arithmetic missed are pairs our systems make with upstream's new ones.
     ///
-    /// MONKEY (merge upstream b220d6a4, 2026-10-15): upstream 4,603 → 3,964. The pfUI build read
-    /// 3,955 off this merge's test run, 44 over its arithmetic; the stock number is that plus
-    /// the 72 the pfUI ratchet sits under it, by arithmetic.
+    /// MONKEY (merge upstream b220d6a4, 2026-10-15): upstream 4,603 → 3,964; the merged tree reads
+    /// 4,021 = 3,964 + 57 of ours. Read off the merged tree's test run.
     ///
     /// MONKEY (merge upstream 7b608671, 2026-10-15): upstream's item-object systems add 3 pairs
-    /// against ours (the pfUI build read 3,958); 4,027 + 3 by arithmetic.
+    /// against ours (read off the pfUI build, which went up by the same 3); 4,021 + 3.
     #[cfg(not(feature = "pfui"))]
-    const UPDATE_ACTIONABLE_CEILING: usize = 4_030;
-    // The optional feeds order stock producers before their consumers; retain a separate ratchet,
-    // 72 under the stock number. Read off the merged tree's test run.
+    const UPDATE_ACTIONABLE_CEILING: usize = 4_024;
+    // The optional feeds order stock producers before their consumers, so the pfUI build has its
+    // own ratchet. Read off the merged tree's test run.
     #[cfg(feature = "pfui")]
     const UPDATE_ACTIONABLE_CEILING: usize = 3_958;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;

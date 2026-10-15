@@ -230,7 +230,7 @@ fn install_addon_asset_resolvers(world: &mut World, script: &mut UiScript) {
         }
         let found = font_loose.find(path, LooseOpen::BareNameFirst).is_some()
             || font_chain.lock_recover().contains(path)
-            // The browser's addon store, which has no filesystem for the loose leg.
+            // The browser's AddOns folder, which `find` has no filesystem for.
             || benilla_assets::web_addon_exists(&benilla_assets::normalize_path(path));
         seen.borrow_mut().insert(path.to_string(), found);
         found

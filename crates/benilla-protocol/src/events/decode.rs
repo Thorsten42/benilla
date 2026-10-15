@@ -1137,8 +1137,8 @@ fn decode_objects(objects: Vec<Object>) -> Vec<SessionEvent> {
                 }
                 // The block's own position, for every type: the GameObject constructor copies it
                 // over `GAMEOBJECT_POS_X`..`FACING` (`0x5f7046`..`0x5f706b`), so the descriptor's
-                // copy never places anything. A Turtle transport sent without one is placed by
-                // [`create_placement`].
+                // copy never places anything. Fork carry: a transport with no pose at all is
+                // still created (`create_placement`).
                 if let Some((position, orientation)) = create_placement(object_type, &movement) {
                     let display = display_id(object_type, &mask);
                     let scale = object_scale(object_type, &mask);
@@ -1226,10 +1226,11 @@ fn object_scale(t: ObjectType, mask: &ObjectFields) -> f32 {
     raw.filter(|s| *s > 0.0).unwrap_or(1.0)
 }
 
-/// A create's pose: the movement block's, for every type (see the call site). A transport may come
-/// without one: the Turtle core sends every ship and zeppelin at login with its path progress
-/// alone. Its pose is the timetable's from the first tick, so it is created at the origin, where an
-/// object with no pose and no path is dropped.
+/// A create's pose: the movement block's, as upstream places every create.
+///
+/// Fork carry: a transport may come with no pose at all — the Turtle core sends every ship and
+/// zeppelin at login with its path progress alone. Its pose is the timetable's from the first
+/// tick, so it is created at the origin, where an object with no pose and no path is dropped.
 fn create_placement(object_type: ObjectType, movement: &MovementBlock) -> Option<(Vector3d, f32)> {
     movement.position.or_else(|| {
         (object_type == ObjectType::GameObject && movement.transport_progress.is_some()).then_some(

@@ -817,6 +817,23 @@ pub(crate) struct UnitStores<'w, 's> {
     edges: MessageReader<'w, 's, FieldChanged>,
 }
 
+/// A guid's streamed descriptor, whichever entity holds it — `CanAssist`'s owner chase, and the
+/// twin of `target::scan`'s own `store_of`.
+///
+/// It clones, where the scanner borrows, because the predicate's parameter is
+/// `FnOnce(u64) -> Option<ObjectStore>` and this feed's call sites already hold the query
+/// immutably for the unit being judged. The cost is one descriptor copy on the one clause that
+/// asks for it — a unit that is **not** player-controlled — and nothing at all otherwise, since
+/// `FnOnce` means the closure is never run when the earlier clauses decide.
+fn store_of(
+    index: &Option<Res<crate::net::GuidIndex>>,
+    stores: &Query<&'static ObjectStore>,
+    guid: u64,
+) -> Option<ObjectStore> {
+    let entity = *index.as_ref()?.0.get(&guid)?;
+    stores.get(entity).ok().cloned()
+}
+
 /// The client tables [`snapshot`] reads beside a descriptor, as one parameter for the feeders that
 /// sit at Bevy's 16-parameter limit: `ChrClasses.dbc` for the relic slot, and the form table
 /// the creature-type resolver's first stage reads. Each is absent without game data.

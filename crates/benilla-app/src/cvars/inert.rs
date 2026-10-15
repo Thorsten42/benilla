@@ -242,7 +242,6 @@ pub(super) const INERT: &[Registered] = &[
     same("movie", "1"),                               // 0x402bf5
     same("ObjectSelectionCircle", "1"),               // 0x6146ec
     same("occlusion", "1"),                           // 0x6888da
-    // `particleDensity` (0x688738) is registered in `table.rs`, where the particle tuning reads it.
     same("PlayerAnim", "0"),                          // 0x60333b
     same("PlayerFadeInRate", "4096"),                 // 0x481b72
     same("PlayerFadeOutAlpha", "128"),                // 0x481bbf

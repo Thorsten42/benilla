@@ -100,7 +100,8 @@ fn internal_path(path: &Path) -> Result<String, AssetReaderError> {
 }
 
 impl MpqAssetReader {
-    /// The bytes of the archive file `path` names.
+    /// The bytes of the archive file `path` names. The browser reads through `wasm_fetch` instead.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     fn read_bytes(&self, path: &Path) -> Result<Vec<u8>, AssetReaderError> {
         let internal = internal_path(path)?;
         if !self.chain.contains(&internal) {
@@ -225,7 +226,6 @@ async fn wasm_fetch(url: &str) -> std::result::Result<Vec<u8>, WasmFetchError> {
 }
 
 /// The sampler-mode marker separator in an `mpq://` texture URL (see [`texture_url`]).
-
 /// The asset-source id for a model opened with the loose flag and its textures: load paths look
 /// like `mpq-loose://interface/glues/models/ui_human/ui_human.m2`.
 pub const MPQ_LOOSE_SOURCE: &str = "mpq-loose";
@@ -241,6 +241,15 @@ pub struct LooseAssetReader {
 }
 
 impl AssetReader for LooseAssetReader {
+    // The browser has no install tree to index: a loose-flagged open reads as the archive source
+    // does, through its async fetch (which already asks the host's `/addons` route first).
+    #[cfg(target_arch = "wasm32")]
+    async fn read<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
+        let _ = &self.loose;
+        <MpqAssetReader as AssetReader>::read(&self.mpq, path).await
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     async fn read<'a>(&'a self, path: &'a Path) -> Result<impl Reader + 'a, AssetReaderError> {
         // The URL holds `/` where the model's name held `\` ([`m2_url`] writes every separator
         // as `/`), so it is turned back for the index.

@@ -246,8 +246,7 @@ pub(crate) const REGISTERED: &[Registered] = &[
     // `ContainerFrame.lua:483` and `UIDropDownMenu.lua:525` branch on it and `OptionsFrame.lua:13`
     // gives it a checkbox.
     same("useUiScale", "0"),
-    // `farclip` (`0x688654`, "350", callback `0x688d40`), which refuses outside [177, 777]; ours
-    // outside [177, 1497], the MONKEY (presets) ceiling (`check_farclip`).
+    // `farclip` (`0x688654`, "350", callback `0x688d40`), which refuses outside [177, 777].
     same("farclip", "350").checked(benilla_ui::script::check_farclip),
     // `nearclip` (`0x68867a`: name `0x84ffb0`, default `0x84fb48` "0.1", flags 1, callback
     // `0x688d90`, record `[0xc7f348]`). The camera re-reads the record every frame: `0x511bc0`
@@ -613,9 +612,9 @@ pub(crate) const REGISTERED: &[Registered] = &[
     ours(
         "lampFog",
         "0",
-        "benilla's own: lamps scattering through night fog - 0 off, else HOW MANY of the \
-         nearest lamps glow, up to 32 (`volumetric_fog::MAX_FOG_LAMPS`, the size of the \
-         uniform's array). It was a 0/1/2 tier whose rungs meant 16 and 32; the count it \
+        "benilla's own: lamps scattering through night fog - 0 off, else HOW MANY of the
+         nearest lamps glow, up to 32 (`volumetric_fog::MAX_FOG_LAMPS`, the size of the
+         uniform's array). It was a 0/1/2 tier whose rungs meant 16 and 32; the count it
          always was is now the setting.",
     ),
     // The halo's brightness, which until now no setting reached: `lamp_haze_strength`
@@ -1253,11 +1252,7 @@ pub(crate) const REGISTERED: &[Registered] = &[
     // is 15 fps, turning away is 25), and a wall is the only knob that cuts the effects you are not
     // looking at while leaving the one in front of you intact. Default is the top of FARCLIP_RANGE,
     // i.e. no wall: `min(farclip, this)` is `farclip` until the slider moves.
-    ours(
-        "effectsDistance",
-        "800",
-        "a particle draw-distance wall; 1.12 has none",
-    ),
+    ours("effectsDistance", "800", "benilla's own: the particle draw-distance wall"),
     // **`playerDistance` - OURS, and the third wall on this table.** The world has `farclip` and
     // the particles have `effectsDistance`; other players had none, and they are the one part of
     // a city a client cannot budget for: their count, their gear and their composited skins all
@@ -1265,22 +1260,14 @@ pub(crate) const REGISTERED: &[Registered] = &[
     // next, with the frame at 37 ms and 89 ms. `0` is a real setting ("draw none"), not a guard
     // value. Default is the top of `FARCLIP_RANGE`, i.e. no wall of ours - every build before
     // this one.
-    ours(
-        "playerDistance",
-        "777",
-        "a draw-distance wall for other players; 1.12 has none",
-    ),
+    ours("playerDistance", "777", "benilla's own: the other-players draw-distance wall"),
     // **`staticTransforms` - OURS, a knob on bevy's own static-tree threshold.** Transform
     // propagation measured 14.45 ms of a 74 ms frame over 29 082 entities - the single most
     // expensive step in the client. bevy skips unchanged subtrees, but stops tracking them at all
     // once more than this fraction of entities moved in a frame. Default 0.30 is bevy's own; `1`
     // forces tracking always, `0` never. Which way is right is a measurement, not an opinion, and
     // `p_xform` in the journal is the one that answers it.
-    ours(
-        "staticTransforms",
-        "0.3",
-        "bevy's static-tree threshold; 1.12 has none",
-    ),
+    ours("staticTransforms", "0.3", "benilla's own: bevy's static-tree threshold"),
     // **Press and Hold Casting** - `crate::bindings::hold_cast`. The later clients' Controls
     // option, under their CVar name: a held action-bar key casts again each time the slot is
     // ready. Off by default, so a fresh install casts once per press, as 1.12 does.

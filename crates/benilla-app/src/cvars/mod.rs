@@ -2060,8 +2060,8 @@ mod tests {
                     ("characterShadows", to.to_string())
                 } else {
                     let v: f32 = values[col].parse().unwrap();
-                    // A slider step, down from the top rung, which sits on the ceiling.
-                    let to = if *k == "farclip" && v + 60.0 > benilla_world::view::FARCLIP_MAX {
+                    // One slider step; the top rung sits at the ceiling, so it steps down.
+                    let to = if *k == "farclip" && v + 60.0 > *FARCLIP_RANGE.end() {
                         v - 60.0
                     } else if *k == "farclip" {
                         v + 60.0
@@ -2471,15 +2471,14 @@ mod tests {
             "a known key with a bad value is consumed, and the resource keeps its truth",
         );
         // Volume clamps at the knob to [0,1]; `farclip` refuses outside [177, 777] (`0x688d40`)
-        // and the old value stands.
+        // and the old value stands — [177, 1497] here, the presets' extended ceiling.
         apply(&mut app, "mastervolume", "7");
         assert_eq!(res::<SoundConfig>(&app).master, 1.0);
         apply(&mut app, "farclip", "400");
         assert_eq!(apply(&mut app, "farclip", "50"), SetOutcome::Vetoed);
         assert_eq!(res::<ViewDistance>(&app).farclip, 400.0);
         assert_eq!(res::<Cvars>(&app).get("farclip"), Some("400"));
-        // MONKEY (presets): the ceiling is 1497 (`check_farclip`).
-        assert_eq!(apply(&mut app, "farclip", "1500"), SetOutcome::Vetoed);
+        assert_eq!(apply(&mut app, "farclip", "1600"), SetOutcome::Vetoed);
         assert_eq!(res::<ViewDistance>(&app).farclip, 400.0);
         assert!(FARCLIP_RANGE.contains(&res::<ViewDistance>(&app).farclip));
         // `nearclip` clamps to the callback's `[0.01, 0.33]` (`0x688d90`).
@@ -2854,8 +2853,7 @@ mod tests {
             ),
             ("baseMip 5", "BaseMip must be 0 or 1", "baseMip", "0"),
             (
-                // MONKEY (presets): the ceiling is 1497 (`check_farclip`).
-                "farclip 1500",
+                "farclip 1600",
                 "FarClip must be in range 177.0 - 1497.0.",
                 "farclip",
                 "350",
@@ -3056,6 +3054,50 @@ mod tests {
         assert_eq!(out.get("FutureKnob").map(String::as_str), Some("3"));
     }
 
+    /// **The web's whole persistence path, and native's crash-safety.** A `SetCVar` must reach
+    /// `config.toml` after the one quiet second **with no `AppExit` ever fired**: on the page
+    /// there IS no exit frame — the tab closes and the wasm is simply gone — so an exit-only
+    /// flush means every settings change a browser player makes is silently lost on reload
+    /// (found live on realm.txcb.io, 2026-08-31). Decision 1528 moved `save_config` from
+    /// `Update` onto the exit edge to catch the close-button's late `AppExit`; the move fixed
+    /// that frame and deleted the debounced mid-session save this test pins down.
+    #[test]
+    fn a_setcvar_is_saved_after_the_quiet_second_without_an_app_exit() {
+        use crate::local_state::test_env::{EnvGuard, ENV_LOCK};
+        let _l = ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let tmp = std::env::temp_dir().join(format!("benilla-cvar-quiet-{}", std::process::id()));
+        std::fs::remove_dir_all(&tmp).ok();
+        let _c = EnvGuard::unset("WOW_CAPTURE");
+        let _u = EnvGuard::unset("WOW_UI_SCALE");
+        let _f = EnvGuard::unset("WOW_FARCLIP");
+        let _d = EnvGuard::unset("WOW_CLUTTER_DENSITY");
+        let _h = EnvGuard::set("BENILLA_HOME", tmp.to_str().unwrap());
+
+        let mut app = cvar_app();
+        app.update();
+        app.world_mut()
+            .non_send_resource_mut::<UiScript>()
+            .run(r#"SetCVar("MusicVolume", 0.33)"#)
+            .unwrap();
+        app.update(); // sync_cvars drains the change and stamps last_change
+        assert!(
+            !tmp.join("config.toml").exists(),
+            "inside the quiet second nothing is written yet"
+        );
+        std::thread::sleep(SAVE_QUIET + std::time::Duration::from_millis(100));
+        app.update(); // the debounce has elapsed — this frame must write, exit or not
+        let text = std::fs::read_to_string(tmp.join("config.toml"))
+            .expect("config.toml written by the quiet-second save, with no AppExit in sight");
+        assert!(text.contains("MusicVolume = \"0.33\""), "{text}");
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    /// End to end on a real App: a pre-written `config.toml` loads into the knobs at Startup, a
+    /// Lua `SetCVar` drains into the knobs and — on the exit flush — lands back in the file as a
+    /// diff (the moved value present, the untouched ones absent). This is the whole 0954 slice-1
+    /// loop in one place: file → knobs → VM table → Lua write → knobs → file.
     /// A reference CVar nothing here reads (pfUI's afkcam sets `cameraCustomViewSmoothing`,
     /// `0x50bad0`) is found by Lua's lookup, so `SetCVar` neither raises nor warns; it persists as
     /// a diff like any row, and its flag-bit1 neighbour stays latched.
@@ -3106,50 +3148,6 @@ mod tests {
         assert_eq!(rate, SetOutcome::Vetoed);
     }
 
-    /// **The web's whole persistence path, and native's crash-safety.** A `SetCVar` must reach
-    /// `config.toml` after the one quiet second **with no `AppExit` ever fired**: on the page
-    /// there IS no exit frame — the tab closes and the wasm is simply gone — so an exit-only
-    /// flush means every settings change a browser player makes is silently lost on reload
-    /// (found live on realm.txcb.io, 2026-08-31). Decision 1528 moved `save_config` from
-    /// `Update` onto the exit edge to catch the close-button's late `AppExit`; the move fixed
-    /// that frame and deleted the debounced mid-session save this test pins down.
-    #[test]
-    fn a_setcvar_is_saved_after_the_quiet_second_without_an_app_exit() {
-        use crate::local_state::test_env::{EnvGuard, ENV_LOCK};
-        let _l = ENV_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let tmp = std::env::temp_dir().join(format!("benilla-cvar-quiet-{}", std::process::id()));
-        std::fs::remove_dir_all(&tmp).ok();
-        let _c = EnvGuard::unset("WOW_CAPTURE");
-        let _u = EnvGuard::unset("WOW_UI_SCALE");
-        let _f = EnvGuard::unset("WOW_FARCLIP");
-        let _d = EnvGuard::unset("WOW_CLUTTER_DENSITY");
-        let _h = EnvGuard::set("BENILLA_HOME", tmp.to_str().unwrap());
-
-        let mut app = cvar_app();
-        app.update();
-        app.world_mut()
-            .non_send_resource_mut::<UiScript>()
-            .run(r#"SetCVar("MusicVolume", 0.33)"#)
-            .unwrap();
-        app.update(); // sync_cvars drains the change and stamps last_change
-        assert!(
-            !tmp.join("config.toml").exists(),
-            "inside the quiet second nothing is written yet"
-        );
-        std::thread::sleep(SAVE_QUIET + std::time::Duration::from_millis(100));
-        app.update(); // the debounce has elapsed — this frame must write, exit or not
-        let text = std::fs::read_to_string(tmp.join("config.toml"))
-            .expect("config.toml written by the quiet-second save, with no AppExit in sight");
-        assert!(text.contains("MusicVolume = \"0.33\""), "{text}");
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    /// End to end on a real App: a pre-written `config.toml` loads into the knobs at Startup, a
-    /// Lua `SetCVar` drains into the knobs and — on the exit flush — lands back in the file as a
-    /// diff (the moved value present, the untouched ones absent). This is the whole 0954 slice-1
-    /// loop in one place: file → knobs → VM table → Lua write → knobs → file.
     #[test]
     fn a_change_saves_after_one_quiet_second_with_no_exit() {
         use crate::local_state::test_env::{EnvGuard, ENV_LOCK};

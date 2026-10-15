@@ -166,8 +166,8 @@ fn decode_sprite(
 /// every `.tga` and `.blp` an addon ships was missing in the browser while the same build showed
 /// it on the desktop.
 ///
-/// The host's `/addons` route is that tree here, and this leg sits exactly where the native one
-/// does so the order stays the reference's: the addon folder first, then the chain.
+/// The host's `/addons` route is that tree here, asked where the native folder is: before the
+/// chain in [`read_loose_or_chain`], as the reference reads its install tree first (`0x647e60`).
 #[cfg(target_arch = "wasm32")]
 pub fn web_addon_file(candidate: &str) -> Option<Vec<u8>> {
     let rel = benilla_formats::web::addons_rel(candidate)?;
@@ -234,7 +234,7 @@ pub fn sprite_found(chain: &Mutex<Chain>, loose: &LooseFiles, path: &str) -> boo
     // The loose files first, outside the chain's lock.
     candidates.iter().any(|c| loose.find(c, open).is_some())
         || candidates.iter().any(|c| chain.lock_recover().contains(c))
-        // The browser's addon store, which has no filesystem for the loose leg.
+        // The browser's AddOns folder is the host's `/addons` route ([`web_addon_exists`]).
         || (open != LooseOpen::Archives && candidates.iter().any(|c| web_addon_exists(c)))
 }
 
@@ -309,8 +309,8 @@ pub fn read_loose_or_chain(
 ) -> Option<Vec<u8>> {
     match loose.find(path, open) {
         Some(file) => file.read(),
-        // The browser's addon store, which has no filesystem for the loose leg above; asked
-        // before the chain as that leg is. Native answers `None` here.
+        // The browser has no folder for `find` to read: its AddOns folder is the host's `/addons`
+        // route ([`web_addon_file`]; `None` natively), asked in the same place, before the chain.
         None if open != LooseOpen::Archives => web_addon_file(&normalize_path(path))
             .or_else(|| chain.lock_recover().read(path).ok()),
         None => chain.lock_recover().read(path).ok(),

@@ -868,10 +868,10 @@ fn swap_ambience(
     // under — the incoming leg is a per-frame envelope, so it simply starts later.
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Every file FMOD opens is a loose-flagged open (`0x7a8860`).
-        let bytes = assets
-            .read_file_or_loose(&path)
-            .ok_or_else(|| anyhow::anyhow!("not in the loose files or the patch chain"));
+        let bytes = {
+            let chain = assets.chain.lock_recover();
+            chain.read(&path)
+        };
         // A static loop, NOT a stream: streaming loop beds die at EOF (mixer::loop_from_bytes).
         let data = match bytes.and_then(mixer::loop_from_bytes) {
             Ok(d) => d,
