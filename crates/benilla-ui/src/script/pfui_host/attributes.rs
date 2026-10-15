@@ -178,7 +178,7 @@ pub fn run_macro(lua: &Lua, input: &str, named: bool, target: Option<u64>) -> ml
             .map(str::trim)
             .filter(|line| !line.is_empty())
         {
-            super::fire_event(
+            super::fire_pfui_event(
                 lua,
                 "EXECUTE_CHAT_LINE",
                 vec![ScriptValue::Str(line.to_string())],

@@ -49,6 +49,8 @@ pub(crate) fn fixture() -> (App, crossbeam_channel::Receiver<crate::net::ClientC
         .insert(ME, me);
     world.resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
     let mut script = UiScript::new().unwrap();
+    // The host's CVar table, as `setup_script` seeds it: an unregistered name raises.
+    script.register_cvars(crate::cvars::registered_pairs());
     manila_pfui::install(&script).unwrap();
     manila_pfui::spell::Catalog(Default::default())
         .install(script.lua())

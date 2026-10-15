@@ -131,7 +131,7 @@ pub fn observe(lua: &Lua, key: Key, item: u32, suffix: i32, timestamp: f64, even
         }
     }
     for (event, args) in notifications {
-        pfui_host::fire_event(lua, event, args);
+        pfui_host::fire_pfui_event(lua, event, args);
     }
 }
 
@@ -174,7 +174,7 @@ pub fn resolve_player(lua: &Lua, guid: u64, name: &str, class: Option<&str>) {
         }
     }
     for (item, player) in changed {
-        pfui_host::fire_event(
+        pfui_host::fire_pfui_event(
             lua,
             "LOOT_HISTORY_ROLL_CHANGED",
             vec![
@@ -257,7 +257,7 @@ pub(crate) fn install(lua: &Lua) -> mlua::Result<()> {
                 .expect("loot history")
                 .items
                 .clear();
-            pfui_host::fire_event(lua, "LOOT_HISTORY_FULL_UPDATE", vec![]);
+            pfui_host::fire_pfui_event(lua, "LOOT_HISTORY_FULL_UPDATE", vec![]);
             Ok(())
         })?,
     )?;

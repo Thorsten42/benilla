@@ -243,7 +243,7 @@ pub fn flush(lua: &Lua) {
         return;
     };
     for (left, swing) in resets {
-        pfui_host::fire_event(
+        pfui_host::fire_pfui_event(
             lua,
             "PLAYER_SWING",
             vec![ScriptValue::Number(left), ScriptValue::Int(swing as i64)],

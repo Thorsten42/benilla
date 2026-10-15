@@ -165,7 +165,7 @@ pub fn cvar(lua: &Lua, name: &str) -> f64 {
 
 pub fn fire(lua: &Lua, gate: Option<&str>, event: &str, args: Vec<ScriptValue>) {
     if gate.is_none_or(|name| cvar(lua, name) != 0.0) {
-        pfui_host::fire_event(lua, event, args);
+        pfui_host::fire_pfui_event(lua, event, args);
     }
 }
 

@@ -99,13 +99,13 @@ pub fn dispatch_log_events(lua: &Lua) {
         });
     }
     for (name, args) in events {
-        super::fire_event(lua, name, args);
+        super::fire_pfui_event(lua, name, args);
     }
 }
 
 /// A successful SMSG_QUESTGIVER_QUEST_COMPLETE, never a dialog close or reward request.
 pub fn turned_in(lua: &Lua, id: u32, xp: u32, copper: u32) {
-    super::fire_event(
+    super::fire_pfui_event(
         lua,
         "QUEST_TURNED_IN",
         vec![id, xp, copper]

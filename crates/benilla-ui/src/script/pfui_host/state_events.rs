@@ -88,6 +88,6 @@ pub(super) fn dispatch(lua: &Lua) {
         }
     }
     for (event, payload) in events {
-        super::super::fire_event(lua, event, payload);
+        super::super::fire_pfui_event(lua, event, payload);
     }
 }

@@ -147,6 +147,12 @@ fn commit_ground_ladder(ladder: &mut crate::spell::CastLadder, spell_id: u32, po
     if ladder.ground.spell() != Some(spell_id) || !ladder.ground.wants(TargetingWants::Location) {
         return;
     }
+    // Another cast in flight refuses the commit, as a fresh press is refused (`6e4d97`): only the
+    // cursor's own spell may hold the slot when its click commits.
+    let now = bevy::platform::time::Instant::now();
+    if ladder.pending.current(now).is_some_and(|id| id != spell_id) {
+        return;
+    }
     // BindLocation takes SOURCE before DEST, including patched rows carrying both bits.
     let source = ladder
         .spells

@@ -38,7 +38,7 @@ pub fn report_error(lua: &Lua, message: String) {
 }
 
 /// Extension-owned event payloads use the stock protected dispatcher and legacy argN globals.
-pub fn fire_event(lua: &Lua, event: &str, args: Vec<super::ScriptValue>) {
+pub fn fire_pfui_event(lua: &Lua, event: &str, args: Vec<super::ScriptValue>) {
     super::tick::fire_event_into(lua, event, args);
 }
 

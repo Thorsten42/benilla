@@ -117,14 +117,14 @@ function SetTracking(index)
 end
 
 -- Packed item locations, as C_EquipmentSet.GetItemLocations publishes them.
-ITEM_INVENTORY_LOCATION_PLAYER = 0x00100000
-ITEM_INVENTORY_LOCATION_BAGS = 0x00200000
-ITEM_INVENTORY_LOCATION_BANK = 0x00400000
+ITEM_INVENTORY_LOCATION_PLAYER = 1048576 -- 0x00100000
+ITEM_INVENTORY_LOCATION_BAGS = 2097152 -- 0x00200000
+ITEM_INVENTORY_LOCATION_BANK = 4194304 -- 0x00400000
 function EquipmentManager_UnpackLocation(location)
   if type(location) ~= 'number' or location < 0 then return false, false, false, 0 end
-  local flags = math.floor(location / 0x00100000)
+  local flags = math.floor(location / 1048576)
   local player, bags, bank = flags % 2 == 1, math.floor(flags / 2) % 2 == 1, math.floor(flags / 4) % 2 == 1
-  local rest = location % 0x00100000
+  local rest = location % 1048576
   if not bags then return player, bank, false, rest % 256 end
   local bag = math.floor(rest / 256) % 256
   if bank then bag = bag + 4 end

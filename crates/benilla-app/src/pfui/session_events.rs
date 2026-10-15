@@ -50,7 +50,7 @@ fn feed(
 ) {
     let Some(script) = script else { return };
     if std::mem::take(&mut pending.0) {
-        pfui_host::fire_event(script.lua(), "HEARTHSTONE_BOUND", Vec::new());
+        pfui_host::fire_pfui_event(script.lua(), "HEARTHSTONE_BOUND", Vec::new());
     }
     let Some(buttons) = buttons else { return };
     let pressed: Vec<_> = buttons.get_just_pressed().copied().collect();
@@ -62,7 +62,7 @@ fn feed(
         let mut names: Vec<_> = changed.into_iter().filter_map(name).collect();
         names.sort_unstable();
         for button in names {
-            pfui_host::fire_event(script.lua(), event, vec![ScriptValue::Str(button.into())]);
+            pfui_host::fire_pfui_event(script.lua(), event, vec![ScriptValue::Str(button.into())]);
         }
     }
 }

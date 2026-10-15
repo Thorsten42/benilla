@@ -75,13 +75,13 @@ pub(super) fn dispatch(lua: &Lua) {
         } else {
             ScriptValue::Nil
         };
-        super::super::fire_event(
+        super::super::fire_pfui_event(
             lua,
             "PLAYER_EQUIPMENT_CHANGED",
             vec![ScriptValue::Int(slot as i64), present],
         );
     }
     if bags {
-        super::super::fire_event(lua, "BAG_UPDATE_DELAYED", vec![]);
+        super::super::fire_pfui_event(lua, "BAG_UPDATE_DELAYED", vec![]);
     }
 }

@@ -168,7 +168,9 @@ fn every_event_we_fire_carries_the_reference_s_arguments() {
         unreadable.len(),
         unreadable.join("\n  ")
     );
-    let unnamed = unnamed_in(scan(), &table);
+    let mut unnamed = unnamed_in(scan(), &table);
+    // The pfUI extension's own dispatch, as in `every_event_we_fire_is_in_the_reference_table`.
+    unnamed.retain(|at| !at.contains("pfui"));
     assert!(
         unnamed.is_empty(),
         "{} fire site(s) build their event name away from the call, in files that name gated \

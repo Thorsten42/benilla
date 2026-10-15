@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 fn extended() -> UiScript {
     let script = UiScript::new().unwrap();
     super::install(&script).unwrap();
+    crate::tests::load_tooltip_template(&script);
     script
 }
 
@@ -285,13 +286,13 @@ fn packed_locations_unpack_to_the_slots_the_snapshot_publishes() {
         .run(
             r#"
         assert(ITEM_INVENTORY_LOCATION_PLAYER == 1048576)
-        local worn = EquipmentManager_GetLocationData(0x100007)
+        local worn = EquipmentManager_GetLocationData(1048583) -- 0x100007
         assert(worn.isPlayer and not worn.isBags and not worn.isBank and worn.slot == 7 and worn.bag == nil)
-        local bag = EquipmentManager_GetLocationData(0x300205)
+        local bag = EquipmentManager_GetLocationData(3146245)
         assert(bag.isPlayer and bag.isBags and not bag.isBank and bag.bag == 2 and bag.slot == 5)
-        local bank = EquipmentManager_GetLocationData(0x400003)
+        local bank = EquipmentManager_GetLocationData(4194307)
         assert(bank.isBank and not bank.isBags and not bank.isPlayer and bank.slot == 3)
-        local bankbag = EquipmentManager_GetLocationData(0x600101)
+        local bankbag = EquipmentManager_GetLocationData(6291713)
         assert(bankbag.isBank and bankbag.isBags and bankbag.bag == 5 and bankbag.slot == 1)
         local none = EquipmentManager_GetLocationData(-1)
         assert(not none.isPlayer and not none.isBank and not none.isBags)
@@ -532,7 +533,7 @@ fn hyperlink_compare_draws_the_worn_counterpart_and_reanchoring_keeps_the_text()
         CURRENTLY_EQUIPPED = "Currently Equipped"
         UIParent = CreateFrame("Frame", "UIParent")
         local owner = CreateFrame("Frame", "CompareOwner", UIParent)
-        local tip = CreateFrame("GameTooltip", "CompareTip", UIParent)
+        local tip = CreateFrame("GameTooltip", "CompareTip", UIParent, "TestTooltipTemplate")
         local function lines()
           return CompareTipTextLeft1:GetText(), CompareTipTextLeft2:GetText()
         end
@@ -553,7 +554,7 @@ fn hyperlink_compare_draws_the_worn_counterpart_and_reanchoring_keeps_the_text()
         assert(tip:SetHyperlinkCompareItem("item:99") == nil, "nothing is worn in that slot")
         assert(tip:SetHyperlinkCompareItem("item:50") == nil and tip:SetHyperlinkCompareItem("junk") == nil)
         assert(tip:SetHyperlinkCompareItem(nil) == nil)
-        local unowned = CreateFrame("GameTooltip", "UnownedTip", UIParent)
+        local unowned = CreateFrame("GameTooltip", "UnownedTip", UIParent, "TestTooltipTemplate")
         unowned:SetAnchorType("ANCHOR_RIGHT", 1, 1)
         assert(unowned:GetNumPoints() == 0)
     "#,
@@ -588,6 +589,8 @@ fn coin_strings_show_the_non_zero_denominations_with_money_sheet_crops() {
 #[test]
 fn the_resolution_query_answers_the_windows_real_pixels() {
     let script = extended();
+    // The host registers the reference's CVars; an unregistered name raises, as 1.12.1's does.
+    script.register_cvars([("gxResolution", "1024x768"), ("uiScale", "1.0")]);
     let stock: Option<String> = script.eval(r#"return GetCVar("gxResolution")"#).unwrap();
     crate::display::set_window_pixels(script.lua(), 2880, 1800).unwrap();
     let (fed, cased, other): (String, String, Option<String>) = script

@@ -3,7 +3,32 @@ use benilla_ui::script::{ScriptValue, UiScript};
 fn extended() -> UiScript {
     let script = UiScript::new().unwrap();
     super::install(&script).unwrap();
+    load_tooltip_template(&script);
     script
+}
+
+/// Declares `TestTooltipTemplate`, the stock template's 30 line pairs (`GameTooltipTemplate.xml`):
+/// a tooltip made without it holds no line, as on 1.12.1, and FrameXML's own tooltips inherit it.
+pub(crate) fn load_tooltip_template(s: &UiScript) {
+    let mut xml = String::from(
+        r#"<Ui><GameTooltip name="TestTooltipTemplate" virtual="true"><Layers><Layer level="ARTWORK">"#,
+    );
+    for i in 1..=30 {
+        let font = if i == 1 {
+            "GameTooltipHeaderText"
+        } else {
+            "GameTooltipText"
+        };
+        for side in ["Left", "Right"] {
+            xml.push_str(&format!(
+                r#"<FontString name="$parentText{side}{i}" inherits="{font}" hidden="true"/>"#
+            ));
+        }
+    }
+    xml.push_str("</Layer></Layers></GameTooltip></Ui>");
+    let doc = benilla_ui::framexml::parse(&xml).expect("tooltip template parses");
+    let report = benilla_ui::loader::load(s, &doc, &|_| None);
+    assert!(report.errors.is_empty(), "template: {:?}", report.errors);
 }
 
 #[test]
@@ -23,7 +48,7 @@ fn tooltip_hide_callback_and_validation_survive_pfui_replacing_global_error() {
         .run(
             r#"
         UIParent=CreateFrame('Frame','UIParent')
-        GameTooltip=CreateFrame('GameTooltip','GameTooltip',UIParent)
+        GameTooltip=CreateFrame('GameTooltip','GameTooltip',UIParent,'TestTooltipTemplate')
         local button=CreateFrame('Button')
         button:HookScript('OnLeave',GameTooltip_Hide)
         GameTooltip:Show()
@@ -101,7 +126,7 @@ fn spell_tooltip_subjects_follow_builders_and_late_views_then_clear() {
         .run(
             r#"
       UIParent=CreateFrame('Frame','UIParent')
-      tip=CreateFrame('GameTooltip','SpellTip',UIParent)
+      tip=CreateFrame('GameTooltip','SpellTip',UIParent,'TestTooltipTemplate')
       tip:SetOwner(UIParent,'ANCHOR_NONE')
       tip:SetScript('OnTooltipCleared',function(self) assert(not self:HasSpell()) end)
       tip:SetScript('OnShow',function(self) assert(self:HasSpell() and not self:HasItem()) end)
@@ -164,7 +189,7 @@ fn equipment_tooltips_count_real_locations_and_retain_missing_item_names() {
       local id=C_EquipmentSet.CreateEquipmentSet('Hat Set')
       assert(id)
       UIParent=CreateFrame('Frame','UIParent')
-      tip=CreateFrame('GameTooltip','EquipmentTip',UIParent)
+      tip=CreateFrame('GameTooltip','EquipmentTip',UIParent,'TestTooltipTemplate')
       tip:SetOwner(UIParent,'ANCHOR_NONE')
       tip:SetEquipmentSet('Hat Set')
       assert(EquipmentTipTextLeft1:GetText()=='Hat Set' and EquipmentTipTextLeft2:GetText()=='1 items')
@@ -489,7 +514,7 @@ fn tooltip_subjects_follow_real_builders_clear_callbacks_and_retargeting() {
     );
     script.run(r#"
       UIParent=CreateFrame('Frame','UIParent')
-      tip=CreateFrame('GameTooltip','ProbeTooltip',UIParent)
+      tip=CreateFrame('GameTooltip','ProbeTooltip',UIParent,'TestTooltipTemplate')
       tip:SetOwner(UIParent,'ANCHOR_NONE')
       tip:SetScript('OnTooltipCleared',function(self) assert(not self:HasItem()) end)
       tip:SetScript('OnShow',function(self) assert(self:HasItem()) end)
@@ -1150,7 +1175,7 @@ fn aura_tooltips_use_the_modern_index_space_and_existing_spell_renderer() {
         }]),
     );
     script.run(r#"
-        local tip=CreateFrame('GameTooltip','ProbeTooltip')
+        local tip=CreateFrame('GameTooltip','ProbeTooltip',nil,'TestTooltipTemplate')
         tip:SetOwner(WorldFrame or CreateFrame('Frame'),'ANCHOR_NONE')
         tip:SetUnitAura('target',1,'HARMFUL')
         assert(ProbeTooltipTextLeft1:GetText()=='Effect' and ProbeTooltipTextLeft2:GetText()=='Aura description')
@@ -2010,7 +2035,7 @@ fn equipment_buttons_use_the_real_swap_queue_and_refuse_locked_items() {
       f:SetScript('OnEvent',function(self,event,id)
         if event=='WEAR_EQUIPMENT_SET' then wearEvents=wearEvents+1; assert(id==1) else errors=errors+1 end
       end)
-      tip=CreateFrame('GameTooltip','EquipmentActionTip'); tip:SetAction(4)
+      tip=CreateFrame('GameTooltip','EquipmentActionTip',nil,'TestTooltipTemplate'); tip:SetAction(4)
       assert(EquipmentActionTipTextLeft1:GetText()=='Shirt')
     "#).unwrap();
     set_instances(script.lua(), [((0, 1), instance())]);
@@ -3324,11 +3349,11 @@ fn profile_transport_decodes_standard_wire_fixtures_and_preserves_config() {
       assert(api.EncodeBase64('hello') == 'aGVsbG8=')
       assert(api.DecodeBase64('AP8=') == string.char(0,255))
       -- CBOR RFC 8949 examples: [1,2,3], {"a":1}, and a byte string.
-      local array = api.DeserializeCBOR(string.char(0x83,1,2,3))
+      local array = api.DeserializeCBOR(string.char(131,1,2,3))
       assert(array[1] == 1 and array[3] == 3)
-      local map = api.DeserializeCBOR(string.char(0xa1,0x61,0x61,1))
+      local map = api.DeserializeCBOR(string.char(161,97,97,1))
       assert(map.a == 1)
-      assert(api.DeserializeCBOR(string.char(0x42,0,255)) == string.char(0,255))
+      assert(api.DeserializeCBOR(string.char(66,0,255)) == string.char(0,255))
       local config = {global={font_size='12'}, disabled={bags='1'}, layout={1,2,3}, enabled=true}
       local wire = api.EncodeBase64(api.CompressString(api.SerializeCBOR(config)))
       local restored = api.DeserializeCBOR(api.DecompressString(api.DecodeBase64(wire)))
@@ -3356,7 +3381,7 @@ fn profile_import_rejects_malformed_data_cycles_and_executable_values() {
       assert(not pcall(api.DecompressString, 'not zlib'))
       assert(not pcall(api.DeserializeJSON, 'return {value=1}'))
       assert(not pcall(api.DeserializeCBOR, string.char(1,2)))
-      assert(not pcall(api.DeserializeCBOR, string.char(0x83,1)))
+      assert(not pcall(api.DeserializeCBOR, string.char(131,1)))
       assert(not pcall(api.SerializeCBOR, {callback=function() end}))
       local cycle = {}; cycle.self = cycle
       assert(not pcall(api.SerializeCBOR, cycle))
