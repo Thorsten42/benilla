@@ -926,7 +926,10 @@ pub(crate) mod schedule_tests {
     /// MONKEY (merge upstream b220d6a4, 2026-10-15): upstream 4,603 → 3,964. The pfUI build read
     /// 3,955 off this merge's test run, 44 over its arithmetic; the stock number is that plus
     /// the 72 the pfUI ratchet sits under it, by arithmetic.
-    const UPDATE_ACTIONABLE_CEILING: usize = 4_027;
+    ///
+    /// MONKEY (merge upstream 7b608671, 2026-10-15): upstream's item-object systems add 3 pairs
+    /// against ours (the pfUI build read 3,958); 4,027 + 3 by arithmetic.
+    const UPDATE_ACTIONABLE_CEILING: usize = 4_030;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {
