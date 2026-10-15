@@ -21,7 +21,7 @@ use crate::net::{
 use crate::target::{ring_reaction, Factions, Selection};
 use crate::ui_script::{gate, SweepApp, UiInput};
 
-mod control_gate;
+pub(crate) mod control_gate;
 mod held;
 
 /// The unit-feed pass, gated so none of its login one-shots or per-VM memos runs before the in-game
@@ -137,7 +137,7 @@ impl Plugin for UiUnitPlugin {
                 // After every snapshot above is pushed, so a handler reads the new reaction.
                 fire_faction_on_forced_table.after(crate::ui_aura::AuraEvents),
                 held::feed_name_candidates,
-                feed_player_control,
+                feed_player_control.after(crate::player::ControlRestore),
                 // After the control edge, whose flag the exemption is asked for.
                 control_gate::feed_control_bypass,
                 feed_farsight_focus,
@@ -814,23 +814,6 @@ pub(crate) struct UnitStores<'w, 's> {
     edges: MessageReader<'w, 's, FieldChanged>,
 }
 
-/// A guid's streamed descriptor, whichever entity holds it — `CanAssist`'s owner chase, and the
-/// twin of `target::scan`'s own `store_of`.
-///
-/// It clones, where the scanner borrows, because the predicate's parameter is
-/// `FnOnce(u64) -> Option<ObjectStore>` and this feed's call sites already hold the query
-/// immutably for the unit being judged. The cost is one descriptor copy on the one clause that
-/// asks for it — a unit that is **not** player-controlled — and nothing at all otherwise, since
-/// `FnOnce` means the closure is never run when the earlier clauses decide.
-fn store_of(
-    index: &Option<Res<crate::net::GuidIndex>>,
-    stores: &Query<&'static ObjectStore>,
-    guid: u64,
-) -> Option<ObjectStore> {
-    let entity = *index.as_ref()?.0.get(&guid)?;
-    stores.get(entity).ok().cloned()
-}
-
 /// The client tables [`snapshot`] reads beside a descriptor, as one parameter for the feeders that
 /// sit at Bevy's 16-parameter limit: `ChrClasses.dbc` for the relic slot, and the form table
 /// the creature-type resolver's first stage reads. Each is absent without game data.
@@ -1231,6 +1214,13 @@ pub(crate) fn fire_transitions(
     }
 }
 
+/// `CanAssist` (`0x6066f0`) of the player toward itself, `UnitCanAssist("player", "player")`: one
+/// object toward itself is friendly (`0x606200`), so `UNIT_FLAG_NOT_SELECTABLE` is the only refusal
+/// left.
+fn self_can_assist(store: &ObjectStore) -> bool {
+    crate::target::is_selectable(Some(store), None)
+}
+
 /// `"player"`'s snapshot off our own descriptor: no reaction (the unit is ours), the raid icon,
 /// both faction-group spellings and the guild. One builder for [`feed_units`] and for the seat a
 /// `/reload`'s load runs under ([`live_player_seat`]).
@@ -1249,6 +1239,7 @@ fn player_snapshot(
         .map(str::to_string);
     let mut s = snapshot(store, guid, name, 0, tables.classes(), tables.types(names));
     s.is_player = true;
+    s.can_assist = self_can_assist(store);
     s.raid_target = group.raid_target_index(guid);
     s.faction_group = faction_group(store, factions);
     s.faction_group_localized = faction_group_localized(store, factions);
@@ -1445,9 +1436,10 @@ pub(crate) fn feed_units(
         feed.warned_sideless = sideless;
     }
     // What the three snapshots below (target, target-of-target, NPC) read besides a descriptor.
-    let owner_store = |owner: u64| store_of(&index, &stores.all, owner);
+    let by_guid = |guid: u64| -> Option<ObjectStore> {
+        stores.all.get(*index.as_ref()?.0.get(&guid)?).ok().cloned()
+    };
     let held = held::HeldUnits {
-        owner_store: &owner_store,
         names: &names,
         commands: &commands,
         factions: factions.as_deref(),
@@ -1456,6 +1448,7 @@ pub(crate) fn feed_units(
         self_store: self_pair.map(|(s, _)| s),
         classes: chr,
         types,
+        by_guid: &by_guid,
     };
     let target = selection.target.zip(selection.guid).and_then(|(e, guid)| {
         let store = stores.all.get(e).ok()?;
@@ -1640,9 +1633,13 @@ pub(crate) fn feed_units(
     // the world both times. `PLAYER_LOGIN` only when this VM's load armed it, so a worldport's
     // re-entry fires `PLAYER_ENTERING_WORLD` alone. At world exit, re-arm the entry and forget the
     // player-global memos so the next character seeds them.
-    if self_pair.is_some() {
+    if let Some((_, me)) = self_pair {
         if !memo.entered_world {
             gate.audit("feed_units", "the world-enter events");
+            // `"player"` names us when the cascade runs, from our own create: the stock windows
+            // bind their model panes to it here (`PaperDollFrame.lua:39`), so it is seated ahead
+            // of the aura feed's full resolver push, which this feed is not ordered against.
+            script.seat_player_guid(me.0);
             script.fire_world_enter();
             memo.entered_world = true;
         }
@@ -2636,6 +2633,14 @@ mod tests {
             benilla_formats::load_languages(&mut chain).expect("Languages.dbc"),
         ));
         let mut script = UiScript::new().expect("VM");
+        // `SendChatMessage` needs a local player (`0x49f223`).
+        script.set_unit(
+            "player",
+            Some(UnitState {
+                exists: true,
+                ..Default::default()
+            }),
+        );
         seed_language_table(&world, &mut script);
         let want = [
             ("Orcish", 1),
@@ -3404,6 +3409,25 @@ mod tests {
             [[0; 3]; 20],
             "a creature has no PLAYER block"
         );
+    }
+
+    /// The player can assist itself unless its descriptor says `UNIT_FLAG_NOT_SELECTABLE`
+    /// (`0x6066f0`'s first refusal; the reaction of one object toward itself is friendly,
+    /// `0x606200`).
+    #[test]
+    fn the_player_assists_itself_unless_it_is_unselectable() {
+        use benilla_protocol::messages::ObjectFields;
+
+        const OBJECT_TYPE: u16 = 2;
+        const FLAGS: u16 = 46;
+        let me = |flags: u32| {
+            ObjectStore(ObjectFields::from_pairs(&[
+                (OBJECT_TYPE, 0x19),
+                (FLAGS, flags),
+            ]))
+        };
+        assert!(self_can_assist(&me(0x8)));
+        assert!(!self_can_assist(&me(0x8 | (1 << 25))));
     }
 
     /// The rank getter's two gates (`0x605620`), through `enrich_unit`'s wiring.
