@@ -86,6 +86,8 @@ pub(crate) struct LoginRequest {
     /// The realmlist to dial, `host[:port]`, per attempt so an edit mid-dial cannot retarget the
     /// connection in flight.
     pub(crate) host: String,
+    /// The locale tag the logon challenge carries ([`crate::ui_script::client_locale`]).
+    pub(crate) locale: u32,
     pub(crate) generation: u64,
 }
 
@@ -493,7 +495,7 @@ async fn query(
 ) -> bool {
     let mut ok = logon.refresh_realms(REALM_REFRESH_TIMEOUT).await;
     if !ok {
-        match benilla_protocol::logon_async(&req.host, &req.user, &req.pass).await {
+        match benilla_protocol::logon_async(&req.host, &req.user, &req.pass, req.locale).await {
             Ok(fresh) => {
                 *logon = fresh;
                 ok = true;
@@ -580,7 +582,7 @@ async fn run(
 
         // Logon: the dial and the SRP6 exchange against realmd.
         stage(LoginStage::Connecting);
-        let mut logon = match benilla_protocol::logon_async(&req.host, &req.user, &req.pass).await {
+        let mut logon = match benilla_protocol::logon_async(&req.host, &req.user, &req.pass, req.locale).await {
             Ok(l) => l,
             Err(e) => {
                 if canceled() {
