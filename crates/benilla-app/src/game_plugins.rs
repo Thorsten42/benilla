@@ -926,7 +926,10 @@ pub(crate) mod schedule_tests {
     ///
     /// MONKEY (merge upstream b220d6a4, 2026-10-15): upstream 4,603 → 3,964; the merged tree reads
     /// 4,021 = 3,964 + 57 of ours. Read off the merged tree's test run.
-    const UPDATE_ACTIONABLE_CEILING: usize = 4_021;
+    ///
+    /// MONKEY (merge upstream 7b608671, 2026-10-15): upstream's item-object systems add 3 pairs
+    /// against ours (read off the pfUI build, which went up by the same 3); 4,021 + 3.
+    const UPDATE_ACTIONABLE_CEILING: usize = 4_024;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {

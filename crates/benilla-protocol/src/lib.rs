@@ -220,29 +220,36 @@ impl Logon {
     }
 }
 
-/// Perform the full SRP6 logon against a vanilla `realmd` and fetch the realm list — the blocking
-/// twin of [`logon_async`], for the CLIs/probes and the native net thread.
+/// The full SRP6 logon against a vanilla `realmd`, then the realm list — the blocking twin of
+/// [`logon_async`], for the CLIs/probes and the native net thread. `locale` is the client's locale
+/// tag the challenge carries ([`auth::write_logon_challenge`]).
 #[cfg(not(target_arch = "wasm32"))]
-pub fn logon(host: &str, username: &str, password: &str) -> Result<Logon> {
-    futures_lite::future::block_on(logon_async(host, username, password))
+pub fn logon(host: &str, username: &str, password: &str, locale: u32) -> Result<Logon> {
+    futures_lite::future::block_on(logon_async(host, username, password, locale))
 }
 
 /// Perform the full SRP6 logon against a vanilla `realmd` and fetch the realm list.
 ///
 /// Flow: logon challenge → server challenge (B, g, N, salt) → SRP6 → logon proof → verify the
 /// server's proof (M2) → request + read the realm list.
-pub async fn logon_async(host: &str, username: &str, password: &str) -> Result<Logon> {
+pub async fn logon_async(host: &str, username: &str, password: &str, locale: u32) -> Result<Logon> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        native_auth::logon_async(host, username, password).await
+        native_auth::logon_async(host, username, password, locale).await
     }
     #[cfg(target_arch = "wasm32")]
     {
-        logon_with_build(host, username, password, REALMD_BUILD).await
+        logon_with_build(host, username, password, REALMD_BUILD, locale).await
     }
 }
 
-async fn logon_with_build(host: &str, username: &str, password: &str, build: u16) -> Result<Logon> {
+async fn logon_with_build(
+    host: &str,
+    username: &str,
+    password: &str,
+    build: u16,
+    locale: u32,
+) -> Result<Logon> {
     // `host` may carry an explicit `:port` (`WOW_HOST=play.example.com:3724`); bare hosts get
     // [`AUTH_PORT`].
     let (host, port) = host_port(host, AUTH_PORT);
@@ -259,7 +266,7 @@ async fn logon_with_build(host: &str, username: &str, password: &str, build: u16
         let mut dialed = None;
         for _ in 0..MAX_CHALLENGE_DIALS {
             let mut stream = dial(host, port).await?;
-            auth::write_logon_challenge(&mut stream, &username.to_uppercase(), build)
+            auth::write_logon_challenge(&mut stream, &username.to_uppercase(), build, locale)
                 .context("sending logon challenge")?;
             let Some(reply) = auth::read_challenge_reply(&mut stream)
                 .await
