@@ -128,8 +128,8 @@ struct PaneBooth {
     camera: Entity,
     /// The target's size in device pixels.
     size: UVec2,
-    /// The aspect the camera is aimed at.
-    aimed: Option<f32>,
+    /// The aspect and `SetCamera` index the camera is aimed at.
+    aimed: Option<(f32, Option<i32>)>,
     /// The copy standing in the booth.
     built: Option<Built>,
     /// The display stand-in a display subject is mirrored from.
@@ -541,7 +541,7 @@ pub(super) fn sync_panes(
                     &source,
                     scene,
                 ) {
-                    aim(&mut cams, booth_pane, &anchors, aspect);
+                    aim(&mut cams, booth_pane, &anchors, aspect, pane.camera);
                     booth_pane.built = Some(Built {
                         build: pane.builds,
                         look,
@@ -570,9 +570,10 @@ pub(super) fn sync_panes(
         let Some(copy) = pane.copy.filter(|c| c.build <= built_for) else {
             continue; // the engine holds no copy (`ClearModel`): nothing at `+0x318`
         };
-        if booth_pane.aimed != Some(aspect) {
-            aim(&mut cams, booth_pane, &anchors, aspect);
+        if booth_pane.aimed != Some((aspect, pane.camera)) {
+            aim(&mut cams, booth_pane, &anchors, aspect, pane.camera);
         }
+        let anchors = anchors.through(pane.camera);
         // The root, the widget's `T(pos)·R(facing)·S(s)` with `pos` at the origin; `s` is the 4:3
         // renormalizer on the fixed camera ([`pane_root_scale`]).
         let scale = pane_root_scale(&anchors, render.gx.0);
@@ -1031,12 +1032,13 @@ fn aim(
     pane: &mut PaneBooth,
     anchors: &PortraitAnchors,
     aspect: f32,
+    camera: Option<i32>,
 ) {
-    let (tf, proj) = body_frame(anchors, aspect);
+    let (tf, proj) = body_frame(&anchors.through(camera), aspect);
     if let Ok((mut t, mut p, _)) = cams.get_mut(pane.camera) {
         *t = tf;
         *p = proj;
-        pane.aimed = Some(aspect);
+        pane.aimed = Some((aspect, camera));
     }
 }
 

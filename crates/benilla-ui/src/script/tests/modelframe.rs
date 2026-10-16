@@ -626,6 +626,36 @@ fn set_unit_stores_the_guid_and_refresh_unit_rebuilds_it() {
     assert!(err.contains("Unknown unit name: nosuchunit"), "{err}");
 }
 
+/// A character pane's `SetCamera` names a raw camera-table index, as a plain `Model`'s does
+/// (`0x76cec0`): the feed carries it, so a unit-frame portrait's `SetUnit` then `SetCamera(0)`
+/// renders the head shot, and a pane that never names one keeps the widget's rig.
+#[test]
+fn a_character_panes_set_camera_reaches_the_feed() {
+    let mut s = script();
+    s.set_screen_size(800.0, 600.0);
+    s.set_unit_guids(&guids(ORC, WOLF));
+    s.run(
+        r#"
+        a = CreateFrame("PlayerModel", nil, UIParent)
+        a:SetWidth(40) a:SetHeight(40) a:SetPoint("CENTER", 0, 0)
+        a:SetUnit("player")
+        a:SetCamera(0)
+        b = CreateFrame("PlayerModel", nil, UIParent)
+        b:SetUnit("target")
+    "#,
+    )
+    .unwrap();
+    let panes = s.character_panes();
+    assert_eq!(panes[0].camera, Some(0), "the portrait's camera reaches the host");
+    assert_eq!(panes[1].camera, None, "a pane with no SetCamera keeps the widget's rig");
+    s.run("a:SetUnit('target')").unwrap();
+    assert_eq!(
+        s.character_panes()[0].camera,
+        Some(0),
+        "the installed camera outlives a new subject, as the Model's +0x31c does"
+    );
+}
+
 /// The reference builds the copy inside `SetUnit` (`0x505b99`), so a `SetModel` or `ClearModel`
 /// after it wins: the request it overtook is answered, and a late copy for it is refused.
 #[test]

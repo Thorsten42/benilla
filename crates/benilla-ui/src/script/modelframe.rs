@@ -82,6 +82,9 @@ impl Model {
         let facts = path.and_then(|p| self.model_facts_for(&p));
         if let Some(KindState::Model(m)) = self.arena.frame_mut(h).map(|f| &mut f.kind_state) {
             m.install_camera(idx, facts.as_deref());
+            if let Some(c) = m.character.as_mut() {
+                c.camera = Some(idx);
+            }
         }
     }
 
@@ -706,6 +709,7 @@ impl crate::script::UiScript {
                     facing: m.facing,
                     light: m.light,
                     fog: m.scene_fog(),
+                    camera: c.camera,
                 })
             })
             .collect()
@@ -902,6 +906,8 @@ pub struct CharacterPaneFrame {
     /// The pane's light and the fog its scene draws with.
     pub light: ModelLight,
     pub fog: Option<crate::widget::ModelFog>,
+    /// The camera-table index a `SetCamera` named; `None` renders through the widget's rig.
+    pub camera: Option<i32>,
 }
 
 /// One row of [`UiScript::visible_model_panes`].

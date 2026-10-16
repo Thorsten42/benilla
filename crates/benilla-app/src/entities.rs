@@ -360,6 +360,7 @@ impl Creatures {
         Some(crate::portrait::PortraitAnchors {
             camera: dm.portrait_camera,
             pane_camera: dm.pane_camera,
+            camera0: dm.camera0,
             bbox_center: dm.bake_center_local,
             head: crate::portrait::head_anchor(&dm.skeleton, &dm.attachments),
             pivot_height: dm.pivot_height_local,
