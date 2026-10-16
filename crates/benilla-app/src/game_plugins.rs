@@ -362,6 +362,10 @@ pub(crate) mod schedule_tests {
         /// The systems whose declared access includes the Lua VM, read off each system's own
         /// access set: a holder whose every VM pair is declared shows in no conflict.
         pub holds_vm: HashSet<SystemKey>,
+        /// The systems whose own access names [`crate::net::SelfPlayer`]: a read of the
+        /// component, or a `With`, `Without`, `Added` or `Has` on it. Read off each system's
+        /// access set; a system that reads every component (`EntityRef`, `&World`) names none.
+        pub uses_self: HashSet<SystemKey>,
     }
 
     impl Census {
@@ -421,9 +425,23 @@ pub(crate) mod schedule_tests {
                     )
                 })
                 .collect();
+            let self_player = world
+                .components()
+                .get_id(TypeId::of::<crate::net::SelfPlayer>());
             let mut systems = HashMap::new();
             let mut holds_vm = HashSet::new();
+            let mut uses_self = HashSet::new();
             for (key, system, conds) in graph.systems.iter() {
+                if let (Some(id), Some(with_access)) = (self_player, graph.systems.get(key)) {
+                    let names_it = with_access.access.filtered_accesses().iter().any(|fa| {
+                        fa.contains(id)
+                            || (!fa.access().has_read_all_components()
+                                && fa.access().has_component_read(id))
+                    });
+                    if names_it {
+                        uses_self.insert(key);
+                    }
+                }
                 if let (Some(vm), Some(with_access)) = (vm, graph.systems.get(key)) {
                     let access = with_access.access.combined_access();
                     if access.has_resource_read(vm) || access.has_resource_write(vm) {
@@ -534,6 +552,7 @@ pub(crate) mod schedule_tests {
                 dependencies,
                 non_send,
                 holds_vm,
+                uses_self,
             }
         })
     }
@@ -605,9 +624,8 @@ pub(crate) mod schedule_tests {
     #[test]
     fn the_glue_preview_has_one_feeder_per_switch() {
         use crate::client_state::ClientState;
-        // The create screen's state, which only the native select screen enters, and its
-        // instrument.
-        const EITHER: [&str; 2] = ["benilla_app::char_create::", "drive_create_test"];
+        // The booth's own create instrument.
+        const EITHER: [&str; 1] = ["drive_create_test"];
         let mut app = headless_client();
         let mut writers = Vec::new();
         writers.extend(resource_writers::<crate::portrait::GluePreview>(
@@ -664,48 +682,143 @@ pub(crate) mod schedule_tests {
         }
     }
 
-    /// Under `WOW_GLUE_STOCK=1` the login engine runs without the native screens' dialog: no
-    /// login or glue-session system writes the hidden `GlueDialog` there. The engine tells a
-    /// screen what it decided (`LoginNotice`), and the native login screen shows it.
-    #[test]
-    fn the_login_engine_writes_no_native_dialog_under_the_stock_screens() {
-        use crate::client_state::ClientState;
-        let mut app = headless_client();
-        let mut writers = resource_writers::<crate::glue::dialog::GlueDialog>(&mut app, Update);
-        for state in [
-            ClientState::Login,
-            ClientState::CharSelect,
-            ClientState::InWorld,
-        ] {
-            writers.extend(resource_writers::<crate::glue::dialog::GlueDialog>(
-                &mut app,
-                OnEnter(state),
-            ));
-            writers.extend(resource_writers::<crate::glue::dialog::GlueDialog>(
-                &mut app,
-                OnExit(state),
-            ));
+    /// The native glue screens' modules: their systems, components and resources. `glue_strings`
+    /// is theirs: the stock screens read their words off their own `GlueStrings.lua`.
+    const NATIVE_GLUE: [&str; 6] = [
+        "benilla_app::login::",
+        "benilla_app::char_select::",
+        "benilla_app::char_create::",
+        "benilla_app::realm_select::",
+        "benilla_app::glue::",
+        "benilla_app::glue_strings::",
+    ];
+
+    /// Every system of every schedule that is of the native glue screens, with the run conditions
+    /// on it and on every set it is under: a system of their modules, or one anywhere that reads,
+    /// writes or filters for a component or resource of theirs (the dialog, the trees' markers,
+    /// the screens' state). Each entry is `(schedule, system, conditions, why)`.
+    fn native_glue_systems(app: &mut App) -> Vec<(String, String, Vec<String>, String)> {
+        let labels: Vec<_> = app
+            .world()
+            .resource::<bevy::ecs::schedule::Schedules>()
+            .iter()
+            .map(|(_, schedule)| schedule.label())
+            .collect();
+        let native = |name: &str| NATIVE_GLUE.iter().any(|m| name.starts_with(m));
+        let mut out = Vec::new();
+        for label in labels {
+            app.world_mut().schedule_scope(label, |world, schedule| {
+                schedule.graph_mut().systems.initialize(world);
+                let ids: HashMap<ComponentId, String> = world
+                    .components()
+                    .iter_registered()
+                    .map(|info| (info.id(), info.name().to_string()))
+                    .filter(|(_, name)| native(name))
+                    .collect();
+                let graph = schedule.graph();
+                for (key, system, conds) in graph.systems.iter() {
+                    let name = system.name().to_string();
+                    let mut why = native(&name).then(|| "its module".to_string());
+                    if let Some(with_access) = graph.systems.get(key) {
+                        let set = &with_access.access;
+                        let combined = set.combined_access();
+                        // A system over every component or resource (an `EntityMut` query, an
+                        // exclusive system) names none of them, so only named access counts.
+                        let named: HashSet<ComponentId> = combined
+                            .try_iter_component_access()
+                            .map(|it| it.map(|kind| *kind.index()).collect())
+                            .unwrap_or_default();
+                        let all_resources = combined.has_read_all_resources();
+                        for (id, ty) in &ids {
+                            let touched = named.contains(id)
+                                || (!all_resources
+                                    && (combined.has_resource_read(*id)
+                                        || combined.has_resource_write(*id)))
+                                || set
+                                    .filtered_accesses()
+                                    .iter()
+                                    .any(|f| f.with_filters().any(|w| w == *id));
+                            if touched && why.is_none() {
+                                why = Some(ty.clone());
+                            }
+                        }
+                    }
+                    let Some(why) = why else {
+                        continue;
+                    };
+                    let mut conditions: Vec<String> = conds
+                        .iter()
+                        .map(|c| c.condition.name().to_string())
+                        .collect();
+                    let mut stack = vec![NodeId::System(key)];
+                    while let Some(node) = stack.pop() {
+                        for parent in graph
+                            .hierarchy()
+                            .graph()
+                            .neighbors_directed(node, Direction::Incoming)
+                        {
+                            if let NodeId::Set(set) = parent {
+                                if let Some((_, _, set_conds)) =
+                                    graph.system_sets.iter().find(|(k, _, _)| *k == set)
+                                {
+                                    conditions.extend(
+                                        set_conds.iter().map(|c| c.condition.name().to_string()),
+                                    );
+                                }
+                                stack.push(parent);
+                            }
+                        }
+                    }
+                    out.push((format!("{label:?}"), name, conditions, why));
+                }
+            });
         }
-        if !writers.iter().any(|(n, _)| n.contains("benilla_app::")) {
+        out
+    }
+
+    /// Under `WOW_GLUE_STOCK=1` nothing of the native glue screens runs, in any schedule: every
+    /// system of their modules, and every system that writes their dialog or reads, writes or
+    /// filters for their trees or state, carries the `native_glue` gate. What the stock screens
+    /// need of the session lives in `glue_session`, which tells a native screen what it decided by
+    /// a message.
+    #[test]
+    fn nothing_of_the_native_screens_runs_under_the_stock_screens() {
+        let mut app = headless_client();
+        let systems = native_glue_systems(&mut app);
+        if !systems
+            .iter()
+            .any(|(_, n, _, _)| n.contains("benilla_app::"))
+        {
             eprintln!(
                 "skipped: this build carries no type names (bevy/debug rides with the dev feature)"
             );
             return;
         }
-        let ungated: Vec<&str> = writers
+        let mut ungated: Vec<String> = systems
             .iter()
-            .filter(|(name, _)| {
-                ["benilla_app::login::", "benilla_app::glue_session::"]
-                    .iter()
-                    .any(|m| name.starts_with(m))
-            })
-            .filter(|(_, conds)| !conds.iter().any(|c| c.ends_with("::native_glue")))
-            .map(|(name, _)| name.as_str())
+            .filter(|(_, _, conds, _)| !conds.iter().any(|c| c.ends_with("::native_glue")))
+            .map(|(schedule, name, _, why)| format!("{schedule} {name} ({why})"))
             .collect();
+        ungated.sort();
+        ungated.dedup();
         assert!(
             ungated.is_empty(),
-            "login systems that write the native dialog under the stock screens: {ungated:?}"
+            "native glue systems that run under the stock screens:\n{}",
+            ungated.join("\n")
         );
+        // The census sees the native screens at all: a renamed module would pass it empty.
+        for want in [
+            "benilla_app::login::screen::materialize_screen",
+            "benilla_app::char_select::screen::materialize_screen",
+            "benilla_app::char_create::create_input",
+            "benilla_app::realm_select::screen::drive_screen",
+            "benilla_app::glue::dialog::drive_glue_dialog",
+        ] {
+            assert!(
+                systems.iter().any(|(_, n, _, _)| n == want),
+                "{want} is not in the census"
+            );
+        }
     }
 
     /// One row of the class table: the type's name for the message, and its `TypeId`.
@@ -865,25 +978,9 @@ pub(crate) mod schedule_tests {
     }
 
     /// `PostUpdate`'s undeclared-order pairs on the declared graph; `GlobalTransform` and the
-    /// particle `EffectQuads` are most of it. Six are `glue::hide_native_glue`'s `Visibility`
-    /// against the world's and the fade cover's writers, populations it never shares an entity
-    /// with (the native glue roots alone).
     ///
-    /// MONKEY (lighting, water, fog): upstream's number is 377. This branch adds the carried-light
-    /// motion tracker, the light-lane classifier, the shadow rig, the lava light and the swim bob,
-    /// all reading `GlobalTransform`/`Transform`/`Mesh3d` and re-derived every frame, so a
-    /// frame-late read trails by one frame and corrects itself (`WOW_AMBIGUITY_DUMP_POST=1` lists
-    /// them). KNOWN FOLLOW-UP: the swim bob writes a rig's visual offset with no order against
-    /// `rig_anim::compose`.
-    ///
-    /// MONKEY (merge upstream e175209f, 2026-10-12): upstream 371 → 377, ours was 466 = 371 + 95,
-    /// so 377 + 95 by arithmetic. NOT yet read off a test run of the merged tree.
-    ///
-    /// MONKEY (merge upstream b220d6a4, 2026-10-15): upstream 377 → 378 (one pair it explains:
-    /// `fit_tiled_backgrounds` against bevy's accessibility `image_changed`). Read off the merged
-    /// tree's test run: 551. The tree before this merge already read 550 against its 472 (the
-    /// Update ceiling failed first, so this one was never reached); the merge adds upstream's one.
-    const POST_UPDATE_CEILING: usize = 551;
+    /// MONKEY (merge upstream a9c2672b, 2026-10-16): upstream 378 → 372; 551 − 6 by arithmetic.
+    const POST_UPDATE_CEILING: usize = 545;
     const POST_UPDATE_SLACK: usize = 20;
     /// The actionable pairs in `Update`: conflicting access, no declared order, and nothing
     /// [`Classes`] explains, so the executor orders them however the graph falls. The count may
@@ -957,42 +1054,12 @@ pub(crate) mod schedule_tests {
     /// reason read off the dump, or declare the order (`.after`, a set, a `chain`). A resource
     /// that commutes by construction belongs in [`Classes`].
     ///
-    /// MONKEY (graphics programme): measured on the merged tree with the lanes' orders declared
-    /// (wind, wetness and fog-model writers of `MonkeyFrame`; the viewer publish before its
-    /// readers; the sky clock and tier before the consume set; the grass benders). What remains:
-    /// `skybox::animate_skyboxes` against the `MatAnimTable` allocators (it writes only its own
-    /// rows) and one pair each of the new systems against the two exclusive systems. Upstream
-    /// 5,481 + ours = 5,509, read off the merged tree (upstream v0.2.0 ba7fe6e2; three more of ours
-    /// pair with upstream's new v0.2.0 systems).
-    ///
-    /// MONKEY (merge upstream b396bbf6, 2026-10-02): upstream's own declarations dropped its
-    /// ceiling to 4,980; the merged tree reads 4,999 = upstream 4,980 + 19 of ours (the lanes'
-    /// residual pairs above, unchanged in kind). Read off the merged tree's test run.
-    ///
-    /// MONKEY (merge upstream e175209f, 2026-10-12): upstream 4,980 → 4,689; 4,689 + 19 of ours by
-    /// arithmetic. NOT yet read off a test run of the merged tree.
-    ///
-    /// MONKEY (merge upstream dd3983a4, 2026-10-13): upstream 4,689 → 4,642; 4,642 + 19 of ours by
-    /// arithmetic, as above.
-    ///
-    /// MONKEY (merge upstream 94eb6a8b, 2026-10-14): upstream 4,642 → 4,603; 4,603 + 19 of ours by
-    /// arithmetic, as above. That arithmetic was wrong: the merged tree read 4,661, so ours is 58,
-    /// not 19 — the 39 the arithmetic missed are pairs our systems make with upstream's new ones.
-    ///
-    /// MONKEY (merge upstream b220d6a4, 2026-10-15): upstream 4,603 → 3,964; the merged tree reads
-    /// 4,021 = 3,964 + 57 of ours. Read off the merged tree's test run.
-    ///
-    /// MONKEY (merge upstream 7b608671, 2026-10-15): upstream's item-object systems add 3 pairs
-    /// against ours (read off the pfUI build, which went up by the same 3); 4,021 + 3.
-    ///
-    /// MONKEY (merge upstream bc52e8a7, 2026-10-16): upstream 3,964 → 3,966; ours 4,026, read off
-    /// the stock tree's test run.
     #[cfg(not(feature = "pfui"))]
-    const UPDATE_ACTIONABLE_CEILING: usize = 4_026;
+    const UPDATE_ACTIONABLE_CEILING: usize = 3_999;
     // The optional feeds order stock producers before their consumers, so the pfUI build has its
-    // own ratchet. Read off the merged tree's test run.
+    // own ratchet: 3,960 − 27 by arithmetic at upstream a9c2672b.
     #[cfg(feature = "pfui")]
-    const UPDATE_ACTIONABLE_CEILING: usize = 3_960;
+    const UPDATE_ACTIONABLE_CEILING: usize = 3_933;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {
@@ -1347,6 +1414,111 @@ pub(crate) mod schedule_tests {
                 "`{reader}` runs after the control restore"
             );
         }
+    }
+
+    /// Why an `Update` system that names [`crate::net::SelfPlayer`] may run with no declared order
+    /// after `tag_self_player`, keyed by a fragment of its full name (a generic's whole family is one row), with the reason it
+    /// is safe. The world-enter drain spawns our entity and every creature in one frame and the tag comes
+    /// later in the Net stage, so a system between the two sees no self.
+    const UNORDERED_AFTER_THE_SELF_TAG: &[(&str, &str)] = &[
+        ("::ui_chat::language::feed_language_skills",
+         "with no self it resets to the default list and a `have_player` flag forces a recompute once self exists"),
+        ("::ui_chat::language::feed_default_language",
+         "with no self it resets to the default language and a `have_player` flag forces a recompute once self exists"),
+        ("::sound::money::play_coin_on_coinage_change",
+         "the first sighting of the coinage only seeds the memo, so a frame with no self plays nothing and loses nothing"),
+        ("::ui_script::sweep::arm_leaving_world_on_self_create",
+         "`Added<SelfPlayer>` is relative to this system's own last run, so a tag that lands after a run is still seen at the next"),
+        ("::ui_session::release::release_on_field_edges",
+         "it is in Net after `apply_net_updates`, unordered against the tag; its self-only branches need `old > 0` (the death edge) or a form change on a latch that is not open, which a create burst never raises"),
+        ("::death::drive_death_look",
+         "level-driven: it writes the fade from the ghost flag every frame and re-reads self each time, so a frame with no self is overwritten by the next"),
+        ("::tutorial::run_world_enter_cascade",
+         "`armed` stays set until self exists, so the welcome and questgiver triggers wait for the tag rather than being spent"),
+        ("::ui_session::close_npc_session_out_of_range<",
+         "no self returns before anything changes, and a question open on an NPC needs a self that interacted; the leash is re-tested every frame"),
+        ("::ui_session::latch::watch_interaction_range",
+         "no self returns before anything changes, and a latch needs a self that interacted; the leash is re-tested every frame"),
+    ];
+
+    /// Every `Update` system that names `SelfPlayer` (reads it, or filters on it) is ordered after
+    /// `tag_self_player`, or argued in [`UNORDERED_AFTER_THE_SELF_TAG`]: a system that reads self
+    /// and uses change detection must run after the tag, or a frame that finds no self still
+    /// advances its change ticks and loses what changed. Fails an unordered user, a row for a
+    /// system that is ordered after all, and a stale row.
+    #[test]
+    fn every_system_that_names_self_runs_after_the_tag_or_argues_why_not() {
+        let mut app = headless_client();
+        let c = census(&mut app, Update, SyncPoints::Declared);
+        if !type_names_available(&c) {
+            eprintln!(
+                "skipped: this build carries no type names (bevy/debug rides with the dev feature)"
+            );
+            return;
+        }
+        let tag = {
+            let suffix = "::net::apply::tag_self_player";
+            let mut hits = c.systems.iter().filter(|(_, s)| s.name.ends_with(suffix));
+            match (hits.next(), hits.next()) {
+                (Some((k, _)), None) => *k,
+                _ => panic!("exactly one system named `…{suffix}` in Update"),
+            }
+        };
+        let mut succ: HashMap<SystemKey, Vec<SystemKey>> = HashMap::new();
+        for (a, b) in &c.dependencies {
+            succ.entry(*a).or_default().push(*b);
+        }
+        let reach = |start: SystemKey| {
+            let mut seen = HashSet::new();
+            let mut stack = vec![start];
+            while let Some(n) = stack.pop() {
+                for m in succ.get(&n).into_iter().flatten() {
+                    if seen.insert(*m) {
+                        stack.push(*m);
+                    }
+                }
+            }
+            seen
+        };
+        let after_tag = reach(tag);
+        let mut users: Vec<SystemKey> = c.uses_self.iter().copied().filter(|k| *k != tag).collect();
+        users.sort_by(|a, b| c.name(*a).cmp(c.name(*b)));
+        let (mut ordered, mut argued) = (0, 0);
+        let mut offenders = Vec::new();
+        let mut stale = Vec::new();
+        for k in &users {
+            let name = c.name(*k);
+            let row = UNORDERED_AFTER_THE_SELF_TAG
+                .iter()
+                .find(|(part, _)| name.contains(part));
+            match (after_tag.contains(k), row.is_some()) {
+                (true, false) => ordered += 1,
+                (true, true) => stale.push(format!(
+                    "{name}: argued in UNORDERED_AFTER_THE_SELF_TAG but ordered after the tag — drop the row"
+                )),
+                (false, true) => argued += 1,
+                (false, false) => offenders.push(name.to_string()),
+            }
+        }
+        for (part, _) in UNORDERED_AFTER_THE_SELF_TAG {
+            if !users.iter().any(|k| c.name(*k).contains(part)) {
+                stale.push(format!(
+                    "`…{part}…` does not name SelfPlayer in Update — drop its row"
+                ));
+            }
+        }
+        eprintln!(
+            "SelfPlayer users in Update: {} — {ordered} after the tag, {argued} argued",
+            users.len()
+        );
+        assert!(
+            offenders.is_empty(),
+            "these systems name `SelfPlayer` in `Update` with no declared order after \
+             `tag_self_player` — `.after(WorldStage::Net)`, or argue it in \
+             UNORDERED_AFTER_THE_SELF_TAG:\n  {}",
+            offenders.join("\n  ")
+        );
+        assert!(stale.is_empty(), "stale rows:\n  {}", stale.join("\n  "));
     }
 
     /// The `Startup` VM, the stock glue's under `WOW_GLUE_STOCK=1`, is built after the glyph cache:

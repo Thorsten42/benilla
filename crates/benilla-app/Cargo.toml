@@ -26,6 +26,8 @@ bevy_dynamic_linking = ["bevy/dynamic_linking"]
 # Optional fork extension; stock builds retain the 1.12 API and addon loading ABI.
 pfui = ["dep:manila-pfui"]
 pfui-turtle = ["pfui"]
+# Experimental: run the UI scripts on benilla's own 1.12 interpreter (`benilla-lua`).
+benilla-vm = ["benilla-ui/benilla-vm"]
 
 [dependencies]
 # Wall-clock reads (`SystemTime::now`) go through `web-time`: a re-export of std's on native, and
