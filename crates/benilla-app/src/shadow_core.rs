@@ -60,12 +60,12 @@ use benilla_world::view::WorldCamera;
 use crate::char_select::ClientState;
 use crate::video::VideoConfig;
 
-/// A layer private to this feature, far above the booth ladder. The world is layer 0 and the UI and
+/// A layer private to this feature, above the booth ladder. The world is layer 0 and the UI and
 /// booth layers count up from 1; the character panes' block (`portrait::panes::PANE_LAYER_BASE`)
-/// starts at 29 and grows one layer per pane on screen, so 31 was the third pane's, whose camera
-/// then drew the shadow casters instead of its copy. `RenderLayers` is a growable bitset, not 32
-/// bits, so a high layer only widens the masks that carry it.
-pub(crate) const PLAYER_SHADOW_LAYER: usize = 127;
+/// starts at 29 and grows one layer per pane on screen, so 31 was the third pane's. 63 is the last
+/// layer `RenderLayers::layer` builds (one inline block of 64; a higher one panics), and the panes
+/// reach it only with 35 on screen.
+pub(crate) const PLAYER_SHADOW_LAYER: usize = 63;
 
 /// Shipped realtime-shadow render distance in yards — the `shadowDistance` default. How far from the
 /// camera the shadow map RESOLVES (the single cascade's `maximum_distance`). Collection reaches
