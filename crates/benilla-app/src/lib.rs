@@ -32,8 +32,6 @@ mod bowstring;
 mod camera_shake;
 #[cfg(feature = "dev")]
 mod capture;
-mod char_create;
-mod char_select;
 mod chat_bubble;
 mod chr_classes;
 mod cinematic;
@@ -77,9 +75,7 @@ mod field_watch;
 mod fishing_line;
 mod footprints;
 mod game_plugins;
-mod glue;
 mod glue_session;
-mod glue_strings;
 mod go_anim;
 mod go_templates;
 #[cfg(not(target_arch = "wasm32"))]
@@ -90,11 +86,11 @@ mod item_watch;
 mod items;
 mod loading_screen;
 mod local_state;
-mod login;
 mod minimap;
 mod nameplates;
 mod names;
 mod net;
+mod no_install;
 mod npc_text;
 /// Ships in part (the FPS journal and the clocks it reads); the rest is `dev`.
 mod perf;
@@ -114,7 +110,6 @@ mod query_cache;
 mod quest_markers;
 mod raid_marks;
 mod ranged_flex;
-mod realm_select;
 mod realmlist;
 mod run_mode;
 mod screen_fade;
@@ -316,6 +311,13 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     #[cfg(not(target_arch = "wasm32"))]
     crash::install(build);
 
+    // Fonts, art and the stock interface all come from the install, so without one the client
+    // ends here, before any window or plugin exists (`no_install`).
+    let data_dir = match no_install::resolve() {
+        Ok(data_dir) => data_dir,
+        Err(err) => return no_install::fail(&err, run_mode::unattended()),
+    };
+
     let mut app = App::new();
     // **A command against a despawned entity warns; it does not panic.** bevy's default handler
     // is `panic`, and in a browser tab that is `RuntimeError: unreachable` and a dead client.
@@ -386,18 +388,13 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     }
 
     // The `mpq://` source must be registered before `AssetPlugin` (in `DefaultPlugins`) builds. The
-    // install is found by `benilla_formats::wow_data`, as everywhere; without one the source is
-    // absent and terrain loads fail gracefully.
-    match benilla_formats::wow_data() {
-        Some(data_dir) => {
-            if let Err(e) = benilla_assets::register_mpq_source(&mut app, &data_dir) {
-                eprintln!("benilla-assets: mpq:// source unavailable ({e:#})");
-            }
-        }
-        None => eprintln!(
-            "benilla: no WoW install found — looked in {:?}",
-            benilla_formats::candidates()
-        ),
+    // install is found by `benilla_formats::wow_data`, as everywhere, and is required above; one
+    // whose archives will not open ends the boot the same way (`no_install`).
+    if let Err(e) = benilla_assets::register_mpq_source(&mut app, &data_dir) {
+        return no_install::fail(
+            &no_install::NoInstall::unreadable(&data_dir, &e),
+            run_mode::unattended(),
+        );
     }
 
     // No `game://` source: the five UI shaders are compiled in by `crate::shaders`

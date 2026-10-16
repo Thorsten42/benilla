@@ -85,7 +85,6 @@ impl BridgeReadout<'_, '_> {
         match self.state.get() {
             ClientState::Login => "login",
             ClientState::CharSelect => "charselect",
-            ClientState::CharCreate => "charcreate",
             ClientState::InWorld => "inworld",
         }
     }

@@ -1482,7 +1482,7 @@ mod tests {
                 &keys,
                 &mut down,
                 false,
-                crate::textinput::Mods {
+                crate::textinput::keymap::Mods {
                     shift: false,
                     ctrl: false,
                     alt: false,

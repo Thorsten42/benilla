@@ -80,7 +80,7 @@ fn hermetic_addon(
     (tmp, capture, benilla_home)
 }
 
-/// The world after `Startup` ([`super::setup_script`]): a boot VM, no frames.
+/// The world after `Startup` ([`super::setup_script`]): the stock glue VM at the login screen.
 fn booted_world() -> World {
     let mut world = World::new();
     world.init_resource::<super::AddOnIdentity>();
@@ -194,7 +194,7 @@ fn the_addon_identity_follows_the_character() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// A quit after a logout runs [`super::shutdown_ui_state`] again, against a boot VM, and writes
+/// A quit after a logout runs [`super::shutdown_ui_state`] again, against the glue VM, and writes
 /// nothing: `ui_saved::save`, `save_enable_state` and `save_addon_variables` each refuse an empty
 /// source. The reference guards the case explicitly (`0x401ee0`, its `ds:0x882734` test).
 #[test]
@@ -217,11 +217,11 @@ fn quitting_from_the_character_screen_does_not_blank_the_session_it_wrote() {
         "…and wrote the character it belonged to: {after_logout}"
     );
 
-    // Quit: `shutdown_on_exit`'s body, against the boot VM the logout left.
+    // Quit: `shutdown_on_exit`'s body, against the glue VM the logout left.
     let identity = world.resource::<super::AddOnIdentity>().0.clone();
     let mut script = world
         .remove_non_send_resource::<benilla_ui::script::UiScript>()
-        .expect("a boot VM is live at the character screen");
+        .expect("the glue VM is live at the character screen");
     // At the character screen there is no active player and no world to sweep.
     super::shutdown_ui_state(&mut script, identity.as_ref());
 
@@ -278,7 +278,8 @@ fn the_login_arms_the_world_latch_and_the_logout_spends_it() {
 
 /// `CGGameUI::InitializeGame` flags `realmList`, `realmName` and `scriptMemory` read-only for the
 /// world session (`0x48f566`-`0x48f584`) and `ShutdownGame` clears them (`0x491240`): an
-/// in-game `SetCVar` of one raises, through a reload too, and the character screen's does not.
+/// in-game `SetCVar` of one raises, through a reload too. The character screen's glue state has no
+/// `SetCVar` to try (`reference/glue_surface.tsv`), on either side of the session.
 #[test]
 fn the_realm_cvars_are_read_only_to_lua_only_in_the_world() {
     let _l = ENV_LOCK
@@ -293,12 +294,13 @@ fn the_realm_cvars_are_read_only_to_lua_only_in_the_world() {
         s.register_cvars(crate::cvars::registered_pairs());
         s.run(chunk).map_err(|e| e.to_string())
     };
+    let glue_has_no_set_cvar = |world: &World| {
+        let s = world.non_send_resource::<benilla_ui::script::UiScript>();
+        s.vm_kind() == benilla_ui::script::VmKind::Glue
+            && s.eval::<bool>("return SetCVar == nil").unwrap()
+    };
 
-    assert_eq!(
-        set(&world, "SetCVar(\"realmList\", \"glue.example.org\")"),
-        Ok(()),
-        "the character screen's VM may write it"
-    );
+    assert!(glue_has_no_set_cvar(&world), "the character screen's VM");
 
     log_in_as(&mut world, "Onehunter", 1);
     for name in ["realmList", "realmName"] {
@@ -314,7 +316,10 @@ fn the_realm_cvars_are_read_only_to_lua_only_in_the_world() {
     );
 
     super::end_ui_session(&mut world);
-    assert_eq!(set(&world, "SetCVar(\"realmList\", \"x\")"), Ok(()));
+    assert!(
+        glue_has_no_set_cvar(&world),
+        "the flags died with the world's VM"
+    );
 
     drop(world);
     let _ = std::fs::remove_dir_all(&tmp);
@@ -332,9 +337,12 @@ fn a_shutdown_with_no_world_fires_logout_without_leaving_world() {
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (tmp, _c, _h) = hermetic_probe("quitsplit");
     let mut world = booted_world();
+    // A world entry the server then refuses: the in-game VM is built, with no player of ours to
+    // arm the latch (`0x490166`).
+    log_in_as(&mut world, "Onehunter", 1);
     let script = world
         .remove_non_send_resource::<benilla_ui::script::UiScript>()
-        .expect("a boot VM is live at the character screen");
+        .expect("the entry's VM");
 
     script
         .run(
@@ -402,7 +410,7 @@ fn a_shutdown_with_no_world_fires_logout_without_leaving_world() {
     let _ = std::fs::remove_dir_all(&tmp);
 }
 
-/// The character screen is native: the old session's frame tree must not survive behind it.
+/// The character screen is the glue VM's: the old session's frame tree must not survive behind it.
 #[test]
 fn logging_out_leaves_no_in_game_frames_behind() {
     let _l = ENV_LOCK
@@ -433,7 +441,7 @@ fn logging_out_leaves_no_in_game_frames_behind() {
         world
             .get_non_send_resource::<benilla_ui::script::UiScript>()
             .is_some(),
-        "a boot VM stays, for the feeds that resolve lines outside the world"
+        "the glue VM stands in its place"
     );
 
     drop(world);
@@ -1097,7 +1105,7 @@ fn no_cover_means_the_entry_load_runs_at_once() {
 }
 
 /// An exit inside the deferral window drops the armed load and writes nothing: a shutdown tail
-/// against the boot VM would compose every saved file from nothing.
+/// against the glue VM would compose every saved file from nothing.
 #[test]
 fn leaving_inside_the_deferral_window_drops_the_load_and_writes_nothing() {
     let _l = ENV_LOCK
@@ -1153,6 +1161,7 @@ fn unit_feed_app() -> (App, crossbeam_channel::Receiver<crate::net::ClientComman
     app.init_resource::<crate::ui_guild::GuildState>();
     app.add_message::<crate::creature_anim::SwingImpact>();
     app.add_message::<crate::net::WorldEnterCascadeMessage>();
+    // The glue VM, which stands until the entry load and must hear none of the in-game events.
     super::setup_script(app.world_mut());
     (app, rx)
 }
@@ -1167,17 +1176,23 @@ fn the_login_one_shots_wait_for_the_in_game_ui() {
     let (tmp, _c, _h) = hermetic_probe("oneshot");
     let (mut app, _rx) = unit_feed_app();
 
-    // A frame registered as FrameXML registers, in the VM that exists before the entry load.
-    app.world()
-        .non_send_resource::<benilla_ui::script::UiScript>()
-        .run(
-            "EnteringWorldSeen = 0 \
-             local f = CreateFrame(\"Frame\") \
-             f:RegisterEvent(\"PLAYER_ENTERING_WORLD\") \
-             f:SetScript(\"OnEvent\", function() \
-                 EnteringWorldSeen = EnteringWorldSeen + 1 end)",
-        )
-        .expect("probe frame");
+    // A frame registered as FrameXML registers: in the glue VM that stands before the entry load,
+    // then in the VM the load builds.
+    let probe = |script: &benilla_ui::script::UiScript| {
+        script
+            .run(
+                "EnteringWorldSeen = 0 \
+                 local f = CreateFrame(\"Frame\") \
+                 f:RegisterEvent(\"PLAYER_ENTERING_WORLD\") \
+                 f:SetScript(\"OnEvent\", function() \
+                     EnteringWorldSeen = EnteringWorldSeen + 1 end)",
+            )
+            .expect("probe frame");
+    };
+    probe(
+        app.world()
+            .non_send_resource::<benilla_ui::script::UiScript>(),
+    );
 
     // Our own descriptor has landed, the feed's condition for the one-shots.
     app.world_mut().spawn((
@@ -1203,7 +1218,7 @@ fn the_login_one_shots_wait_for_the_in_game_ui() {
     assert_eq!(
         seen(&app),
         0,
-        "the drain's own frame: in-world wire, a boot VM, and no latch yet"
+        "the drain's own frame: in-world wire, the glue VM, and no latch yet"
     );
 
     // The transition ran and the load is still owed: three frames inside the deferral window.
@@ -1218,7 +1233,10 @@ fn the_login_one_shots_wait_for_the_in_game_ui() {
         );
     }
 
-    // The entry load has run: the next feed delivers the one-shots.
+    // The entry load has run, its VM in place of the glue's: the next feed delivers the one-shots.
+    let ingame = benilla_ui::script::UiScript::new().expect("the entry's VM");
+    probe(&ingame);
+    app.world_mut().insert_non_send_resource(ingame);
     app.world_mut()
         .remove_resource::<super::PendingEntryUiLoad>();
     app.update();
@@ -1636,7 +1654,7 @@ fn a_clean_world_entry_raises_only_the_warnings_we_have_named() {
 
 /// The UI is up only in `InWorld` with no [`super::lifecycle::PendingEntryUiLoad`]: the latch is
 /// armed at `OnEnter(InWorld)`, a frame after `apply_net_updates` drains `Connected` and the login
-/// burst, so for that one frame the wire is in-world while the VM is still the boot one.
+/// burst, so for that one frame the wire is in-world while the VM is still the glue one.
 #[test]
 fn the_ui_is_not_up_in_the_frame_between_the_wire_and_the_state() {
     let mut world = World::new();
@@ -1645,7 +1663,7 @@ fn the_ui_is_not_up_in_the_frame_between_the_wire_and_the_state() {
     world.insert_resource(State::new(crate::client_state::ClientState::CharSelect));
     assert!(
         !run_ingame_ui_up(&mut world),
-        "the wire is in-world a frame before the state is — the boot VM must stay out of reach"
+        "the wire is in-world a frame before the state is — the glue VM must stay out of reach"
     );
 
     // The transition ran: `OnEnter` parked the VM and armed the latch.
@@ -1663,7 +1681,7 @@ fn the_ui_is_not_up_in_the_frame_between_the_wire_and_the_state() {
         "in the world with the in-game UI up — the first frame a feed may push"
     );
 
-    // Leaving drops it again, before `end_ui_session`'s fresh boot VM can be fed anything.
+    // Leaving drops it again, before `end_ui_session`'s fresh glue VM can be fed anything.
     world.insert_resource(State::new(crate::client_state::ClientState::CharSelect));
     assert!(!run_ingame_ui_up(&mut world), "the world is gone with it");
 }

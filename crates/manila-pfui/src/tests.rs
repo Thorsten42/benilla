@@ -3618,6 +3618,8 @@ fn widgets_reach_existing_and_future_frames_regions_and_font_strings() {
       local texture = early:CreateTexture()
       texture:SetSize(20, 30); texture:SetShown(false); assert(not texture:IsShown())
       local text = early:CreateFontString()
+      -- A font string with no font raises on SetText, as on 1.12.1 (#1470).
+      text:SetFont('Fonts\\FRIZQT__.TTF', 12)
       text:SetSize(40, 15); text:SetFormattedText('%2$s %1$s', 'world', 'hello')
       assert(text:GetText() == 'hello world')
     "#,
