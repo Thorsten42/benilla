@@ -33,6 +33,10 @@ pub struct CharacterPane {
     /// The last arm made while a copy is on its way: the reference builds inside `SetUnit` and the
     /// show hook, so an arm in the same chunk lands on the new copy, after its Stand.
     pub queued: Option<QueuedArm>,
+    /// The raw camera-table index a `SetCamera` installed (`+0x31c`, `0x76cec0`), as on a plain
+    /// `Model`; `None` keeps the widget's own rig, raw index 1 (`0x505890`). A unit-frame
+    /// portrait names 0, the file's portrait camera, for a head shot.
+    pub camera: Option<i32>,
 }
 
 /// An arm held for the copy on its way ([`CharacterPane::queued`]).

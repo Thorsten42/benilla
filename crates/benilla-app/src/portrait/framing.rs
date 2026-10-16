@@ -127,6 +127,8 @@ pub(crate) struct PortraitAnchors {
     pub(crate) camera: Option<benilla_assets::PortraitCamera>,
     /// The body pane's authored camera, raw index 1; `None` uses [`body_frame`]'s fixed rig.
     pub(crate) pane_camera: Option<benilla_assets::PortraitCamera>,
+    /// Raw camera-table index 0, the rig a pane's `SetCamera(0)` installs ([`Self::through`]).
+    pub(crate) camera0: Option<benilla_assets::PortraitCamera>,
     /// The MD20 header bbox centre, the fixed pane camera's look-at target.
     pub(crate) bbox_center: Vec3,
     /// The bind-pose head anchor ([`head_anchor`]) the heuristic framing aims at.
@@ -282,6 +284,19 @@ pub(super) fn pane_root_scale(a: &PortraitAnchors, display_aspect: f32) -> f32 {
     }
 }
 
+impl PortraitAnchors {
+    /// The anchors a pane renders through after `SetCamera(idx)` (`0x76cec0`), which picks by raw
+    /// table index: 0 is the file's portrait camera, the unit-frame head shot. Any other index,
+    /// or a model without that camera, keeps the widget's rig, `cameras[1]` or the fixed one.
+    pub(crate) fn through(&self, idx: Option<i32>) -> PortraitAnchors {
+        let mut a = self.clone();
+        if let (Some(0), Some(cam)) = (idx, self.camera0) {
+            a.pane_camera = Some(cam);
+        }
+        a
+    }
+}
+
 /// The camera a body pane renders through: authored `cameras[1]`, else the fixed rig.
 pub(super) fn pane_camera(a: &PortraitAnchors) -> benilla_assets::PortraitCamera {
     a.pane_camera.unwrap_or(benilla_assets::PortraitCamera {
@@ -337,6 +352,21 @@ mod tests {
         }
     }
 
+    /// `SetCamera(0)` renders a pane through the file's raw camera 0, the portrait camera; any
+    /// other index, or a model without camera 0, keeps the widget's `cameras[1]` rig.
+    #[test]
+    fn set_camera_zero_renders_the_pane_through_camera_zero() {
+        let body = cam([3.66, 0.0, 1.0], [0.0, 0.0, 1.0], 0.5);
+        let head = cam([0.63, -0.39, 1.89], [0.06, 0.03, 1.86], 0.785);
+        let mut a = anchors_with(Some(body), Vec3::ZERO);
+        a.camera0 = Some(head);
+        assert_eq!(pane_camera(&a.through(Some(0))).eye, head.eye);
+        assert_eq!(pane_camera(&a.through(None)).eye, body.eye);
+        assert_eq!(pane_camera(&a.through(Some(1))).eye, body.eye);
+        a.camera0 = None;
+        assert_eq!(pane_camera(&a.through(Some(0))).eye, body.eye);
+    }
+
     fn anchors_with(
         pane_camera: Option<benilla_assets::PortraitCamera>,
         bbox_center: Vec3,
@@ -349,6 +379,7 @@ mod tests {
                 0.785,
             )),
             pane_camera,
+            camera0: None,
             bbox_center,
             head: Some(Vec3::new(0.0, 1.75, 0.0)),
             pivot_height: 1.90,

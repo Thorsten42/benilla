@@ -158,6 +158,8 @@ pub(crate) struct DisplayModel {
     /// Camera-table index 1, the rig a `<PlayerModel>` widget renders through (`0x505890`); without
     /// it the reference uses its fixed fallback camera.
     pub(super) pane_camera: Option<benilla_assets::PortraitCamera>,
+    /// Camera-table index 0, raw, which a pane's `SetCamera(0)` names.
+    pub(super) camera0: Option<benilla_assets::PortraitCamera>,
     /// A bow's `$WTT`/`$WTB` string anchors (`0x611ff0`), `[top, bottom]` as
     /// `(bone, model-local Bevy position)`.
     pub(super) string_anchors: Option<[(u16, Vec3); 2]>,
@@ -285,6 +287,7 @@ pub(crate) fn empty_shell() -> DisplayModel {
         ground_radius_local: 0.0,
         portrait_camera: None,
         pane_camera: None,
+        camera0: None,
         bbox_z_local: 0.0,
         stand_box_z_local: 0.0,
         bake_center_local: Vec3::ZERO,
@@ -337,6 +340,7 @@ pub(super) fn build_parts(
     let mut ground_radius_local = 0.0;
     let mut portrait_camera = None;
     let mut pane_camera = None;
+    let mut camera0 = None;
     let mut bbox_z_local = 0.0;
     let mut stand_box_z_local = 0.0;
     let mut bake_center_local = Vec3::ZERO;
@@ -386,6 +390,7 @@ pub(super) fn build_parts(
             first_seq_span = model.first_seq_span;
             portrait_camera = model.portrait_camera;
             pane_camera = model.pane_camera;
+            camera0 = model.camera0;
             if gameobject {
                 collider = model.collision.as_ref().and_then(model_local_collider);
             }
@@ -514,6 +519,7 @@ pub(super) fn build_parts(
     dm.ground_radius_local = ground_radius_local;
     dm.portrait_camera = portrait_camera;
     dm.pane_camera = pane_camera;
+    dm.camera0 = camera0;
     dm.bbox_z_local = bbox_z_local;
     dm.stand_box_z_local = stand_box_z_local;
     dm.bake_center_local = bake_center_local;
