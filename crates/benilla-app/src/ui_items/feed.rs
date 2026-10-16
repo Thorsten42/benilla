@@ -697,6 +697,7 @@ fn resolve_slot(
         ),
     );
     let gift_creator = crate::items::gift_creator_name(fields, names, commands);
+    let (creator_guid, gift_creator_guid) = crate::items::creator_guids(fields);
     // A container's filled seats, which `ClickTradeButton` counts (`0x4bff50`).
     let occupied_seats = fields.is_container().then(|| {
         let n = fields.container_num_slots().unwrap_or(0).min(36) as u8;
@@ -722,6 +723,8 @@ fn resolve_slot(
             readable,
             creator,
             gift_creator,
+            creator_guid,
+            gift_creator_guid,
             flags,
             already_bound,
             occupied_seats,
@@ -769,6 +772,8 @@ fn resolve_slot(
         readable,
         creator,
         gift_creator,
+        creator_guid,
+        gift_creator_guid,
         flags,
         already_bound,
         occupied_seats,
