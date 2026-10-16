@@ -114,6 +114,15 @@
             </Layer>
         </Layers>
         <Scripts>
+            <OnLoad>
+                -- Turtle WoW's login screen stacks its own links over the Cinematics button, from
+                -- AccountLoginTurtleReddit up to AccountLoginTurtleWebsite: the control goes on top
+                -- of that stack instead of under its first button.
+                if ( AccountLoginTurtleWebsite ) then
+                    this:ClearAllPoints();
+                    this:SetPoint("BOTTOM", AccountLoginTurtleWebsite, "TOP", 0, -2);
+                end
+            </OnLoad>
             <OnClick>
                 BenillaRealmlist_OnClick();
             </OnClick>
