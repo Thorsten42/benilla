@@ -13,15 +13,19 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
                 return;
             }
             let select = |guid: Option<u64>| {
-                guid.map_or(ScriptCall::ClearTarget, |guid| {
-                    ScriptCall::Select(SelectionRequest::PfuiGuid(guid))
+                guid.map_or(ScriptCall::ClearTarget, |guid| ScriptCall::Select {
+                    request: SelectionRequest::PfuiGuid(guid),
+                    may_cast: true,
                 })
             };
-            script.requeue_script_calls(vec![
-                select(selection),
-                *call,
-                select(cast.targeting.selection.guid),
-            ]);
+            crate::pfui::requeue(
+                script,
+                vec![
+                    select(selection),
+                    *call,
+                    select(cast.targeting.selection.guid),
+                ],
+            );
         }
         ClickAction::Cast { .. }
         | ClickAction::Item { .. }
@@ -35,7 +39,10 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
             if let Err(error) =
                 attributes::run_script(script.lua(), &body, cast.targeting.selection.guid)
             {
-                script.report_script_error(&format!("Nampower queued script: {error}"), &format!("Nampower queued script: {error}"));
+                script.report_script_error(
+                    &format!("Nampower queued script: {error}"),
+                    &format!("Nampower queued script: {error}"),
+                );
             }
         }
         ClickAction::PetSpell { spell_id, target } => {
@@ -43,17 +50,26 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
                 return;
             }
             let restore = match cast.targeting.selection.guid {
-                Some(guid) => ScriptCall::Select(SelectionRequest::PfuiGuid(guid)),
+                Some(guid) => ScriptCall::Select {
+                    request: SelectionRequest::PfuiGuid(guid),
+                    may_cast: true,
+                },
                 None => ScriptCall::ClearTarget,
             };
-            script.requeue_script_calls(vec![
-                ScriptCall::Select(SelectionRequest::PfuiGuid(target)),
-                ScriptCall::CastPetSpell {
-                    spell_id,
-                    on_self: false,
-                },
-                restore,
-            ]);
+            crate::pfui::requeue(
+                script,
+                vec![
+                    ScriptCall::Select {
+                        request: SelectionRequest::PfuiGuid(target),
+                        may_cast: true,
+                    },
+                    ScriptCall::CastPetSpell {
+                        spell_id,
+                        on_self: false,
+                    },
+                    restore,
+                ],
+            );
         }
         ClickAction::Spell {
             spell_id,
@@ -64,7 +80,11 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
             target: Some(guid),
         } => cast_at_unit(cast, spell_id, guid),
         ClickAction::GroundSpell { spell_id, point } => {
-            crate::ui_spellbook::cast_spell(cast, spell_id, false);
+            // A second press of the spell whose cursor is up only commits: the stock ladder would
+            // take the cursor down, and the point would find nothing to bind.
+            if cast.ladder.ground.spell() != Some(spell_id) {
+                crate::ui_spellbook::cast_spell(cast, spell_id, false);
+            }
             commit_ground(cast, spell_id, point);
         }
         ClickAction::Macro {
@@ -78,7 +98,10 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
                 if cast.targeting.pfui_context(guid).is_none() {
                     return;
                 }
-                calls.push(ScriptCall::Select(SelectionRequest::PfuiGuid(guid)));
+                calls.push(ScriptCall::Select {
+                    request: SelectionRequest::PfuiGuid(guid),
+                    may_cast: true,
+                });
             }
             calls.push(ScriptCall::PfuiClick(ClickAction::RunMacro {
                 input,
@@ -86,17 +109,23 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
             }));
             if target.is_some() {
                 calls.push(match cast.targeting.selection.guid {
-                    Some(guid) => ScriptCall::Select(SelectionRequest::PfuiGuid(guid)),
+                    Some(guid) => ScriptCall::Select {
+                        request: SelectionRequest::PfuiGuid(guid),
+                        may_cast: true,
+                    },
                     None => ScriptCall::ClearTarget,
                 });
             }
-            script.requeue_script_calls(calls);
+            crate::pfui::requeue(script, calls);
         }
         ClickAction::RunMacro { input, named } => {
             if let Err(error) =
                 attributes::run_macro(script.lua(), &input, named, cast.targeting.selection.guid)
             {
-                script.report_script_error(&format!("pfUI click macro: {error}"), &format!("pfUI click macro: {error}"));
+                script.report_script_error(
+                    &format!("pfUI click macro: {error}"),
+                    &format!("pfUI click macro: {error}"),
+                );
             }
         }
     }

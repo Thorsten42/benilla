@@ -98,8 +98,8 @@ pub(crate) struct GamePlugins {
     /// [`NetPlugin::connect`]: `false` in capture mode, where no IO thread runs, so captures are
     /// deterministic whether or not a server is up.
     pub(crate) connect: bool,
-    /// [`crate::char_select::CharSelectPlugin::start`]: the screen this session opens on.
-    pub(crate) start: crate::char_select::ClientState,
+    /// [`crate::client_state::ClientStatePlugin::start`]: the screen this session opens on.
+    pub(crate) start: crate::client_state::ClientState,
 }
 
 impl PluginGroup for GamePlugins {
@@ -140,8 +140,10 @@ impl PluginGroup for GamePlugins {
                 connect: self.connect,
             })
             .add(crate::death::DeathPlugin)
+            .add(crate::client_state::ClientStatePlugin { start: self.start })
+            .add(crate::glue_session::GlueSessionPlugin)
             .add(crate::glue::GluePlugin)
-            .add(crate::char_select::CharSelectPlugin { start: self.start })
+            .add(crate::char_select::CharSelectPlugin)
             .add(crate::login::LoginPlugin)
             .add(crate::realm_select::RealmSelectPlugin)
             .add(crate::char_create::CharCreatePlugin)
@@ -323,7 +325,7 @@ pub(crate) mod schedule_tests {
         app.add_plugins(benilla_world::world_plugins::WorldPlugins);
         app.add_plugins(GamePlugins {
             connect: false,
-            start: crate::char_select::ClientState::Login,
+            start: crate::client_state::ClientState::Login,
         });
         #[cfg(feature = "pfui")]
         app.add_plugins(crate::pfui::PfuiPlugin);
@@ -602,7 +604,7 @@ pub(crate) mod schedule_tests {
     /// named here with why it cannot run against the other.
     #[test]
     fn the_glue_preview_has_one_feeder_per_switch() {
-        use crate::char_select::ClientState;
+        use crate::client_state::ClientState;
         // The create screen's state, which only the native select screen enters, and its
         // instrument.
         const EITHER: [&str; 2] = ["benilla_app::char_create::", "drive_create_test"];
@@ -660,6 +662,50 @@ pub(crate) mod schedule_tests {
                 "{want} is not gated to the native screens: {native:?}"
             );
         }
+    }
+
+    /// Under `WOW_GLUE_STOCK=1` the login engine runs without the native screens' dialog: no
+    /// login or glue-session system writes the hidden `GlueDialog` there. The engine tells a
+    /// screen what it decided (`LoginNotice`), and the native login screen shows it.
+    #[test]
+    fn the_login_engine_writes_no_native_dialog_under_the_stock_screens() {
+        use crate::client_state::ClientState;
+        let mut app = headless_client();
+        let mut writers = resource_writers::<crate::glue::dialog::GlueDialog>(&mut app, Update);
+        for state in [
+            ClientState::Login,
+            ClientState::CharSelect,
+            ClientState::InWorld,
+        ] {
+            writers.extend(resource_writers::<crate::glue::dialog::GlueDialog>(
+                &mut app,
+                OnEnter(state),
+            ));
+            writers.extend(resource_writers::<crate::glue::dialog::GlueDialog>(
+                &mut app,
+                OnExit(state),
+            ));
+        }
+        if !writers.iter().any(|(n, _)| n.contains("benilla_app::")) {
+            eprintln!(
+                "skipped: this build carries no type names (bevy/debug rides with the dev feature)"
+            );
+            return;
+        }
+        let ungated: Vec<&str> = writers
+            .iter()
+            .filter(|(name, _)| {
+                ["benilla_app::login::", "benilla_app::glue_session::"]
+                    .iter()
+                    .any(|m| name.starts_with(m))
+            })
+            .filter(|(_, conds)| !conds.iter().any(|c| c.ends_with("::native_glue")))
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert!(
+            ungated.is_empty(),
+            "login systems that write the native dialog under the stock screens: {ungated:?}"
+        );
     }
 
     /// One row of the class table: the type's name for the message, and its `TypeId`.
@@ -896,9 +942,16 @@ pub(crate) mod schedule_tests {
     ///   `creature_anim::spell_visual::route_cast_visuals` over the `CastEvent` messages: both are
     ///   level-triggered readers, so a cancel seen a frame early or late is decided again next
     ///   frame;
+    /// - `ui_items::lock_openers::feed_lock_openers` against `ui_action::feed::feed_actions` and
+    ///   `normalize_action_ranks` over `PlayerActions` and the VM: it reads only the book's spell
+    ///   ids, which those two never rewrite, and writes the lock state alone; its gate watches
+    ///   `PlayerActions`, so a book change seen a frame late is pushed the next;
     /// - the item gate's control-bypass feed (`ui_unit::control_gate::feed_control_bypass`)
     ///   against `player::camera_saved::load_camera_pose` over `Player`: the feed reads
-    ///   `own_control_lost` only, and the loader writes the saved camera pose.
+    ///   `own_control_lost` only, and the loader writes the saved camera pose;
+    /// - the native refused-login dialog (`char_select::open_login_refusal`), split off the
+    ///   session's refusal edge, against the exclusive `terrain_stream::finish_colliders`, as the
+    ///   edge itself already pairs: it writes only `GlueDialog`, which no collider attach reads.
     ///
     /// Raising the ceiling is a claim that a new undeclared order is acceptable: make it with the
     /// reason read off the dump, or declare the order (`.after`, a set, a `chain`). A resource
@@ -931,12 +984,15 @@ pub(crate) mod schedule_tests {
     ///
     /// MONKEY (merge upstream 7b608671, 2026-10-15): upstream's item-object systems add 3 pairs
     /// against ours (read off the pfUI build, which went up by the same 3); 4,021 + 3.
+    ///
+    /// MONKEY (merge upstream bc52e8a7, 2026-10-16): upstream 3,964 → 3,966; ours 4,026, read off
+    /// the stock tree's test run.
     #[cfg(not(feature = "pfui"))]
-    const UPDATE_ACTIONABLE_CEILING: usize = 4_024;
+    const UPDATE_ACTIONABLE_CEILING: usize = 4_026;
     // The optional feeds order stock producers before their consumers, so the pfUI build has its
     // own ratchet. Read off the merged tree's test run.
     #[cfg(feature = "pfui")]
-    const UPDATE_ACTIONABLE_CEILING: usize = 3_958;
+    const UPDATE_ACTIONABLE_CEILING: usize = 3_960;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {
@@ -1284,13 +1340,55 @@ pub(crate) mod schedule_tests {
             "::tutorial::watch_self",
             "::ui_trade::answer_trade_request",
             "::poi_marker::expire_marker",
-            "::char_select::debug_logout_smoke",
+            "::glue_session::logout_smoke::debug_logout_smoke",
         ] {
             assert!(
                 after_restore.contains(&one(reader)),
                 "`{reader}` runs after the control restore"
             );
         }
+    }
+
+    /// The `Startup` VM, the stock glue's under `WOW_GLUE_STOCK=1`, is built after the glyph cache:
+    /// its first screen sizes frames by measured text in the show (`TOSFrameHeader` off
+    /// `TOSFrameTitle:GetWidth()`, `AccountLogin.lua`), which with no cache measures 0.
+    #[test]
+    fn the_startup_vm_is_built_after_the_glyph_cache() {
+        let mut app = headless_client();
+        // `Update` first: its systems register the resources the census's class table names.
+        let _ = census(&mut app, Update, SyncPoints::Declared);
+        let c = census(&mut app, Startup, SyncPoints::Declared);
+        if !type_names_available(&c) {
+            eprintln!(
+                "skipped: this build carries no type names (bevy/debug rides with the dev feature)"
+            );
+            return;
+        }
+        let one = |suffix: &str| -> SystemKey {
+            let mut hits = c.systems.iter().filter(|(_, s)| s.name.ends_with(suffix));
+            match (hits.next(), hits.next()) {
+                (Some((k, _)), None) => *k,
+                _ => panic!("exactly one system named `…{suffix}` in Startup"),
+            }
+        };
+        let mut succ: HashMap<SystemKey, Vec<SystemKey>> = HashMap::new();
+        for (a, b) in &c.dependencies {
+            succ.entry(*a).or_default().push(*b);
+        }
+        let (atlas, vm) = (
+            one("::ui_text::engine::gpu::init"),
+            one("::ui_script::lifecycle::setup_script"),
+        );
+        let mut seen = HashSet::new();
+        let mut stack = vec![atlas];
+        while let Some(n) = stack.pop() {
+            for m in succ.get(&n).into_iter().flatten() {
+                if seen.insert(*m) {
+                    stack.push(*m);
+                }
+            }
+        }
+        assert!(seen.contains(&vm), "the VM is built after the glyph cache");
     }
 
     /// The VM ticks once a frame (`extract::tick_script`, in `UiInput`): a push the tick must
@@ -1473,7 +1571,7 @@ pub(crate) mod schedule_tests {
         ("ui_gm_ticket.rs", "feed_gm_ticket", Because::MemoLatched,
          "`feed.vm: VmMemo<FedTicket>` counters restart per VM while `state.answers` keeps counting, so the latest answer is re-fired"),
         ("ui_honor.rs", "feed_honor", Because::MemoLatched,
-         "`state.vm: VmMemo<HonorFeedMemo>`; `events_for(None, ..)` re-fires both events on a fresh VM"),
+         "`state.vm: VmMemo<HonorFeedMemo>`; a fresh VM is pushed the block again and re-fires `INSPECT_HONOR_UPDATE` for a held reply"),
         ("ui_inspect.rs", "feed_inspect", Because::MemoLatched,
          "the token is latched only by Lua's `NotifyInspect`, and the diffs ride a `VmMemo`"),
         ("ui_item_text.rs", "feed_item_text", Because::MemoLatched,

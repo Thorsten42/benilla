@@ -83,7 +83,10 @@ pub(crate) fn enable_vm(world: &World, script: &UiScript) {
             .lua()
             .set_named_registry_value("manila.pfui.enabled", true)
         {
-            script.report_script_error(&format!("pfUI VM activation: {error}"), &format!("pfUI VM activation: {error}"));
+            script.report_script_error(
+                &format!("pfUI VM activation: {error}"),
+                &format!("pfUI VM activation: {error}"),
+            );
         }
         // Before any addon loads: pfUI reads `gxResolution` once, as it loads.
         if let Some(pixels) = world.get_resource::<WindowPixels>() {
@@ -125,7 +128,10 @@ pub(crate) fn feed_friend_guids(
             .zip(guids)
             .map(|(friend, guid)| (friend.name.as_str(), *guid)),
     ) {
-        script.report_script_error(&format!("pfUI friend GUIDs: {error}"), &format!("pfUI friend GUIDs: {error}"));
+        script.report_script_error(
+            &format!("pfUI friend GUIDs: {error}"),
+            &format!("pfUI friend GUIDs: {error}"),
+        );
     }
 }
 
@@ -208,7 +214,10 @@ fn feed_window_pixels(script: Option<NonSend<UiScript>>, pixels: Res<WindowPixel
         if let Err(error) =
             manila_pfui::display::set_window_pixels(script.lua(), pixels.0, pixels.1)
         {
-            script.report_script_error(&format!("pfUI window size: {error}"), &format!("pfUI window size: {error}"));
+            script.report_script_error(
+                &format!("pfUI window size: {error}"),
+                &format!("pfUI window size: {error}"),
+            );
         }
     }
 }
@@ -220,7 +229,10 @@ fn feed_clock(script: Option<NonSendMut<UiScript>>, clock: Res<crate::net::Serve
     if let Err(error) =
         manila_pfui::clock::update(script.lua(), clock.0.and_then(|c| c.pfui_local_epoch()))
     {
-        script.report_script_error(&format!("pfUI clock: {error}"), &format!("pfUI clock: {error}"));
+        script.report_script_error(
+            &format!("pfUI clock: {error}"),
+            &format!("pfUI clock: {error}"),
+        );
     }
 }
 
@@ -325,4 +337,36 @@ fn feed_inventory(
         }
     }
     benilla_ui::script::pfui_host::items::set_instances(script.lua(), instances);
+}
+
+/// Queue `calls` ahead of what is queued, under the input events running now: the calls an
+/// extension makes while applying another run inside the events that one was made under.
+pub(crate) fn requeue(
+    script: &mut benilla_ui::script::UiScript,
+    calls: Vec<benilla_ui::script::ScriptCall>,
+) {
+    let input = script.input_events();
+    script.requeue_calls(
+        calls
+            .into_iter()
+            .map(|call| benilla_ui::script::QueuedCall { call, input })
+            .collect(),
+    );
+}
+
+/// A class id's English name and its `classFile` token, which the extension's caches key on; the
+/// token is locale-independent, as `UnitClass`'s second return is.
+pub(crate) fn class_names(class: u8) -> Option<(&'static str, &'static str)> {
+    Some(match class {
+        1 => ("Warrior", "WARRIOR"),
+        2 => ("Paladin", "PALADIN"),
+        3 => ("Hunter", "HUNTER"),
+        4 => ("Rogue", "ROGUE"),
+        5 => ("Priest", "PRIEST"),
+        7 => ("Shaman", "SHAMAN"),
+        8 => ("Mage", "MAGE"),
+        9 => ("Warlock", "WARLOCK"),
+        11 => ("Druid", "DRUID"),
+        _ => return None,
+    })
 }

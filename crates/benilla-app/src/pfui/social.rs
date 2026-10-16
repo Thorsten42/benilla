@@ -28,12 +28,15 @@ fn receive(In(event): In<SessionEvent>, script: Option<NonSend<UiScript>>) {
     }
     let class = u8::try_from(class)
         .ok()
-        .and_then(crate::ui_unit::class_names)
+        .and_then(crate::pfui::class_names)
         .map(|(_, token)| token);
     if let Err(error) =
         manila_pfui::player_cache::observe_name(script.lua(), guid, &name, class, race, gender)
     {
-        script.report_script_error(&format!("pfUI name cache: {error}"), &format!("pfUI name cache: {error}"));
+        script.report_script_error(
+            &format!("pfUI name cache: {error}"),
+            &format!("pfUI name cache: {error}"),
+        );
     }
     manila_pfui::loot::resolve_player(script.lua(), guid, &name, class);
 }

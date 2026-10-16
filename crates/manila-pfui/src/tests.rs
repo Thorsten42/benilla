@@ -390,7 +390,11 @@ fn run_next_frame_waits_for_the_frame_after_the_one_that_asked() {
         .unwrap();
     script.fire_event("PLAYER_ENTERING_WORLD", vec![]);
     script.tick(0.01);
-    assert_eq!(script.eval::<i64>("return ran").unwrap(), 0, "not in the event's own frame");
+    assert_eq!(
+        script.eval::<i64>("return ran").unwrap(),
+        0,
+        "not in the event's own frame"
+    );
     script.tick(0.01);
     assert_eq!(script.eval::<i64>("return ran").unwrap(), 1);
     script.tick(0.01);
@@ -427,7 +431,10 @@ fn chat_bubbles_list_the_engines_own_frames() {
         alpha: 1.0,
         seat: (400.0, 300.0),
     };
-    script.sync_chat_bubbles(geometry, &[line(1, "First line", true), line(2, "Out of sight", false)]);
+    script.sync_chat_bubbles(
+        geometry,
+        &[line(1, "First line", true), line(2, "Out of sight", false)],
+    );
     script
         .run(
             r#"
@@ -1132,7 +1139,10 @@ fn totem_queries_distinguish_tools_from_active_summons_and_target_real_guids() {
     script.run("local have,name,start,duration,icon,rate,id=GetTotemInfo(1); assert(have and name=='Searing Totem' and start==2 and duration==30 and icon=='Icon' and id==3599); TargetTotem(1)").unwrap();
     assert_eq!(
         script.take_script_calls(),
-        vec![ScriptCall::Select(SelectionRequest::PfuiGuid(77))]
+        vec![ScriptCall::Select {
+            request: SelectionRequest::PfuiGuid(77),
+            may_cast: true
+        }]
     );
     totems::set(script.lua(), std::array::from_fn(|_| None), [5176, 0, 0, 0]);
     script
@@ -1596,7 +1606,13 @@ fn focus_and_guid_queries_use_live_snapshots_and_restore_stock_aliases_on_errors
         updates:SetScript('OnEvent',function(self,e,unit) assert(unit=='focus'); healthEvents=healthEvents+1 end)
     "#).unwrap();
     let calls = script.take_script_calls();
-    assert_eq!(calls[0], ScriptCall::Select(SelectionRequest::PfuiGuid(5)));
+    assert_eq!(
+        calls[0],
+        ScriptCall::Select {
+            request: SelectionRequest::PfuiGuid(5),
+            may_cast: true
+        }
+    );
     assert!(matches!(calls[1], ScriptCall::ClearTarget));
     let mut changed = mob;
     changed.health = 25;
@@ -3095,17 +3111,24 @@ fn frame_attributes_deliver_handlers_and_drive_one_real_action_per_click() {
     assert_eq!(
         script.take_script_calls(),
         vec![
-            ScriptCall::Select(SelectionRequest::Unit("party1".into())),
-            ScriptCall::Select(SelectionRequest::Unit("party1".into())),
+            ScriptCall::Select {
+                request: SelectionRequest::Unit("party1".into()),
+                may_cast: true
+            },
+            ScriptCall::Select {
+                request: SelectionRequest::Unit("party1".into()),
+                may_cast: true
+            },
         ]
     );
     script.set_modifiers(true, false, false);
     script.run("attrButton:Click('LeftButton')").unwrap();
     assert_eq!(
         script.take_script_calls(),
-        vec![ScriptCall::Select(SelectionRequest::Assist(
-            "party1".into()
-        ))]
+        vec![ScriptCall::Select {
+            request: SelectionRequest::Assist("party1".into()),
+            may_cast: true
+        }]
     );
     script.run(r#"
       this='outer'; arg1='original'; arg2='second'

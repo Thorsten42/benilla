@@ -88,7 +88,7 @@ pub(super) fn resume(script: &mut UiScript, cast: &ScriptCast) -> bool {
         .0
         .take();
     if let Some(queued) = queued {
-        script.requeue_script_calls(vec![run(queued.body)]);
+        crate::pfui::requeue(script, vec![run(queued.body)]);
         true
     } else {
         false

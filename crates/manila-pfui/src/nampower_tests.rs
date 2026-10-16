@@ -205,7 +205,8 @@ fn queue_overloads_keep_each_calls_policy_book_rank_and_unit() {
             wrapped(
                 ScriptCall::CastSpell {
                     spell_id: 2050,
-                    on_self: false
+                    on_self: false,
+                    may_cast: true
                 },
                 QueuePolicy::Force
             ),
@@ -219,21 +220,24 @@ fn queue_overloads_keep_each_calls_policy_book_rank_and_unit() {
             wrapped(
                 ScriptCall::CastSpell {
                     spell_id: 2050,
-                    on_self: true
+                    on_self: true,
+                    may_cast: true
                 },
                 QueuePolicy::Never
             ),
             wrapped(
                 ScriptCall::CastSpell {
                     spell_id: 2052,
-                    on_self: false
+                    on_self: false,
+                    may_cast: true
                 },
                 QueuePolicy::Never
             ),
             wrapped(
                 ScriptCall::CastSpell {
                     spell_id: 2050,
-                    on_self: false
+                    on_self: false,
+                    may_cast: true
                 },
                 QueuePolicy::Never
             ),
@@ -253,7 +257,8 @@ fn queue_overloads_keep_each_calls_policy_book_rank_and_unit() {
             ),
             ScriptCall::CastSpell {
                 spell_id: 2052,
-                on_self: true
+                on_self: true,
+                may_cast: true
             },
             ScriptCall::PfuiClick(ClickAction::Spell {
                 spell_id: 2050,
@@ -395,7 +400,8 @@ fn named_unit_casts_bind_guid_and_unknown_units_never_fall_back_to_selection() {
         script.take_script_calls(),
         vec![ScriptCall::CastSpell {
             spell_id: 2050,
-            on_self: true
+            on_self: true,
+            may_cast: true
         }]
     );
 }

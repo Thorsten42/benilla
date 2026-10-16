@@ -17,6 +17,7 @@ fn receive(
     In(event): In<SessionEvent>,
     script: Option<NonSend<UiScript>>,
     names: Res<crate::names::NameCache>,
+    objects: crate::net::Objects,
     commands: Res<crate::net::NetCommands>,
     me: Res<crate::net::SelfGuid>,
     clock: Res<crate::ui_script::UiClock>,
@@ -37,9 +38,9 @@ fn receive(
             kind,
             roll,
             is_me: me.0 == Some(guid),
-            name: names.resolve(guid, &commands).map(str::to_owned),
+            name: names.resolve(&objects, guid, &commands).map(str::to_owned),
             class: class
-                .and_then(crate::ui_unit::class_names)
+                .and_then(crate::pfui::class_names)
                 .map(|(_, token)| token.to_owned()),
         }
     };

@@ -102,8 +102,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             };
             lua.app_data_mut::<Model>()
                 .expect("model")
-                .script_calls
-                .push(ScriptCall::PfuiClick(ClickAction::Spell {
+                .queue_call(ScriptCall::PfuiClick(ClickAction::Spell {
                     spell_id,
                     target,
                 }));
@@ -128,8 +127,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 };
                 lua.app_data_mut::<Model>()
                     .expect("model")
-                    .script_calls
-                    .push(ScriptCall::PfuiClick(ClickAction::Macro {
+                    .queue_call(ScriptCall::PfuiClick(ClickAction::Macro {
                         input,
                         named,
                         target,

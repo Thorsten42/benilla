@@ -86,10 +86,15 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     .guid
             });
             if let Some(guid) = guid {
+                // The gate's tag 2, which the selection's bind asks while the cursor is up.
+                let may_cast =
+                    crate::script::protected::gate(lua, crate::script::protected::Tag::CAST);
                 lua.app_data_mut::<Model>()
                     .expect("model")
-                    .script_calls
-                    .push(ScriptCall::Select(SelectionRequest::PfuiGuid(guid)));
+                    .queue_call(ScriptCall::Select {
+                        request: SelectionRequest::PfuiGuid(guid),
+                        may_cast,
+                    });
             }
             Ok(())
         })?,

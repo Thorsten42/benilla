@@ -335,7 +335,8 @@ fn feed(
                     .object(me)
                     .and_then(|s| s.unit_auras().find(|a| a.slot == slot))
                     .map_or(0, |a| a.spell_id);
-                api::update_duration(lua, slot, spell, remaining_ms);
+                // A negative span is no duration (`ui_aura::AuraDurations::set`), 0 to the extension.
+                api::update_duration(lua, slot, spell, u32::try_from(remaining_ms).unwrap_or(0));
                 let expiration = if remaining_ms == 0 {
                     0.0
                 } else {

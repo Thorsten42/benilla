@@ -47,9 +47,11 @@ fn queue(lua: &Lua, id: u32, pet: bool, unit: Value, policy: &str) -> mlua::Resu
                 on_self,
             }
         } else {
+            // The protected-action gate's tag 2, as the stock `CastSpell` verb asks it.
             ScriptCall::CastSpell {
                 spell_id: id,
                 on_self,
+                may_cast: crate::script::protected::gate(lua, crate::script::protected::Tag::CAST),
             }
         }
     };
@@ -61,10 +63,7 @@ fn queue(lua: &Lua, id: u32, pet: bool, unit: Value, policy: &str) -> mlua::Resu
             policy,
         })
     };
-    lua.app_data_mut::<Model>()
-        .expect("model")
-        .script_calls
-        .push(call);
+    lua.app_data_mut::<Model>().expect("model").queue_call(call);
     Ok(())
 }
 
@@ -74,8 +73,7 @@ pub(super) fn install(lua: &Lua, actions: &Table) -> mlua::Result<()> {
         lua.create_function(|lua, ground_only: bool| {
             lua.app_data_mut::<Model>()
                 .expect("model")
-                .script_calls
-                .push(ScriptCall::PfuiClick(ClickAction::CancelQueue {
+                .queue_call(ScriptCall::PfuiClick(ClickAction::CancelQueue {
                     ground_only,
                 }));
             Ok(())
@@ -93,8 +91,7 @@ pub(super) fn install(lua: &Lua, actions: &Table) -> mlua::Result<()> {
             if !body.is_empty() {
                 lua.app_data_mut::<Model>()
                     .expect("model")
-                    .script_calls
-                    .push(ScriptCall::PfuiClick(ClickAction::QueueScript {
+                    .queue_call(ScriptCall::PfuiClick(ClickAction::QueueScript {
                         body,
                         priority,
                     }));

@@ -115,7 +115,7 @@ fn feed(
         memo.cooldown_epoch = Some(cooldowns.feed_epoch());
     }
     let carried = me
-        .map(|(store, _)| crate::ui_items::carried_counts(&store.0, &objects))
+        .map(|(store, _)| crate::ui_items::stack_counts(&store.0, &objects))
         .unwrap_or_default();
     let (items, commands, player) = &supplies;
     let usable = me
@@ -132,7 +132,7 @@ fn feed(
                 cooldowns: &cooldowns,
                 spell_mods: &mods,
                 control_lost: player.as_ref().is_some_and(|p| p.own_control_lost),
-                carried: &carried,
+                stacks: &carried,
             };
             actions
                 .spells

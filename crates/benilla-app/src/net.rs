@@ -212,6 +212,7 @@ impl Plugin for NetPlugin {
             .add_message::<TeleportMessage>()
             .add_message::<FieldChanged>()
             .add_message::<crate::item_watch::ItemNotice>()
+            .add_message::<crate::field_watch::FieldNotice>()
             .add_message::<SelfMoveMessage>()
             .add_message::<SpeedChangeMessage>()
             .add_message::<ClientControlMessage>()
@@ -487,24 +488,6 @@ impl FieldChanged {
     }
 }
 
-/// The field edges one feed saw this run, by guid and index: the reference fans a moved field out
-/// to every unit token naming the unit (`0x515e50`).
-#[derive(Default)]
-pub(crate) struct FieldEdges(HashSet<(u64, u16)>);
-
-impl FieldEdges {
-    pub fn collect(reader: &mut MessageReader<FieldChanged>) -> Self {
-        Self(reader.read().map(|e| (e.guid, e.index)).collect())
-    }
-    pub fn moved(&self, guid: u64, index: u16) -> bool {
-        self.0.contains(&(guid, index))
-    }
-    #[cfg(test)]
-    pub fn of(edges: &[(u64, u16)]) -> Self {
-        Self(edges.iter().copied().collect())
-    }
-}
-
 /// Merge a descriptor update into a store and emit its [`FieldChanged`] edges; the drain and the
 /// test harness share it.
 pub(crate) fn merge_store_fields(
@@ -735,7 +718,7 @@ pub(crate) enum RealmRequest {
     Leave,
 }
 
-/// The credentials channel to the IO thread's pre-logon park, sent by [`crate::login`].
+/// The credentials channel to the IO thread's pre-logon park, sent by [`crate::glue_session::login`].
 #[derive(Resource)]
 pub(crate) struct LoginSubmit(pub(crate) async_channel::Sender<io::LoginRequest>);
 
@@ -774,11 +757,15 @@ impl Objects<'_, '_> {
 
     /// A streamed object's merged descriptor fields, found as `0x468460` does, by guid.
     pub fn object(&self, guid: u64) -> Option<&ObjectFields> {
+        self.store(guid).map(|s| &s.0)
+    }
+
+    /// [`Self::object`] with its component.
+    pub(crate) fn store(&self, guid: u64) -> Option<&ObjectStore> {
         self.index
             .0
             .get(&guid)
             .and_then(|&e| self.stores.get(e).ok())
-            .map(|s| &s.0)
     }
 
     /// Every streamed object, items included.

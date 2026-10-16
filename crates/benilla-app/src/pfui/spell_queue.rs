@@ -168,7 +168,9 @@ pub(crate) fn reset(script: &UiScript) {
 /// Resolve an action at press time. A later bar edit never changes the queued spell.
 fn spell(script: &UiScript, call: &ScriptCall) -> Option<(u32, bool, Option<u64>)> {
     match call {
-        ScriptCall::CastSpell { spell_id, on_self } => Some((*spell_id, *on_self, None)),
+        ScriptCall::CastSpell {
+            spell_id, on_self, ..
+        } => Some((*spell_id, *on_self, None)),
         ScriptCall::PfuiClick(ClickAction::Spell { spell_id, target }) => {
             Some((*spell_id, false, *target))
         }
@@ -415,9 +417,11 @@ pub(crate) fn intercept(
             target: Some(target),
         })
     } else {
+        // The queue releases it itself, as Nampower's own code does, outside the verb's gate.
         ScriptCall::CastSpell {
             spell_id: id,
             on_self,
+            may_cast: true,
         }
     };
     let replace_category = api::cvar(script.lua(), "NP_ReplaceMatchingNonGcdCategory") != 0.0;
@@ -481,7 +485,7 @@ pub(crate) fn resume(script: &mut UiScript, cast: &crate::spell::ScriptCast) {
                 | ScriptCall::PfuiClick(ClickAction::CancelQueue { ground_only: true })
         )
     });
-    script.requeue_script_calls(calls);
+    crate::pfui::requeue(script, calls);
     if cancelled {
         clear(script);
         return;
@@ -597,7 +601,7 @@ fn append_calls(script: &mut UiScript, calls: Vec<ScriptCall>) {
     // Fresh user calls, including macros and cancellation from the pop event, run first.
     let mut earlier = script.take_script_calls();
     earlier.extend(calls);
-    script.requeue_script_calls(earlier);
+    crate::pfui::requeue(script, earlier);
 }
 
 pub(crate) struct Attempt {
@@ -692,8 +696,7 @@ pub(crate) fn after(script: &UiScript, attempt: Option<Attempt>, cast: &crate::s
         );
         return;
     }
-    if (cast.ladder.pending.current(Instant::now()) == Some(a.spell)
-        && a.pending != Some(a.spell))
+    if (cast.ladder.pending.current(Instant::now()) == Some(a.spell) && a.pending != Some(a.spell))
         || (a.kind == 2
             && cast.ladder.queued_melee.current() == Some(a.spell)
             && a.strike != Some(a.spell))

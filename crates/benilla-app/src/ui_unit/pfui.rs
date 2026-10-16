@@ -49,7 +49,7 @@ fn feed(
         reputations: &reputations,
         group: &group,
         self_store: self_q.single().ok(),
-        classes: tables.classes(),
+        unit_names: tables.unit_names(),
         types: tables.types(&names),
         by_guid: &by_guid,
     };

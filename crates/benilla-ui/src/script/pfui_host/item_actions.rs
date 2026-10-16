@@ -98,8 +98,7 @@ pub(in crate::script::pfui_host) fn request_use(
     };
     lua.app_data_mut::<Model>()
         .expect("model")
-        .script_calls
-        .push(ScriptCall::PfuiClick(ClickAction::Item { guid, target }));
+        .queue_call(ScriptCall::PfuiClick(ClickAction::Item { guid, target }));
     Ok(())
 }
 
@@ -114,13 +113,9 @@ pub(super) fn install(lua: &Lua, api: &Table) -> mlua::Result<()> {
                 } = crate::script::parse_unit_token(unit)
                 {
                     if let Some(guid) = instance(lua, item)? {
-                        lua.app_data_mut::<Model>()
-                            .expect("model")
-                            .script_calls
-                            .push(ScriptCall::PfuiClick(ClickAction::TargetItem {
-                                guid,
-                                hops,
-                            }));
+                        lua.app_data_mut::<Model>().expect("model").queue_call(
+                            ScriptCall::PfuiClick(ClickAction::TargetItem { guid, hops }),
+                        );
                     }
                     return Ok(());
                 }

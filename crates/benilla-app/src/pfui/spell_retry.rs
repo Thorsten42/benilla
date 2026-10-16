@@ -46,6 +46,7 @@ fn bound_call(a: &Attempt, cast: &crate::spell::ScriptCast) -> Option<ScriptCall
         CastWireTarget::SelfImplicit => Some(ScriptCall::CastSpell {
             spell_id: a.spell,
             on_self: true,
+            may_cast: true,
         }),
         CastWireTarget::Unit(guid) => Some(ScriptCall::PfuiClick(ClickAction::Spell {
             spell_id: a.spell,
