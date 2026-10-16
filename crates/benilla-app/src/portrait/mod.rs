@@ -432,6 +432,7 @@ fn booth_anchors(
         return Some(PortraitAnchors {
             camera: None,
             pane_camera: None,
+            camera0: None,
             bbox_center: Vec3::ZERO,
             head: None,
             pivot_height: 0.0,
