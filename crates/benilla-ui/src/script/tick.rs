@@ -114,7 +114,7 @@ impl Model {
 }
 
 /// What a [`verb`] segment raised, in order.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) enum Raised {
     /// An event, with its arguments.
     Event(String, Vec<ScriptValue>),
