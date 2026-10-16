@@ -38,6 +38,7 @@ pub(super) fn enter_create(
     mut images: ResMut<Assets<Image>>,
     mut add_mats: ResMut<Assets<crate::glue::add_material::AddUiMaterial>>,
     strings: Option<Res<GlueStrings>>,
+    unit_names: crate::ui_unit::NameTables,
     window: Query<&Window, With<PrimaryWindow>>,
 ) {
     sel.reset(catalog.as_deref());
@@ -53,6 +54,7 @@ pub(super) fn enter_create(
         &art,
         strings.as_deref(),
         catalog.as_deref(),
+        unit_names.get(),
         &window,
     );
 }
@@ -67,6 +69,7 @@ pub(super) fn rescale_screen(
     art: Res<GlueArt>,
     strings: Option<Res<GlueStrings>>,
     catalog: Option<Res<CharCreate>>,
+    unit_names: crate::ui_unit::NameTables,
     window: Query<&Window, With<PrimaryWindow>>,
 ) {
     let s = crate::glue::screen_scale(window.single().ok());
@@ -80,6 +83,7 @@ pub(super) fn rescale_screen(
                 &art,
                 strings.as_deref(),
                 catalog.as_deref(),
+                unit_names.get(),
                 &window,
             );
         }
@@ -93,6 +97,7 @@ fn spawn_screen(
     art: &GlueArt,
     strings: Option<&GlueStrings>,
     catalog: Option<&CharCreate>,
+    unit_names: crate::ui_unit::UnitNames<'_>,
     window: &Query<&Window, With<PrimaryWindow>>,
 ) {
     let font = wow_font(assets);
@@ -145,7 +150,7 @@ fn spawn_screen(
     // The chrome hangs off the canvas, the boxed scene's rect, never the window.
     let mut canvas = commands.spawn((crate::glue::glue_canvas(), ChildOf(root)));
     canvas.with_children(|ui| {
-        left_tower(ui, art, &font, s, strings, catalog);
+        left_tower(ui, art, &font, s, strings, catalog, unit_names);
 
         // `CharacterCreateWoWLogo` (256×128 at (3,-7)), after the tower, as the reference's
         // frame order draws it over the border art.
@@ -301,6 +306,7 @@ fn left_tower(
     s: f32,
     strings: &GlueStrings,
     catalog: Option<&CharCreate>,
+    unit_names: crate::ui_unit::UnitNames<'_>,
 ) {
     let px = |v: f32| Val::Px(v * s);
 
@@ -390,7 +396,7 @@ fn left_tower(
                                 Some(DynIcon::Race(race)),
                                 None,
                                 None::<DynText>,
-                                race_name(race),
+                                race_name(unit_names, race),
                                 art,
                                 rows.icon,
                                 s,

@@ -57,7 +57,7 @@ use benilla_world::model_render::{ModelKind, ModelPart, ShadowOccluder};
 use benilla_world::rig_palette::{RigPalettes, RigPart, RigSkin};
 use benilla_world::view::WorldCamera;
 
-use crate::char_select::ClientState;
+use crate::client_state::ClientState;
 use crate::video::VideoConfig;
 
 /// A layer private to this feature, above the booth ladder. The world is layer 0 and the UI and

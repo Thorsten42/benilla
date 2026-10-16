@@ -10,7 +10,7 @@
 
 use bevy::prelude::*;
 
-use crate::char_select::ClientState;
+use crate::client_state::ClientState;
 #[cfg(target_arch = "wasm32")]
 use benilla_assets::LockRecover;
 use benilla_assets::WorldAssets;
