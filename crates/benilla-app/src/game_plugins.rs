@@ -216,6 +216,7 @@ impl PluginGroup for GamePlugins {
             .add(UiFollowPlugin)
             .add(UiInstancePlugin)
             .add(crate::ui_billing::UiBillingPlugin)
+            .add(crate::ui_memory::UiMemoryPlugin)
             .add(UiLogoutPlugin)
             .add(UiSocialPlugin)
             // After the social session, whose FriendsFrame and ignore list it uses.
@@ -1601,6 +1602,8 @@ pub(crate) mod schedule_tests {
          "it acts only on a glue-kind VM (`script.filter(vm_kind() == Glue)`, documented at the fire sites), never the entry VM the window leaves frameless; news that arrives with no glue VM is held in `AddonInfoReply` for the next one"),
         ("ui_script/extract/mod.rs", "paint_script", Because::Deliberate,
          "per-frame paint and cost state, not a queue"),
+        ("ui_social/feed.rs", "feed_social", Because::Deliberate,
+         "its take is `name_events`, the packets' ask markers: taken before the interface is up they still send their name queries, to the server and not the VM, and the lists and lines are read again as the names land"),
         ("ui_stable/mod.rs", "feed_stable", Because::PlayerRoundTrip,
          "both packets follow a stable master's gossip and a click in its window"),
         ("ui_summon.rs", "feed_summon", Because::PlayerRoundTrip,
@@ -1613,6 +1616,8 @@ pub(crate) mod schedule_tests {
          "`MSG_TALENT_WIPE_CONFIRM` answers the trainer's gossip option"),
         ("ui_taxi/mod.rs", "feed_taxi", Because::PlayerRoundTrip,
          "both packets follow talking to a flight master"),
+        ("ui_trade/mod.rs", "feed_trade", Because::Deliberate,
+         "its take is `named_lines_asked`, how many held lines have been asked: taken before the interface is up the lines' names are still asked, to the server and not the VM, and the lines stay held until they show"),
         ("ui_trainer/mod.rs", "feed_trainer", Because::PlayerRoundTrip,
          "a refusal answers a Train click and a list answers a trainer gossip click; the edges ride `VmMemo`s"),
     ];
@@ -1664,6 +1669,8 @@ pub(crate) mod schedule_tests {
             return;
         }
         let post = census(&mut app, PostUpdate, SyncPoints::Built);
+        // `PreUpdate` holds the frame's head: the script memory watch, ahead of the reload.
+        let pre = census(&mut app, PreUpdate, SyncPoints::Built);
         // The leave-world sweep's legs run only inside its schedule, whose callers hold the
         // interface up: the worldport's producer is gated with the unit feed, the shutdown edges
         // run the sweep before a parked glue VM returns, and the quit returns inside the
@@ -1685,6 +1692,7 @@ pub(crate) mod schedule_tests {
             .systems
             .values()
             .chain(post.systems.values())
+            .chain(pre.systems.values())
             .map(|s| (s.name.as_str(), s))
             .collect();
         let mut gated = 0;
@@ -1731,7 +1739,7 @@ pub(crate) mod schedule_tests {
             } else {
                 // Name its sets: the fix is usually a gate on one of them.
                 let where_ = match info {
-                    None => " (not found in Update/PostUpdate)".to_string(),
+                    None => " (not found in PreUpdate/Update/PostUpdate)".to_string(),
                     Some(i) => {
                         let named: Vec<&str> = i
                             .sets

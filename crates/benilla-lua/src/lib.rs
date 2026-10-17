@@ -22,9 +22,24 @@ pub mod vm;
 pub use compile::compile;
 pub use lex::SyntaxError;
 pub use lib_base::tostring_value;
+pub use lib_math::{bit_library, math_pow};
 pub use number::fmt_g14;
 pub use value::Value;
 pub use vm::{LuaError, Vm};
+
+/// `%.<precision><conv>` of a `double`, `conv` one of `e E f g G`, as the client's MSVC runtime
+/// writes it (`_cfltcvt` `0x40b7fe` under `sprintf` and `_snprintf`), for host code that formats a
+/// number as one of the client's C functions does.
+pub fn crt_float(v: f64, conv: u8, precision: Option<usize>) -> String {
+    cfmt::fmt_float(
+        v,
+        conv,
+        &cfmt::Spec {
+            precision,
+            ..Default::default()
+        },
+    )
+}
 
 /// A VM with 1.12's Lua libraries open: base, `string`, `table`, `math` and `bit`, then the
 /// bare compatibility globals the client defines over them.
@@ -254,9 +269,10 @@ strbyte, strchar, strfind, format, gsub = s.byte, s.char, s.find, s.format, s.gs
 strlen, strlower, strrep, strsub, strupper = s.len, s.lower, s.rep, s.sub, s.upper
 "#;
 
-/// `luaO_chunkid`: a chunk name as a message shows it, in a buffer of `bufflen` bytes. 5.1 uses
-/// 80 (`MAXSRC`) for compile errors and 60 (`LUA_IDSIZE`) for runtime ones. `=name` is verbatim,
-/// `@file` keeps the file's tail, and anything else is `[string "first line..."]`.
+/// The client's `luaO_chunkid` (`0x6f5c40`): a chunk name as a message shows it, in a buffer of
+/// `bufflen` bytes, 80 (`MAXSRC`) for compile errors and 60 (`LUA_IDSIZE`) for runtime ones.
+/// `=name` is verbatim, `@file` keeps the file's tail, and anything else is
+/// `[string "first line..."]`.
 pub fn chunkid_n(source: &[u8], bufflen: usize) -> Vec<u8> {
     // A C string: the name ends at its first NUL.
     let source = &source[..source.iter().position(|&b| b == 0).unwrap_or(source.len())];
@@ -278,10 +294,11 @@ pub fn chunkid_n(source: &[u8], bufflen: usize) -> Vec<u8> {
         }
         _ => {
             let room = bufflen - b" [string \"...\"] ".len() - 1;
-            // `strcspn(source, "\n\r")`: the first line, ended by either.
+            // The client's `strcspn(source, "\n")` (`0x6f5cd1`, the set at `0x835144`): the
+            // first line, ended by a `\n` alone.
             let line = source
                 .iter()
-                .position(|&b| b == b'\n' || b == b'\r')
+                .position(|&b| b == b'\n')
                 .unwrap_or(source.len());
             let len = line.min(room);
             let mut out = b"[string \"".to_vec();
@@ -334,7 +351,7 @@ mod tests {
         );
         assert_eq!(err("x = \"a\nb\""), "t:1: unfinished string near `\"a'");
         assert_eq!(err("x = [[a"), "t:1: unfinished long string near `<eof>'");
-        assert_eq!(err("x = 1\x01"), "t:1: unexpected symbol near `char(1)'");
+        assert_eq!(err("x = 1\x01"), "t:1: invalid control char near `char(1)'");
         assert_eq!(
             err("f()\n(g)()"),
             "t:2: ambiguous syntax (function call x new statement) near `('"
@@ -355,8 +372,8 @@ mod tests {
         assert_eq!(err("x = 3e"), "t:1: malformed number near `3e'");
     }
 
-    /// 5.1's lexer with level-0 nesting and the client's numerals: `\r` ends lines, `[=[` has
-    /// levels, and `0x10` is 0 then the name `x10`.
+    /// 5.1's lexer with level-0 nesting and the client's line ends and numerals: `\n` alone ends a
+    /// line, `[=[` has levels, and `0x10` is 0 then the name `x10`.
     #[test]
     fn the_lexer_is_the_script_hosts() {
         // The string constant a chunk returns.
@@ -368,17 +385,13 @@ mod tests {
             };
             heap.str(s).to_vec()
         };
-        assert_eq!(
-            one(b"return [[a\r\nb]]"),
-            b"a\nb",
-            "a line ending is one \\n"
-        );
+        assert_eq!(one(b"return [[a\r\nb]]"), b"a\r\nb", "a \\r is a byte");
         assert_eq!(one(b"return [[a [[b]] c]]"), b"a [[b]] c");
         assert_eq!(one(b"return [=[a]]b]=]"), b"a]]b");
-        assert_eq!(err("x = 'a\rb'"), "t:1: unfinished string near `'a'");
+        assert!(check(b"x = 'a\rb'", b"=t").is_ok());
         assert_eq!(err("x = 0x10"), "t:1: `=' expected near `<eof>'");
         assert!(check(b"a=1b=2", b"=t").is_ok());
-        assert_eq!(err("x = 1\ry = +"), "t:2: unexpected symbol near `+'");
+        assert_eq!(err("x = 1\ry = +"), "t:1: unexpected symbol near `+'");
         assert_eq!(err("x = 1\r\ny = +"), "t:2: unexpected symbol near `+'");
     }
 
@@ -389,7 +402,7 @@ mod tests {
         assert_eq!(e(b"x = +", b"=a\0b"), "a:1: unexpected symbol near `+'");
         assert_eq!(
             e(b"x = \0", b"x = \0"),
-            "[string \"x = \"]:1: unexpected symbol"
+            "[string \"x = \"]:1: invalid control char near `char(0)'"
         );
         assert_eq!(
             e(b"x = +\0", b"x = +\0"),
@@ -403,8 +416,9 @@ mod tests {
         assert_eq!(chunkid(b"@a/b.lua"), b"a/b.lua");
         assert_eq!(chunkid(b"x = 1\ny = 2"), b"[string \"x = 1...\"]");
         assert_eq!(chunkid(b"x = 1"), b"[string \"x = 1\"]");
-        assert_eq!(chunkid(b"x = 1\ry = 2"), b"[string \"x = 1...\"]");
-        assert_eq!(chunkid(b"\rx"), b"[string \"...\"]");
+        // A `\r` does not end the line (`0x6f5cd1`).
+        assert_eq!(chunkid(b"x = 1\ry = 2"), b"[string \"x = 1\ry = 2\"]");
+        assert_eq!(chunkid(b"\rx\ny"), b"[string \"\rx...\"]");
         let long = [b'a'; 100];
         assert_eq!(chunkid_n(&long, 60).len(), 9 + 43 + 3 + 2);
     }

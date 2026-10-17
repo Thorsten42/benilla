@@ -4,7 +4,7 @@
 use std::rc::Rc;
 
 use crate::heap::{FuncObj, Heap, LuaFunc, NativeFn, UpvalObj, UserObj};
-use crate::number::{fmt_g14, str2d};
+use crate::number::str2d;
 use crate::proto::{Arith, Cmp, Op, Proto, Reg, Rk, RK_CONST};
 use crate::table::KeyError;
 use crate::value::{FuncRef, StrRef, TableRef, Value, V};
@@ -29,9 +29,16 @@ const BASIC_CI_SIZE: usize = 8;
 /// at `LUAI_MAXCCALLS`, with the same eighth of margin for a handler. 200 levels of the deepest
 /// library callback use under half of it in an optimized build, so there it never decides.
 const MAX_RUST_STACK: usize = 1 << 20;
-/// A stack slot in the collector's count: 5.1's `TValue`, which C's allocator counts as the
-/// stack grows.
+/// A stack slot in the collector's count: 5.0's 16-byte `TObject` (`stack_init`'s 0x2d0 bytes for
+/// 45 slots, `0x6f6bb8`), counted as the stack grows.
 const STACK_SLOT_BYTES: usize = 16;
+/// A call record in the collector's count: 5.0's 24-byte `CallInfo` (`luaD_reallocCI`,
+/// `0x6f5f1a`).
+const CI_BYTES: usize = 24;
+/// The state's own records in the collector's count, the block count a new state starts from
+/// (`0x6f6e0b`): the 0x68-byte `lua_State` (`0x6f6b8d`) and the 0xc0-byte `global_State`
+/// (`0x6f6d88`).
+const STATE_BYTES: usize = 0x128;
 /// 5.1.5's `MAXTAGLOOP`: the steps `luaV_gettable` and `luaV_settable` take along a chain of
 /// `__index` or `__newindex` tables before `loop in gettable`.
 const MAXTAGLOOP: u32 = 100;
@@ -175,6 +182,8 @@ pub struct Vm {
     /// The hook is running: 5.1's `luaD_hook` clears `allowhook` around the hook, so code the
     /// hook runs does not count toward, or run, the hook again.
     in_hook: bool,
+    /// The message of an abort unwinding to the host ([`Vm::abort`]).
+    abort: Option<Rc<[u8]>>,
     /// Time charged to each chunk while profiling (`set_profiling`).
     pub profile: Option<Box<Profile>>,
     /// The embedding host's handle to its own state, which a host closure reads at each call
@@ -432,13 +441,14 @@ impl Vm {
             hook: None,
             hooked: false,
             in_hook: false,
+            abort: None,
             profile: None,
             host: None,
             reentry: None,
             rand: crate::lib_math::GlibcRand::seeded(1),
             identity: Default::default(),
         };
-        vm.heap.charge(STACK_SLOT_BYTES * vm.stack.len());
+        vm.heap.charge(vm.state_bytes());
         vm.heap.threshold = 2 * vm.heap.bytes().max(32 * 1024);
         vm
     }
@@ -499,7 +509,7 @@ impl Vm {
     pub fn tostr(&mut self, v: Value) -> Option<StrRef> {
         match v.unpack() {
             V::Str(s) => Some(s),
-            V::Num(n) => Some(self.heap.intern(fmt_g14(n).as_bytes())),
+            V::Num(n) => Some(crate::number::with_g14(n, |b| self.heap.intern(b))),
             _ => None,
         }
     }
@@ -680,6 +690,11 @@ impl Vm {
         let mut restored = Ok(());
         for (i, &(k, _)) in globals.iter().enumerate() {
             let old = self.stack[base + n + i];
+            if self.abort.is_some() {
+                // An abort raises again in any Lua `__newindex`: put the value back raw.
+                let _ = self.heap.table_mut(self.globals).set(Value::Str(k), old);
+                continue;
+            }
             let r = self.protected(|vm| vm.setindex(g, Value::Str(k), old, None));
             restored = restored.and(r);
         }
@@ -705,6 +720,9 @@ impl Vm {
     /// Raise `v`: the innermost protected call's handler runs here, before the stack unwinds, as
     /// 5.0's `luaD_throw` runs `errfunc` at the raise.
     pub fn throw(&mut self, v: Value) -> LuaError {
+        if self.abort.is_some() {
+            return self.abort_error();
+        }
         let Some(Some(h)) = self.handlers.last().copied() else {
             return LuaError { value: v };
         };
@@ -730,8 +748,16 @@ impl Vm {
     #[cold]
     #[inline(never)]
     pub fn rt_error(&mut self, msg: &str) -> LuaError {
+        self.rt_error_bytes(msg.as_bytes())
+    }
+
+    /// [`Vm::rt_error`] of bytes, as the client's C strings are: a name or text that is not
+    /// UTF-8 goes through as written.
+    #[cold]
+    #[inline(never)]
+    pub fn rt_error_bytes(&mut self, msg: &[u8]) -> LuaError {
         let mut out = self.where_(0);
-        out.extend_from_slice(msg.as_bytes());
+        out.extend_from_slice(msg);
         let v = self.str(&out);
         self.throw(v)
     }
@@ -739,8 +765,13 @@ impl Vm {
     /// `luaL_error`: the message with the position of the Lua function `level` frames up
     /// (`luaL_where(L, 1)` from a native names its caller).
     pub fn error_at(&mut self, level: usize, msg: &str) -> LuaError {
+        self.error_at_bytes(level, msg.as_bytes())
+    }
+
+    /// [`Vm::error_at`] of bytes, which need not be UTF-8.
+    pub fn error_at_bytes(&mut self, level: usize, msg: &[u8]) -> LuaError {
         let mut out = self.where_(level);
-        out.extend_from_slice(msg.as_bytes());
+        out.extend_from_slice(msg);
         let v = self.str(&out);
         self.throw(v)
     }
@@ -851,13 +882,15 @@ impl Vm {
         // A register names a value only in a running Lua frame; the host indexes with none.
         let named = reg.and_then(|r| self.objname(self.frames.len().checked_sub(1)?, r));
         let msg = match named {
-            Some((kind, name)) => format!(
-                "attempt to {op} {kind} `{}' (a {t} value)",
-                String::from_utf8_lossy(&name)
-            ),
-            None => format!("attempt to {op} a {t} value"),
+            Some((kind, name)) => [
+                format!("attempt to {op} {kind} `").as_bytes(),
+                &name,
+                format!("' (a {t} value)").as_bytes(),
+            ]
+            .concat(),
+            None => format!("attempt to {op} a {t} value").into_bytes(),
         };
-        self.rt_error(&msg)
+        self.rt_error_bytes(&msg)
     }
 
     #[cold]
@@ -1103,10 +1136,10 @@ impl Vm {
     ) -> Result<Value, LuaError> {
         if let (Some(x), Some(y)) = (self.tonumber(a), self.tonumber(b)) {
             return Ok(Value::Num(match op {
-                Arith::Add => x + y,
-                Arith::Sub => x - y,
-                Arith::Mul => x * y,
-                Arith::Div => x / y,
+                Arith::Add => crate::number::x87_op(x + y, x, y),
+                Arith::Sub => crate::number::x87_op(x - y, x, y),
+                Arith::Mul => crate::number::x87_op(x * y, x, y),
+                Arith::Div => crate::number::x87_op(x / y, x, y),
                 Arith::Pow => return self.pow_global(x, y),
             }));
         }
@@ -1311,6 +1344,7 @@ impl Vm {
                         if refused {
                             return Err(self.memory_error());
                         }
+                        self.heap.concat_space(buf.len());
                         self.stack[top - n] = self.str(&buf);
                         // A large buffer is not kept: one long result would hold its memory.
                         if buf.capacity() <= 64 * 1024 {
@@ -1369,9 +1403,19 @@ impl Vm {
             return self.call_at_inner(func_idx, nargs, nres);
         }
         self.clear_below = 0;
-        let r = self.unwind_guard(|vm| vm.call_at_inner(func_idx, nargs, nres));
+        if self.abort.take().is_some() {
+            // One a panic carried past the host's last call.
+            self.hooked = self.hook.is_some() || self.profile.is_some();
+        }
+        let mut r = self.unwind_guard(|vm| vm.call_at_inner(func_idx, nargs, nres));
         if let Some(p) = self.profile.as_mut() {
             p.close();
+        }
+        // An abort ends here, at the host, even where a native caught it.
+        if let Some(msg) = self.abort.take() {
+            self.hooked = self.hook.is_some() || self.profile.is_some();
+            let v = self.str(&msg);
+            r = Err(LuaError { value: v });
         }
         r
     }
@@ -1711,6 +1755,7 @@ impl Vm {
     }
 
     fn set_ci_size(&mut self, n: usize) {
+        self.heap.recharge(CI_BYTES * self.ci_size, CI_BYTES * n);
         self.ci_size = n;
         self.ci_limit = n - 1;
     }
@@ -1863,7 +1908,26 @@ impl Vm {
 
     pub fn remove_hook(&mut self) {
         self.hook = None;
-        self.hooked = self.profile.is_some();
+        self.hooked = self.profile.is_some() || self.abort.is_some();
+    }
+
+    /// Raise `msg` past every protected call, to the host's call into the VM: no error handler
+    /// runs, and until that call returns every raise is this one and every loop back edge, call
+    /// and return raises it again. A `pcall` that catches it lets its caller run only to the next
+    /// of those, so the unwinding ends. A host's guard against a script that never ends.
+    pub fn abort(&mut self, msg: &[u8]) -> LuaError {
+        self.abort = Some(msg.into());
+        self.hooked = true;
+        self.abort_error()
+    }
+
+    /// The abort in flight, raised again.
+    #[cold]
+    #[inline(never)]
+    fn abort_error(&mut self) -> LuaError {
+        let msg = self.abort.clone().expect("an abort");
+        let v = self.str(&msg);
+        LuaError { value: v }
     }
 
     /// Start or stop charging time to chunks; starting keeps what was charged so far.
@@ -1873,7 +1937,7 @@ impl Vm {
         } else {
             self.profile = None;
         }
-        self.hooked = self.hook.is_some() || self.profile.is_some();
+        self.hooked = self.hook.is_some() || self.profile.is_some() || self.abort.is_some();
     }
 
     /// The running chunk changed: close the segment and open one for it.
@@ -1900,6 +1964,9 @@ impl Vm {
     #[cold]
     #[inline(never)]
     fn hook_count(&mut self, n: u64) -> Result<(), LuaError> {
+        if self.abort.is_some() {
+            return Err(self.abort_error());
+        }
         if self.in_hook {
             return Ok(());
         }
@@ -2038,27 +2105,28 @@ impl Vm {
         }
     }
 
-    /// `luaL_argerror`: `bad argument #n to 'name' (msg)`, with a method's `self` not counted.
+    /// `luaL_argerror` (`0x6f4810`): `bad argument #n to `name' (msg)`, with a method's `self` not
+    /// counted, the name's bytes as the caller wrote them.
     pub fn arg_error(&mut self, narg: usize, msg: &str) -> LuaError {
+        let msg = msg.as_bytes();
         let named = self.called_name();
         let mut narg = narg;
-        let name = match &named {
+        let name: Vec<u8> = match named {
             Some((kind, n)) => {
-                if *kind == "method" {
+                if kind == "method" {
                     narg -= 1;
                     if narg == 0 {
-                        let m = format!(
-                            "calling `{}' on bad self ({msg})",
-                            String::from_utf8_lossy(n)
-                        );
-                        return self.error_at(1, &m);
+                        let m = [b"calling `", &n[..], b"' on bad self (", msg, b")"].concat();
+                        return self.error_at_bytes(1, &m);
                     }
                 }
-                String::from_utf8_lossy(n).into_owned()
+                n
             }
-            None => "?".to_string(),
+            None => b"?".to_vec(),
         };
-        self.error_at(1, &format!("bad argument #{narg} to `{name}' ({msg})"))
+        let head = format!("bad argument #{narg} to `");
+        let m = [head.as_bytes(), &name, b"' (", msg, b")"].concat();
+        self.error_at_bytes(1, &m)
     }
 
     /// `luaL_typerror`: `<expected> expected, got <type>`; an absent argument is "no value".
@@ -2072,6 +2140,12 @@ impl Vm {
     }
 
     // ── collection ───────────────────────────────────────────────────────────────────────────
+
+    /// What the state holds outside its objects, in the collector's count: its records, its
+    /// stack and its call records.
+    fn state_bytes(&self) -> usize {
+        STATE_BYTES + STACK_SLOT_BYTES * self.stack.len() + CI_BYTES * self.ci_size
+    }
 
     /// 5.0's `luaC_checkGC`, at a safe point: every live value is on the stack or reachable.
     #[inline]
@@ -2129,8 +2203,8 @@ impl Vm {
         let live = self
             .heap
             .collect(&roots, &open, &self.retired, self.names.mode)
-            + STACK_SLOT_BYTES * self.stack.len();
-        self.heap.charge(STACK_SLOT_BYTES * self.stack.len());
+            + self.state_bytes();
+        self.heap.charge(self.state_bytes());
         self.heap.threshold = 2 * live;
         // 5.1.5's `checkstacksizes`, which a cycle runs as it traverses the running thread, in
         // propagation and again in the atomic step: a call-info array a quarter used halves,
@@ -2378,7 +2452,7 @@ impl Vm {
                     let (x, y) = (r!($b), r!($c));
                     if let (Some(xn), Some(yn)) = (x.as_num(), y.as_num()) {
                         // Canonical numbers in, a canonical number out.
-                        r!($a) = Value::num_raw(xn $op yn);
+                        r!($a) = Value::num_raw(crate::number::x87_op(xn $op yn, xn, yn));
                     } else {
                         let v = slow!(self.arith($kind, x, y, (Some($b as usize), Some($c as usize))))?;
                         r!($a) = v;
@@ -2390,7 +2464,7 @@ impl Vm {
                 ($a:expr, $kx:expr, $c:expr, $op:tt, $kind:expr) => {{
                     let (x, y) = (kv!($kx), r!($c));
                     if let (Some(xn), Some(yn)) = (x.as_num(), y.as_num()) {
-                        r!($a) = Value::num_raw(xn $op yn);
+                        r!($a) = Value::num_raw(crate::number::x87_op(xn $op yn, xn, yn));
                     } else {
                         let v = slow!(self.arith($kind, x, y, (None, Some($c as usize))))?;
                         r!($a) = v;
@@ -2513,7 +2587,7 @@ impl Vm {
                 ($a:expr, $b:expr, $kx:expr, $op:tt, $kind:expr) => {{
                     let y = kv!($kx);
                     if let (Some(x), Some(yn)) = (r!($b).as_num(), y.as_num()) {
-                        r!($a) = Value::num_raw(x $op yn);
+                        r!($a) = Value::num_raw(crate::number::x87_op(x $op yn, x, yn));
                     } else {
                         let x = r!($b);
                         let v = slow!(self.arith($kind, x, y, (Some($b as usize), None)))?;
@@ -3251,8 +3325,8 @@ fn ran_since(seg: *const Op, ip: *const Op, p: &Proto) -> u64 {
     (i - s - free) as u64
 }
 
-/// 5.1's `getobjname` over a prototype: a local's name, else what a symbolic run from the start
-/// says last wrote `reg` before `pc`. Names are C strings there, so a constant's stops at a NUL.
+/// `getobjname` (`0x6fc4c0`) over a prototype: a local's name, else what a symbolic run from the
+/// start says last wrote `reg` before `pc`. Names are C strings there, so a constant's stops at a NUL.
 fn objname_in(p: &Proto, heap: &Heap, pc: usize, reg: usize) -> Option<(&'static str, Vec<u8>)> {
     if let Some(n) = p.local_name(reg as Reg, pc) {
         return Some(("local", n.to_vec()));
@@ -3273,12 +3347,7 @@ fn objname_in(p: &Proto, heap: &Heap, pc: usize, reg: usize) -> Option<(&'static
             _ => None,
         },
         Op::Move(a, b) if (b as usize) < (a as usize) => objname_in(p, heap, pc, b as usize),
-        Op::GetUpval(_, u) => Some((
-            "upvalue",
-            p.upval_names
-                .get(u as usize)
-                .map_or(b"?".to_vec(), |n| n.to_vec()),
-        )),
+        // The client's `getobjname` has no `OP_GETUPVAL` arm (`0x6fc5e0`): an upvalue is unnamed.
         Op::GetTable(_, _, c) => Some(("field", kname(c))),
         Op::GetField(_, _, kx) => Some(("field", kname(kx + RK_CONST))),
         Op::SelfOp(_, _, c) => Some(("method", kname(c))),

@@ -53,6 +53,8 @@ mod debug_panel;
 /// The dev/player seam: the instrument groups and the boundary rule. Always compiled; what it holds
 /// is not.
 mod dev;
+#[cfg(feature = "dev")]
+mod devtools;
 mod doodad_events;
 /// MONKEY (dynamic interiors): the cvar → benilla-world bridge for the fixture-lit interior lane.
 mod dynamic_interior;
@@ -168,6 +170,7 @@ mod ui_loot;
 mod ui_loot_roll;
 mod ui_macro;
 mod ui_mail;
+mod ui_memory;
 mod ui_merchant;
 mod ui_mirror;
 mod ui_models;

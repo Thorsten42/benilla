@@ -804,10 +804,14 @@ impl UiScript {
         }
     }
 
-    /// Bound how long a chunk may run: past `budget` VM instructions the hook raises a Lua error,
-    /// so a loop that never ends fails its addon and the rest still runs. The app arms it only for
-    /// the world-entry load, so a hung load reports instead of freezing the loading screen, and
-    /// disarms it ([`Self::clear_instruction_budget`]) before the session's first frame.
+    /// Bound how long a chunk may run: past `budget` VM instructions the hook aborts the chunk to
+    /// the host, past every `pcall` and `xpcall` and running no error handler
+    /// (`benilla_lua::Vm::abort`), so a loop that never ends fails its addon and the rest still
+    /// runs. The app arms it only for the world-entry load, so a hung load reports instead of
+    /// freezing the loading screen, and disarms it ([`Self::clear_instruction_budget`]) before the
+    /// session's first frame. Deviation: the client's Lua has no such bound, as nothing sets a
+    /// hook (`lua_sethook`, `0x6fba40`, has no caller and no pointer to it), so a load that
+    /// never ends hangs it.
     pub fn set_instruction_budget(&self, budget: u64) {
         let used = self.instructions.clone();
         used.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -1467,7 +1471,7 @@ impl UiScript {
         diagnostics::record_load_failure(&self.lua, log);
         self.model_mut()
             .pending_error_dispatch
-            .push(handler.to_string());
+            .push(model::HandlerArg::Text(handler.to_string()));
     }
 
     /// Hand each queued script error to the Lua error handler, as the reference's catch closure
@@ -1484,8 +1488,8 @@ impl UiScript {
         let Some(handler) = stdlib::error_handler(&self.lua) else {
             return;
         };
-        for msg in pending {
-            if let Err(e) = handler.call::<()>(msg) {
+        for arg in pending {
+            if let Err(e) = arg.value(&self.lua).and_then(|v| handler.call::<()>(v)) {
                 self.model_mut()
                     .errors
                     .push(format!("error handler itself failed: {e}"));
