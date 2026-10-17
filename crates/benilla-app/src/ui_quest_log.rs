@@ -609,6 +609,7 @@ fn record_view(t: &QuestTemplate, tables: &RecordTables) -> QuestRecordView {
             }
         }),
         src_item_id: t.src_item_id,
+        end_text: t.end_text.clone(),
         // `QUEST_FLAGS_PARTY_ACCEPT` (2) or `_EXPLORATION` (4), vmangos `QuestDef.h:151-152`: the
         // server's complete bit decides.
         needs_complete_bit: t.flags & 6 != 0,

@@ -118,6 +118,10 @@ pub struct QuestRecordView {
     /// `(item id, count)`, the ids that are set, in order (`+0x3c`, `+0x4c`).
     pub rewards: Vec<(u32, u32)>,
     pub choices: Vec<(u32, u32)>,
+    /// The template's end text, the objective a quest without creatures or items states
+    /// ("Face Lunaclaw and earn the strength of body and heart."): its first leaderboard line,
+    /// typed `"event"` ([`Line::Event`]).
+    pub end_text: String,
     /// `GetQuestLogQuestText`'s two returns, the macros expanded.
     pub description: String,
     pub objectives_text: String,
@@ -523,14 +527,17 @@ impl Model {
 /// One leaderboard line of a record, as `GetQuestLogLeaderBoard` walks the quads (`0x4e0110`): a
 /// creature or GameObject pass over the ids that are set, the array index counting the empty ones
 /// (`0x4e02d7`), then an item pass over the ids above 0 that are not the quest's own item
-/// (`0x4e04f4`-`0x4e04fd`); a quad carrying both gives two lines.
+/// (`0x4e04f4`-`0x4e04fd`); a quad carrying both gives two lines. A record with an end text has it
+/// first (`0x4e0278`, index 1 at `0x4e0285`), typed `"event"` (`0x4e0293`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Line {
+    Event,
     Creature(usize),
     Item(usize),
 }
 
 fn lines(record: &QuestRecordView) -> impl Iterator<Item = Line> + '_ {
+    let event = (!record.end_text.is_empty()).then_some(Line::Event);
     let creatures = record
         .objectives
         .iter()
@@ -543,12 +550,13 @@ fn lines(record: &QuestRecordView) -> impl Iterator<Item = Line> + '_ {
         .enumerate()
         .filter(|(_, o)| (o.item_id as i32) > 0 && o.item_id != record.src_item_id)
         .map(|(i, _)| Line::Item(i));
-    creatures.chain(items)
+    event.into_iter().chain(creatures).chain(items)
 }
 
-/// What a line shows before its format key is filled.
+/// What a line shows before its format key is filled; an event line has no key, its text shown
+/// as it is.
 struct LineParts {
-    key: &'static str,
+    key: Option<&'static str>,
     name: String,
     cur: u32,
     req: u32,
@@ -565,6 +573,17 @@ fn line_parts(model: &mut Model, index: usize, line: usize) -> Option<LineParts>
         let (record, slot) = model.quest_row_parts(index)?;
         let which = lines(record).nth(line.checked_sub(1)?)?;
         let i = match which {
+            // The end text, done by the slot's complete bit (`0x4e02a2`); it carries no count.
+            Line::Event => {
+                let done = u32::from(slot.state & SLOT_COMPLETE != 0);
+                return Some(LineParts {
+                    key: None,
+                    name: record.end_text.clone(),
+                    cur: done,
+                    req: 1,
+                    kind: "event",
+                });
+            }
             Line::Creature(i) | Line::Item(i) => i,
         };
         let o = &record.objectives[i];
@@ -577,6 +596,7 @@ fn line_parts(model: &mut Model, index: usize, line: usize) -> Option<LineParts>
         (which, o, slot.counters[i])
     };
     match which {
+        Line::Event => unreachable!("answered above"),
         Line::Creature(_) => {
             let req = o.required_count;
             let cur = u32::from(counter);
@@ -584,7 +604,7 @@ fn line_parts(model: &mut Model, index: usize, line: usize) -> Option<LineParts>
             let kind = if is_go { "object" } else { "monster" };
             if !o.text.is_empty() {
                 return Some(LineParts {
-                    key: "QUEST_OBJECTS_FOUND",
+                    key: Some("QUEST_OBJECTS_FOUND"),
                     name: o.text,
                     cur,
                     req,
@@ -593,7 +613,7 @@ fn line_parts(model: &mut Model, index: usize, line: usize) -> Option<LineParts>
             }
             if is_go {
                 return Some(LineParts {
-                    key: "QUEST_OBJECTS_FOUND",
+                    key: Some("QUEST_OBJECTS_FOUND"),
                     name: NAME_PLACEHOLDER.into(),
                     cur,
                     req,
@@ -604,7 +624,7 @@ fn line_parts(model: &mut Model, index: usize, line: usize) -> Option<LineParts>
                 .quest_creature_lookup(o.creature_or_go)
                 .unwrap_or_else(|| NAME_PLACEHOLDER.into());
             Some(LineParts {
-                key: "QUEST_MONSTERS_KILLED",
+                key: Some("QUEST_MONSTERS_KILLED"),
                 name,
                 cur,
                 req,
@@ -618,7 +638,7 @@ fn line_parts(model: &mut Model, index: usize, line: usize) -> Option<LineParts>
                 .quest_item_lookup(item_id)
                 .map_or_else(|| NAME_PLACEHOLDER.into(), |(name, _, _)| name);
             Some(LineParts {
-                key: "QUEST_ITEMS_NEEDED",
+                key: Some("QUEST_ITEMS_NEEDED"),
                 name,
                 cur: held.min(req),
                 req,
@@ -1140,22 +1160,26 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     Value::Nil,
                 ]));
             };
-            // The VM's own `GlobalStrings.lua`, read through `0x703bf0`.
-            let text = lua
-                .globals()
-                .get::<String>(p.key)
-                .ok()
-                .filter(|t| !t.is_empty())
-                .map_or_else(String::new, |f| {
-                    fill(
-                        &f,
-                        &[
-                            Arg::S(&p.name),
-                            Arg::D(i64::from(p.cur)),
-                            Arg::D(i64::from(p.req)),
-                        ],
-                    )
-                });
+            // The VM's own `GlobalStrings.lua`, read through `0x703bf0`; an event line's text
+            // is shown as it is.
+            let text = match p.key {
+                None => p.name.clone(),
+                Some(key) => lua
+                    .globals()
+                    .get::<String>(key)
+                    .ok()
+                    .filter(|t| !t.is_empty())
+                    .map_or_else(String::new, |f| {
+                        fill(
+                            &f,
+                            &[
+                                Arg::S(&p.name),
+                                Arg::D(i64::from(p.cur)),
+                                Arg::D(i64::from(p.req)),
+                            ],
+                        )
+                    }),
+            };
             Ok(MultiValue::from_vec(vec![
                 Value::String(lua.create_string(&text)?),
                 Value::String(lua.create_string(p.kind)?),
@@ -1754,6 +1778,50 @@ mod tests {
             (783, threat_within(), slot(783, 3, 0)),
             (7, camp_cleanup(), slot(7, 10, SLOT_COMPLETE)),
         ]
+    }
+
+    /// A quest whose objective is an event states it in its end text: the first leaderboard line,
+    /// typed `"event"`, shown as it is and finished only by the slot's complete bit (`0x4e0278`,
+    /// `0x4e02a2`). The druid's "Body and Heart" has nothing else, and an addon that counts no
+    /// lines takes such a quest for finished.
+    #[test]
+    fn an_end_text_is_the_first_line_and_follows_the_complete_bit() {
+        let mut body_and_heart = record("Body and Heart", 10, 141, "Teldrassil");
+        body_and_heart.end_text = "Face Lunaclaw and earn the strength of body and heart.".into();
+        let mut both = threat_within();
+        both.end_text = "Report to Marshal McBride.".into();
+        let mut s = UiScript::new().unwrap();
+        caches(&mut s);
+        seat(
+            &mut s,
+            &[
+                (6001, body_and_heart.clone(), slot(6001, 0, 0)),
+                (783, both, slot(783, 3, 0)),
+            ],
+        );
+        // Rows: Elwynn Forest (1), its quest (2), Teldrassil (3), Body and Heart (4).
+        assert_eq!(s.eval::<i64>("return GetNumQuestLeaderBoards(4)").unwrap(), 1);
+        assert_eq!(
+            s.eval::<(String, String, bool)>(
+                "local t, k, f = GetQuestLogLeaderBoard(1, 4) return t, k, f == 1"
+            )
+            .unwrap(),
+            (body_and_heart.end_text.clone(), "event".into(), false)
+        );
+        // The event first, then the creature line as before.
+        assert_eq!(s.eval::<i64>("return GetNumQuestLeaderBoards(2)").unwrap(), 2);
+        assert_eq!(
+            s.eval::<String>("local _, k = GetQuestLogLeaderBoard(2, 2) return k").unwrap(),
+            "monster"
+        );
+        // The complete bit finishes it; alone in the log, the quest is row 2.
+        seat(
+            &mut s,
+            &[(6001, body_and_heart, slot(6001, 0, SLOT_COMPLETE))],
+        );
+        assert!(s
+            .eval::<bool>("local _, _, f = GetQuestLogLeaderBoard(1, 2) return f == 1")
+            .unwrap());
     }
 
     #[test]
