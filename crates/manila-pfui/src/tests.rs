@@ -318,9 +318,35 @@ fn afk_and_dnd_read_player_flags_for_stock_and_extended_tokens() {
         .unwrap();
 }
 
+/// `quests` as `(id, header, title)`, seated in slots 0 on with their records held and the
+/// player in the world, as the app feeds the quest log: one header row per header, its quests
+/// under it in slot order.
+fn seat_quest_log(script: &mut UiScript, quests: &[(u32, &str, &str)]) {
+    use benilla_ui::script::{QuestRecordView, QuestSlotView, QUEST_LOG_SLOTS};
+    let mut slots = [QuestSlotView::default(); QUEST_LOG_SLOTS];
+    for (i, &(id, header, title)) in quests.iter().enumerate() {
+        script.seed_quest_record(
+            id,
+            QuestRecordView {
+                title: title.into(),
+                level: 1,
+                zone_or_sort: 1,
+                header: header.into(),
+                ..Default::default()
+            },
+        );
+        slots[i] = QuestSlotView {
+            quest_id: id,
+            ..Default::default()
+        };
+    }
+    script.set_quest_log_player(true);
+    script.quest_log_changed(slots);
+}
+
 #[test]
 fn quest_events_ignore_bulk_sync_wait_for_templates_and_keep_turnin_before_removal() {
-    use benilla_ui::script::{pfui_host::quests, QuestLogEntryView, QuestLogState};
+    use benilla_ui::script::pfui_host::quests;
     let mut script = extended();
     script.run(r#"
       events={}
@@ -338,21 +364,8 @@ fn quest_events_ignore_bulk_sync_wait_for_templates_and_keep_turnin_before_remov
     quests::observe_log_slots(script.lua(), vec![(7, 0), (783, 0)]);
     quests::dispatch_log_events(script.lua());
     script.run("assert(#events==0)").unwrap();
-    script.set_quest_log(QuestLogState {
-        entries: vec![
-            QuestLogEntryView {
-                is_header: true,
-                title: "Northshire".into(),
-                ..Default::default()
-            },
-            QuestLogEntryView {
-                quest_id: 783,
-                ..Default::default()
-            },
-        ],
-        hidden_quest_ids: vec![7],
-        num_quests: 2,
-    });
+    // Northshire with 783 in slot 0 (row 2) and the bulk-synced 7 in slot 1.
+    seat_quest_log(&mut script, &[(783, "Northshire", ""), (7, "Northshire", "")]);
     quests::dispatch_log_events(script.lua());
     script.run("assert(#events==1 and events[1][1]=='QUEST_ACCEPTED' and events[1][2]==2 and events[1][3]==783)").unwrap();
     // Header folds and raw-slot reordering are presentation changes, never accepts/removals.
@@ -2339,25 +2352,9 @@ fn reputation_structs_follow_visible_indices_folds_and_watched_slot_zero() {
 fn quest_details_read_cached_templates_independently_of_log_selection() {
     use benilla_ui::script::{
         pfui_host::quests::{set_details, Detail, Requirement},
-        QuestLogEntryView, QuestLogState,
     };
     let mut script = extended();
-    script.set_quest_log(QuestLogState {
-        entries: vec![
-            QuestLogEntryView {
-                title: "Zone".into(),
-                is_header: true,
-                ..Default::default()
-            },
-            QuestLogEntryView {
-                quest_id: 42,
-                title: "Bring supplies".into(),
-                ..Default::default()
-            },
-        ],
-        num_quests: 1,
-        ..Default::default()
-    });
+    seat_quest_log(&mut script, &[(42, "Zone", "Bring supplies")]);
     script
         .run("assert(C_QuestLog.GetQuestDetails(42)==nil)")
         .unwrap();

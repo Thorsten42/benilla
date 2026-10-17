@@ -37,6 +37,11 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     // The parser takes 5.1's `...`, `#` and `%` on this state only; every other client keeps the
     // 1.12 grammar.
     lua.set_manila_lua51(true);
+    // 5.1's `_G`, the globals table itself, which 1.12's client opens without (benilla #1792)
+    // and pfUI's code indexes throughout.
+    if lua.globals().raw_get::<Value>("_G")?.is_nil() {
+        lua.globals().raw_set("_G", lua.globals())?;
+    }
     lua.load(LUA51_LIBS).set_name("=manila-pfui lua51").exec()?;
     let string: Table = lua.globals().get("string")?;
     // 5.1's `luaopen_string` gives every string the metatable `{ __index = string }`, which makes

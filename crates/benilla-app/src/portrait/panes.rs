@@ -541,7 +541,7 @@ pub(super) fn sync_panes(
                     &source,
                     scene,
                 ) {
-                    aim(&mut cams, booth_pane, &anchors, aspect, pane.camera);
+                    aim(&mut commands, booth_pane, &anchors, aspect, pane.camera);
                     booth_pane.built = Some(Built {
                         build: pane.builds,
                         look,
@@ -571,7 +571,7 @@ pub(super) fn sync_panes(
             continue; // the engine holds no copy (`ClearModel`): nothing at `+0x318`
         };
         if booth_pane.aimed != Some((aspect, pane.camera)) {
-            aim(&mut cams, booth_pane, &anchors, aspect, pane.camera);
+            aim(&mut commands, booth_pane, &anchors, aspect, pane.camera);
         }
         let anchors = anchors.through(pane.camera);
         // The root, the widget's `T(pos)·R(facing)·S(s)` with `pos` at the origin; `s` is the 4:3
@@ -1024,22 +1024,20 @@ fn build(
     Some(anchors)
 }
 
-/// Aim a pane's camera through its copy's rig at the pane's aspect. A camera spawned this frame is
-/// not in the query until the commands apply, so the aim counts only once it lands: the draw path
-/// re-aims the next frame.
+/// Aim a pane's camera through its copy's rig at the pane's aspect, through the camera a
+/// `SetCamera` names ([`PortraitAnchors::through`]). The pose goes in as a command, so a camera
+/// spawned through `Commands` this pass takes it with its spawn and the pane's first frame
+/// composites an aimed view; `try_insert` leaves a camera already despawned alone.
 fn aim(
-    cams: &mut Query<(&mut Transform, &mut Projection, &mut RenderTarget), With<BoothCam>>,
+    commands: &mut Commands,
     pane: &mut PaneBooth,
     anchors: &PortraitAnchors,
     aspect: f32,
     camera: Option<i32>,
 ) {
     let (tf, proj) = body_frame(&anchors.through(camera), aspect);
-    if let Ok((mut t, mut p, _)) = cams.get_mut(pane.camera) {
-        *t = tf;
-        *p = proj;
-        pane.aimed = Some((aspect, camera));
-    }
+    commands.entity(pane.camera).try_insert((tf, proj));
+    pane.aimed = Some((aspect, camera));
 }
 
 /// The composite: each drawn pane's target at the pane's rect, premultiplied, at the frame's own

@@ -2,7 +2,7 @@
 //! stock state's grammar left as the 1.12 client's.
 
 fn run_on(lua51: bool, src: &str) -> Result<Vec<String>, String> {
-    let mut vm = benilla_lua::new_script_host_state();
+    let mut vm = benilla_lua::new_state();
     vm.heap.set_manila_lua51(lua51);
     match vm.exec(src.as_bytes(), b"=t") {
         Ok(vs) => Ok(vs.into_iter().map(|v| vm.display(v)).collect()),

@@ -25,6 +25,12 @@ const NOT_YET_ASSERTED: &[(&str, usize, &str)] = &[
         1,
         "Deviation: the same stack-top return (0x4dcd7c)",
     ),
+    (
+        "GetDebugStats",
+        0,
+        "wenilla carry: the reference answers nothing (0x488af0, xor eax,eax); this one answers \
+         a health line for StatsFrame (benilla-ui script/client.rs), on purpose",
+    ),
 ];
 
 /// The query verbs the negative-index rule reads: a verb that acts on its index (`PickupAction`)
@@ -886,8 +892,7 @@ const NOT_PROBED: &[&str] = &[
 /// with one finished line. Each carries both legs of its flags.
 fn seed_boolean_probe_state(s: &mut benilla_ui::script::UiScript) {
     use benilla_ui::script::{
-        LootRollEntry, LootRollsState, QuestLogEntryView, QuestLogObjectiveView, QuestLogState,
-        TalentPrereqView, TalentTabView, TalentUiState, TalentView,
+        LootRollEntry, LootRollsState, TalentPrereqView, TalentTabView, TalentUiState, TalentView,
     };
     s.set_unit(
         "player",
@@ -956,22 +961,12 @@ fn seed_boolean_probe_state(s: &mut benilla_ui::script::UiScript) {
         ],
     });
     s.set_talent_master_pending(true);
-    s.set_quest_log(QuestLogState {
-        num_quests: 1,
-        entries: vec![QuestLogEntryView {
-            quest_id: 1,
-            title: "Probe".into(),
-            objectives: vec![QuestLogObjectiveView {
-                text: "Probes slain: 1/1".into(),
-                kind: "monster".into(),
-                finished: true,
-                cur: 1,
-                req: 1,
-            }],
-            ..Default::default()
-        }],
-        ..Default::default()
-    });
+    // Row 2 under its header, so the ladder's `1, 2` reads the finished line.
+    let mut probe = crate::ui_quest_log::fixture::quest(1, "Probe", 1);
+    probe.record.objectives[0] = crate::ui_quest_log::fixture::kill(1, 1);
+    probe.record.objectives[0].text = "Probes".into();
+    probe.slot.counters[0] = 1;
+    crate::ui_quest_log::fixture::seat(s, &[probe]);
 }
 
 /// 1.12 has no boolean query: of the table's trustworthy rows only `IsPetAttackActive` and Lua's

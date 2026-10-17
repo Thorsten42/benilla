@@ -147,8 +147,9 @@ fn subject(lua: &Lua, verb: &str, args: &MultiValue) -> mlua::Result<Option<Item
                     .and_then(|i| items.get(i))
             })
             .map(|item| item.item_id),
+        // The selected quest's record lists its `(item id, count)` pairs.
         "SetQuestLogItem" => model
-            .selected_quest_detail()
+            .selected_quest_record()
             .and_then(|q| match text(args, 1).as_deref() {
                 Some("choice") => Some(&q.choices),
                 Some("reward") => Some(&q.rewards),
@@ -159,7 +160,7 @@ fn subject(lua: &Lua, verb: &str, args: &MultiValue) -> mlua::Result<Option<Item
                     .and_then(|i| i.checked_sub(1))
                     .and_then(|i| items.get(i))
             })
-            .map(|item| item.item_id),
+            .map(|&(item_id, _)| item_id),
         "SetMerchantItem" | "SetBuybackItem" => model.merchant.as_ref().and_then(|m| {
             let rows = if verb == "SetBuybackItem" {
                 &m.buyback

@@ -255,6 +255,7 @@ impl super::UiScript {
         model.item_stat_asks.remove(&item_id);
         model.item_stat_reads.remove(&item_id);
         model.item_templates.insert(item_id, view);
+        model.quest_store.item_landed(item_id);
         #[cfg(feature = "pfui")]
         {
             drop(model);

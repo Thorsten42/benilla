@@ -206,9 +206,6 @@ impl PluginGroup for GamePlugins {
             .add(BattlefieldPositionsPlugin)
             .add(crate::game_tip::GameTipPlugin)
             .add(crate::text_filter::TextFilterPlugin)
-            // Re-shapes a `bevy_ui` text root whose last span was despawned, an upstream hole
-            // that otherwise panics in `bevy_text` on the next resize.
-            .add(crate::text_reshape::TextReshapePlugin)
             .add(TutorialPlugin)
             .add(crate::swing_refusal::SwingRefusalPlugin)
             .add(UiSummonPlugin)
@@ -882,12 +879,20 @@ pub(crate) mod schedule_tests {
     /// reason read off the dump, or declare the order (`.after`, a set, a `chain`). A resource
     /// that commutes by construction belongs in [`Classes`].
     ///
+    /// MONKEY (merge upstream a9c2672b, 2026-10-16): upstream 3,966 → 3,939; 4,026 − 27 by
+    /// arithmetic.
+    ///
+    /// MONKEY (merge upstream 87f3b24f, 2026-10-16): upstream 3,939 → 3,348 with the native glue
+    /// screens gone; 3,999 − 591 by arithmetic.
+    ///
+    /// MONKEY (merge upstream f55bb79b, 2026-10-18): upstream 3,348 → 3,346; 3,408 − 2 by
+    /// arithmetic.
     #[cfg(not(feature = "pfui"))]
-    const UPDATE_ACTIONABLE_CEILING: usize = 3_408;
+    const UPDATE_ACTIONABLE_CEILING: usize = 3_406;
     // The optional feeds order stock producers before their consumers, so the pfUI build has its
-    // own ratchet: 3,933 − 591 by arithmetic at upstream 87f3b24f.
+    // own ratchet: 3,933 − 591 at upstream 87f3b24f, − 2 at f55bb79b.
     #[cfg(feature = "pfui")]
-    const UPDATE_ACTIONABLE_CEILING: usize = 3_342;
+    const UPDATE_ACTIONABLE_CEILING: usize = 3_340;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {
