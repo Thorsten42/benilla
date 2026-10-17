@@ -132,10 +132,17 @@ pub(crate) enum GlueScene {
     NightElf,
     Scourge,
     Tauren,
+    /// Turtle WoW's own race stages, which its `GlueParent.lua` names by race (`UI_BloodElf`
+    /// for the High Elf, `UI_Gnome`, `UI_Goblin`) and for the Troll as `UI_CharacterSelect`; a
+    /// 1.12.1 install has none of them, so the stock remaps never reach these.
+    BloodElf,
+    Gnome,
+    Goblin,
+    CharacterSelect,
 }
 
 impl GlueScene {
-    const ALL: [GlueScene; 7] = [
+    const ALL: [GlueScene; 11] = [
         GlueScene::MainMenu,
         GlueScene::Human,
         GlueScene::Orc,
@@ -143,6 +150,10 @@ impl GlueScene {
         GlueScene::NightElf,
         GlueScene::Scourge,
         GlueScene::Tauren,
+        GlueScene::BloodElf,
+        GlueScene::Gnome,
+        GlueScene::Goblin,
+        GlueScene::CharacterSelect,
     ];
 
     /// The model-name token, `Interface\Glues\Models\UI_<token>\UI_<token>.mdx`.
@@ -155,6 +166,10 @@ impl GlueScene {
             GlueScene::NightElf => "NightElf",
             GlueScene::Scourge => "Scourge",
             GlueScene::Tauren => "Tauren",
+            GlueScene::BloodElf => "BloodElf",
+            GlueScene::Gnome => "Gnome",
+            GlueScene::Goblin => "Goblin",
+            GlueScene::CharacterSelect => "CharacterSelect",
         }
     }
 
@@ -185,7 +200,8 @@ impl GlueScene {
 
     /// The fog the stock files give the scene, near 0: the race rows are `GlueParent.lua`'s
     /// `CharModelFogInfo`; the main menu's is `AccountLogin.xml`'s `<FogColor>` and `fogFar`.
-    pub(crate) fn stock_fog(self) -> SceneFog {
+    /// Turtle's own stages have no row, and `SetBackgroundModel` clears their fog.
+    pub(crate) fn stock_fog(self) -> Option<SceneFog> {
         let (rgb, far) = match self {
             GlueScene::MainMenu => ([0.25, 0.06, 0.015], 1200.0),
             GlueScene::Orc => ([0.5, 0.5, 0.5], 270.0),
@@ -194,12 +210,16 @@ impl GlueScene {
             GlueScene::Scourge => ([0.0, 0.22, 0.22], 26.0),
             GlueScene::Tauren => ([1.0, 0.61, 0.42], 153.0),
             GlueScene::Human => ([0.8, 0.65, 0.73], 222.0),
+            GlueScene::BloodElf
+            | GlueScene::Gnome
+            | GlueScene::Goblin
+            | GlueScene::CharacterSelect => return None,
         };
-        SceneFog {
+        Some(SceneFog {
             rgb,
             near: 0.0,
             far,
-        }
+        })
     }
 }
 
@@ -265,7 +285,7 @@ impl GluePreview {
         let scene = GlueScene::of_race(race);
         self.scene = Some(scene);
         self.look = Some(GlueLook::Create(look));
-        self.fog = Some(scene.stock_fog());
+        self.fog = scene.stock_fog();
     }
 }
 
@@ -2319,10 +2339,23 @@ mod tests {
         for odd in [
             "",
             "UI_",
-            "UI_Gnome.mdx",
+            "UI_Murloc.mdx",
             "Interface\\Glues\\Models\\Orc.mdx",
         ] {
             assert_eq!(GlueScene::from_model_path(odd), None, "{odd}");
+        }
+        // Turtle WoW's own stages, as its `SetBackgroundModel` names them, stand fogless.
+        for (path, scene) in [
+            ("Interface\\Glues\\Models\\UI_BloodElf\\UI_BloodElf.mdx", GlueScene::BloodElf),
+            ("Interface\\Glues\\Models\\UI_Gnome\\UI_Gnome.mdx", GlueScene::Gnome),
+            ("Interface\\Glues\\Models\\UI_Goblin\\UI_Goblin.mdx", GlueScene::Goblin),
+            (
+                "Interface\\Glues\\Models\\UI_CharacterSelect\\UI_CharacterSelect.mdx",
+                GlueScene::CharacterSelect,
+            ),
+        ] {
+            assert_eq!(GlueScene::from_model_path(path), Some(scene), "{path}");
+            assert_eq!(scene.stock_fog(), None, "{path}");
         }
         assert_eq!(GlueScene::of_race(8), GlueScene::Orc);
         assert_eq!(GlueScene::of_race(7), GlueScene::Dwarf);
