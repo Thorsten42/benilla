@@ -117,7 +117,7 @@ fn feed(
     let carried = me
         .map(|(store, _)| crate::ui_items::stack_counts(&store.0, &objects))
         .unwrap_or_default();
-    let (items, commands, player) = &supplies;
+    let (items, _, player) = &supplies;
     let usable = me
         .map(|(store, _)| {
             let context = crate::spell::usable::UsableCtx {
@@ -142,7 +142,7 @@ fn feed(
                     Some((
                         *id,
                         crate::spell::usable::spell_usable(
-                            *id, d, &spells, &context, &objects, items, commands,
+                            *id, d, &spells, &context, &objects, items,
                         ),
                     ))
                 })

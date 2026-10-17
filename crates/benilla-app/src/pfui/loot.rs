@@ -38,7 +38,7 @@ fn receive(
             kind,
             roll,
             is_me: me.0 == Some(guid),
-            name: names.resolve(&objects, guid, &commands).map(str::to_owned),
+            name: names.resolve(&objects, guid, crate::query_cache::Ask::New(&commands)).map(str::to_owned),
             class: class
                 .and_then(crate::pfui::class_names)
                 .map(|(_, token)| token.to_owned()),

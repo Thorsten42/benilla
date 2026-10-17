@@ -14,7 +14,8 @@ audit = ["dep:benilla-formats", "dep:roxmltree", "dep:serde"]
 
 [dependencies]
 benilla-ui = { path = "../benilla-ui", features = ["pfui"] }
-mlua = { version = "0.11", features = ["lua51", "vendored"] }
+# The script host's Lua, under the name the host uses (`benilla_ui::mlua`).
+mlua = { path = "../benilla-mlua", package = "benilla-mlua" }
 base64 = "0.22"
 ciborium = "0.2"
 miniz_oxide = "0.8"

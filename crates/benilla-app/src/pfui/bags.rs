@@ -67,7 +67,7 @@ fn drain(
             };
             let fields = objects.object(guid)?;
             let id = fields.object_entry()?;
-            let template = templates.template(id, guid, &commands)?;
+            let template = templates.template(id, guid, crate::query_cache::Ask::New(&commands))?;
             Some(Slot {
                 guid,
                 id,

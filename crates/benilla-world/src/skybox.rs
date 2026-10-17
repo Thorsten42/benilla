@@ -539,7 +539,7 @@ fn build_skybox(
                 mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, sub.vertex_colors.clone());
             }
             // MONKEY (skybox): stage 1 reads UV set B.
-            if let Some(st) = sub.stage1.as_ref().filter(|s| s.uvs.len() == sub.positions.len()) {
+            if let Some(st) = sub.stage1_uv.as_ref().filter(|s| s.uvs.len() == sub.positions.len()) {
                 mesh.insert_attribute(Mesh::ATTRIBUTE_UV_1, st.uvs.clone());
             }
             mesh.insert_indices(Indices::U32(sub.indices.clone()));
@@ -560,7 +560,7 @@ fn build_skybox(
             };
             // MONKEY (skybox): a two-texture batch takes its own copies with stage 1 bound, so
             // the deduped one-texture materials stay as they were.
-            if let Some(st) = sub.stage1.as_ref().filter(|s| s.uvs.len() == sub.positions.len()) {
+            if let Some(st) = sub.stage1_uv.as_ref().filter(|s| s.uvs.len() == sub.positions.len()) {
                 let tex1 = st
                     .texture
                     .as_deref()
@@ -572,8 +572,8 @@ fn build_skybox(
                         h.id(),
                         |m| m.clone(),
                     )?;
-                    m.extension.stage1 = Vec4::new(mode, 0.0, 0.0, 0.0);
-                    m.extension.stage1_texture = tex1.clone();
+                    m.extension.stage_uv = Vec4::new(mode, 0.0, 0.0, 0.0);
+                    m.extension.stage_uv_texture = tex1.clone();
                     Some(mats.materials().add(m))
                 };
                 let shared = pair.fade_blend == pair.steady;

@@ -50,7 +50,7 @@ fn position(
 fn resolved(ladder: &crate::spell::CastLadder, guid: u64) -> Option<(Clicked, UseFork)> {
     let obj = ladder.objects.object(guid)?;
     let entry = obj.object_entry()?;
-    let t = ladder.items.template(entry, guid, &ladder.commands)?;
+    let t = ladder.items.template(entry, guid, crate::query_cache::Ask::New(&ladder.commands))?;
     let item_text_id = obj.item_text_id().unwrap_or(0);
     let fork = dispatch_fork(t, obj.item_flags().unwrap_or(0), item_text_id);
     let clicked = Clicked {

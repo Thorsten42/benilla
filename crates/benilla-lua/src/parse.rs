@@ -1,8 +1,8 @@
-//! The parser: 5.1.5's `lparser.c` with the 1.12 grammar (`third_party/lua-src/BENILLA.md`),
-//! generating code as it reads, through [`crate::compile`]. Messages, limits and the token they
-//! quote are 5.1's. Left-associative chains (binary operators, `and`/`or`, suffixes such as
-//! `f()()`, `t.a.b`, `o:m()`) are read in loops, so only nesting recurses, and nesting is bounded
-//! by 5.1's level limit.
+//! The parser: 5.1.5's `lparser.c` with the 1.12 grammar (`GRAMMAR.md`), generating code as it
+//! reads, through [`crate::compile`]. Messages and the token they quote are 5.1's, but for the
+//! limits, which are the client's 5.0 ones. Left-associative chains (binary operators,
+//! `and`/`or`, suffixes such as `f()()`, `t.a.b`, `o:m()`) are read in loops, so only nesting
+//! recurses, and nesting is bounded by the client's level limit.
 
 use std::rc::Rc;
 
@@ -11,12 +11,20 @@ use crate::heap::Heap;
 use crate::lex::{Lexer, Tok};
 use crate::proto::*;
 
-/// 5.1's `LUAI_MAXVARS`: active locals per function.
+/// The client's `MAXVARS` (`0x6fd8fc`): active locals per function.
 const MAXVARS: usize = 200;
-/// 5.1's `LUAI_MAXUPVALUES`.
-const MAXUPVALUES: usize = 60;
-/// 5.1's `LUAI_MAXCCALLS`: nested host calls and syntax levels together.
-const MAXCCALLS: u32 = 200;
+/// The client's `MAXUPVALUES`, 5.0's 32 (`0x6fdfdc`).
+const MAXUPVALUES: usize = 32;
+/// The client's `LUA_MAXPARAMS`, 5.0's 100 (`0x6fdac7`): a function's parameters, `self` among
+/// them and `arg` not.
+const MAXPARAMS: usize = 100;
+/// The client's `MAXARG_Bx` (`0x6fd7a3`): list items in one table constructor.
+const MAXLISTITEMS: u32 = 0x3ffff;
+/// The client's `LUA_MAXPARSERLEVEL`, 5.0's 200 (`0x6fcc99`, `0x6fd180`): nested syntax levels,
+/// counted from 0 in each chunk (`0x6fc9d0`).
+const MAXPARSERLEVEL: u32 = 200;
+/// manila carry: the main chunk's vararg local on a pfUI state ([`Parser::manila_vararg`]).
+const MAIN_VARARG: &[u8] = b"(vararg)";
 /// 5.1's `UNARY_PRIORITY`.
 const UNARY_PRIORITY: u8 = 8;
 
@@ -25,8 +33,8 @@ pub(crate) struct Parser<'a> {
     /// The function being compiled and those enclosing it, innermost last.
     pub(crate) fs: Vec<FuncState>,
     pub(crate) heap: &'a mut Heap,
-    /// 5.1's `L->nCcalls`: the caller's host-call depth, then one per syntax level.
-    ccalls: u32,
+    /// 5.0's `nestlevel`: the syntax levels open in this chunk.
+    nestlevel: u32,
     /// The name of the single target the next expression is assigned to, for the key of a
     /// function or constructor it opens with (`t.x = function`, `local f = function`).
     name_hint: Option<Vec<u8>>,
@@ -56,18 +64,31 @@ struct ConsControl {
 
 /// `luaY_parser`: a chunk compiled into its main function, which is vararg but declares no
 /// `arg` (only `parlist` does), so `arg` at chunk level is a global.
-pub(crate) fn parse(src: &[u8], chunkname: &[u8], heap: &mut Heap, ccalls: u32) -> R<Rc<Proto>> {
+pub(crate) fn parse(src: &[u8], chunkname: &[u8], heap: &mut Heap) -> R<Rc<Proto>> {
     let lx = Lexer::new(src, chunkname)?;
     let mut p = Parser {
         lx,
         fs: Vec::new(),
         heap,
-        ccalls,
+        nestlevel: 0,
         name_hint: None,
     };
     p.fs.push(FuncState::new(Rc::from(chunkname), 0, Key::default()));
+    // manila carry (pfUI's 5.1 dialect): 5.1 makes a main chunk vararg, its arguments `...`. A
+    // 5.0 vararg function collects them into its `arg` local; the main chunk's local is named so
+    // no source can reach it, and `arg` at chunk level stays the global it is in 5.0.
+    if p.heap.manila_lua51() {
+        p.fs().vararg = true;
+        p.new_localvar(MAIN_VARARG, 0)?;
+        p.adjustlocalvars(1);
+        p.reserveregs(1)?;
+    }
     p.chunk()?;
-    p.check(Tok::Eof)?;
+    // The client's `luaY_parser` raises its own bare text past the last statement (`0x6fca1a`,
+    // `0x871cf4`).
+    if p.tok() != Tok::Eof {
+        return Err(p.lx.error("<eof> expected"));
+    }
     let fs = p.close_func()?;
     let mut root = fs.into_proto(p.heap);
     crate::compile::finish_keys(&mut root);
@@ -115,7 +136,7 @@ fn getbinopr(t: Tok) -> Option<BinOpr> {
 fn priority(op: BinOpr) -> (u8, u8) {
     match op {
         BinOpr::Add | BinOpr::Sub => (6, 6),
-        BinOpr::Mul | BinOpr::Div => (7, 7),
+        BinOpr::Mul | BinOpr::Div | BinOpr::Mod => (7, 7),
         BinOpr::Pow => (10, 9),
         BinOpr::Concat => (5, 4),
         BinOpr::Eq | BinOpr::Ne | BinOpr::Lt | BinOpr::Le | BinOpr::Gt | BinOpr::Ge => (3, 3),
@@ -186,28 +207,24 @@ impl<'a> Parser<'a> {
         Ok(name)
     }
 
-    /// `errorlimit`, raised with no token.
+    /// The client's `luaX_checklimit` (`0x6ff440`) past its limit: `too many %s (limit=%d)`
+    /// (`0x872164`), a syntax error near the current token (`0x6ff467`).
     fn errorlimit(&self, limit: usize, what: &str) -> crate::SyntaxError {
-        let line = self.fsr().linedefined;
-        let msg = if line == 0 {
-            format!("main function has more than {limit} {what}")
-        } else {
-            format!("function at line {line} has more than {limit} {what}")
-        };
-        self.lx.error_plain(&msg)
+        self.lx.error(&format!("too many {what} (limit={limit})"))
     }
 
-    /// `enterlevel`.
+    /// 5.0's `enterlevel` (`0x6fcc90`, `0x6fd170`): a syntax error near the current token past
+    /// [`MAXPARSERLEVEL`].
     fn enterlevel(&mut self) -> R<()> {
-        self.ccalls += 1;
-        if self.ccalls > MAXCCALLS {
-            return Err(self.lx.error_plain("chunk has too many syntax levels"));
+        self.nestlevel += 1;
+        if self.nestlevel > MAXPARSERLEVEL {
+            return Err(self.lx.error("too many syntax levels"));
         }
         Ok(())
     }
 
     fn leavelevel(&mut self) {
-        self.ccalls -= 1;
+        self.nestlevel -= 1;
     }
 
     // ── scopes ───────────────────────────────────────────────────────────────────────────────
@@ -250,9 +267,8 @@ impl<'a> Parser<'a> {
     }
 
     fn enterblock(&mut self, isbreakable: bool) {
-        // 5.1 asserts `freereg == nactvar` here, which its release build does not check and
-        // which does not hold in a generic for with more than three values
-        // (`for k in f, s, c, x do`): `forlist` adjusts them to three without freeing the rest.
+        // `freereg == nactvar` does not hold here in a generic for given more values than it has
+        // locals (`for k in f, s, c, x do`): `forlist` adjusts them without freeing the rest.
         let fs = self.fs();
         let nactvar = fs.nactvar;
         fs.bl.push(BlockCnt {
@@ -319,9 +335,7 @@ impl<'a> Parser<'a> {
             return Ok(Some(Kind::Upval(i as u16)));
         }
         if fs.upvals.len() + 1 > MAXUPVALUES {
-            let line = fs.linedefined;
-            let msg = format!("function at line {line} has more than {MAXUPVALUES} upvalues");
-            return Err(self.lx.error_plain(&msg));
+            return Err(self.errorlimit(MAXUPVALUES, "upvalues"));
         }
         let decl = match k {
             Kind::Local(r) => self.fs[level - 1].local_decl(r),
@@ -410,7 +424,9 @@ impl<'a> Parser<'a> {
         self.pushclosure(p)
     }
 
-    /// `parlist`. `...` declares the local `arg` (`LUA_COMPAT_VARARG`).
+    /// `parlist`, then the client's `code_params` (`0x6fdab0`): the count is checked once
+    /// `self` and the named parameters are in scope (`0x6fdacb`), and only then is `...`'s local
+    /// `arg` made (`0x6fdaeb`).
     fn parlist(&mut self) -> R<()> {
         let mut nparams = 0;
         if self.tok() != Tok::Char(b')') {
@@ -423,8 +439,6 @@ impl<'a> Parser<'a> {
                     }
                     Tok::Dots => {
                         self.next()?;
-                        self.new_localvar(b"arg", nparams)?;
-                        nparams += 1;
                         self.fs().vararg = true;
                     }
                     _ => return Err(self.lx.error("<name> or `...' expected")),
@@ -435,9 +449,15 @@ impl<'a> Parser<'a> {
             }
         }
         self.adjustlocalvars(nparams);
-        let fs = self.fs();
-        fs.nparams = fs.nactvar - fs.vararg as u8;
-        let n = fs.nactvar as u32;
+        if self.fsr().nactvar as usize > MAXPARAMS {
+            return Err(self.errorlimit(MAXPARAMS, "parameters"));
+        }
+        self.fs().nparams = self.fsr().nactvar;
+        if self.fsr().vararg {
+            self.new_localvar(b"arg", 0)?;
+            self.adjustlocalvars(1);
+        }
+        let n = self.fsr().nactvar as u32;
         self.reserveregs(n)
     }
 
@@ -577,40 +597,62 @@ impl<'a> Parser<'a> {
         Ok(k)
     }
 
-    /// `forbody`. A numeric loop whose step is a positive constant counts up with `ForLoopUp`.
-    fn forbody(&mut self, base: Reg, line: u32, nvars: usize, num: Option<bool>) -> R<()> {
-        self.adjustlocalvars(3);
+    /// The client's `forbody` (`0x6fe480`), after the jump `prep` that enters the loop at its
+    /// test: the loop's locals come into scope (`0x6fe493`), the body runs in a block `break`
+    /// leaves (`0x6fe4ab`), and the test ends the loop. Each loop variable is one local for the
+    /// whole loop, so every closure the body makes shares it and sees its value at the exit.
+    /// `nvars` counts the loop's locals: a numeric loop's three, a generic loop's two hidden ones
+    /// and its names. A numeric loop whose step is a positive constant counts up with
+    /// `ForLoopUp`.
+    fn forbody(
+        &mut self,
+        base: Reg,
+        line: u32,
+        nvars: usize,
+        num: Option<bool>,
+        prep: usize,
+    ) -> R<()> {
+        // manila carry (pfUI's 5.1 dialect): 5.1 gives each pass its own loop variables, the
+        // block holding them closed at the end of every pass, so a closure made in the body keeps
+        // that pass's values; 5.0's live in the enclosing block, one set for the whole loop.
+        let fresh = self.heap.manila_lua51();
+        if !fresh {
+            self.adjustlocalvars(nvars);
+        }
         self.checknext(Tok::Do)?;
-        let prep = match num {
-            Some(_) => self.code(Op::ForPrep(base, NO_JUMP), 1)?,
-            // 5.1's `JMP` to the `TFORLOOP`, which also turns a table into `next` over it.
-            None => self.code(Op::TForPrep(base, NO_JUMP), 1)?,
-        };
-        self.enterblock(false);
-        self.adjustlocalvars(nvars);
-        self.reserveregs(nvars as u32)?;
-        self.block()?;
-        self.leaveblock()?;
+        self.enterblock(true);
+        if fresh {
+            self.enterblock(false);
+            self.adjustlocalvars(nvars);
+            self.block()?;
+            self.leaveblock()?;
+        } else {
+            self.block()?;
+        }
         self.patchtohere(prep as i32)?;
         let endfor = match num {
             Some(true) => self.code(Op::ForLoopUp(base, NO_JUMP), 1)?,
             Some(false) => self.code(Op::ForLoop(base, NO_JUMP), 1)?,
-            None => self.code(Op::TForLoop(base, nvars as u8), 1)?,
+            // `C` is the names less one (`0x6fe4ea`); here the count of names.
+            None => self.code(Op::TForLoop(base, (nvars - 2) as u8), 1)?,
         };
         self.fixline(line);
         let back = match num {
             Some(_) => endfor as i32,
             None => self.jump()?,
         };
-        self.patchlist(back, prep + 1)
+        self.patchlist(back, prep + 1)?;
+        self.leaveblock()
     }
 
+    /// The client's `fornum` (`0x6fe380`): the loop's own name is its counter, beside
+    /// `(for limit)` and `(for step)` (`0x6fe390`..`0x6fe3ac`); the step is taken off the start
+    /// by a plain subtraction (`0x6fe42c`), and a jump enters the loop at its test.
     fn fornum(&mut self, varname: &[u8], line: u32) -> R<()> {
         let base = self.fsr().freereg;
-        self.new_localvar(b"(for index)", 0)?;
+        self.new_localvar(varname, 0)?;
         self.new_localvar(b"(for limit)", 1)?;
         self.new_localvar(b"(for step)", 2)?;
-        self.new_localvar(varname, 3)?;
         self.checknext(Tok::Char(b'='))?;
         self.exp1()?;
         self.checknext(Tok::Char(b','))?;
@@ -624,16 +666,21 @@ impl<'a> Parser<'a> {
             self.reserveregs(1)?;
             true
         };
-        self.forbody(base, line, 1, Some(up))
+        self.code(Op::Sub(base, base, base + 2), 1)?;
+        let prep = self.jump()? as usize;
+        self.forbody(base, line, 3, Some(up), prep)
     }
 
+    /// The client's `forlist` (`0x6fe540`): two hidden locals, the generator and the state
+    /// (`0x6fe554`..`0x6fe56c`), then the loop's names from the third (`0x6fe574`), the first
+    /// of them the control the generator is passed. The values are adjusted to all of them
+    /// (`0x6fe5db`), with room for the call above them (`0x6fe5e7`).
     fn forlist(&mut self, indexname: &[u8]) -> R<()> {
         let base = self.fsr().freereg;
         self.new_localvar(b"(for generator)", 0)?;
         self.new_localvar(b"(for state)", 1)?;
-        self.new_localvar(b"(for control)", 2)?;
-        self.new_localvar(indexname, 3)?;
-        let mut nvars = 4;
+        self.new_localvar(indexname, 2)?;
+        let mut nvars = 3;
         while self.testnext(Tok::Char(b','))? {
             let n = self.str_checkname()?;
             self.new_localvar(n, nvars)?;
@@ -642,17 +689,28 @@ impl<'a> Parser<'a> {
         self.checknext(Tok::In)?;
         let line = self.lx.line;
         let (nexps, mut e) = self.explist1()?;
-        // Values past the third keep their registers: the body can read one unwritten.
-        if nexps > 3 {
+        // Values past the locals keep their registers: the body can read one unwritten.
+        if nexps > nvars {
             self.fs().clears = true;
         }
-        self.adjust_assign(3, nexps, &mut e)?;
+        self.adjust_assign(nvars, nexps, &mut e)?;
         self.checkstack(3)?;
-        self.forbody(base, line, nvars - 3, None)
+        // `OP_TFORLOOP` calls from above the variables and takes back a result per name there
+        // (`0x6f9344`, `0x6f940f`): with more than three names they pass the three registers
+        // checked here, into the slack the client's stack keeps (`EXTRA_STACK`).
+        let cb = base as u16 + nvars as u16;
+        let fs = self.fs();
+        fs.tfor_top = fs.tfor_top.max(cb + (nvars as u16 - 2).max(3));
+        // The client's `TFORPREP` (`0x6fe5fc`), which turns a table into `next` over it and
+        // jumps to the `TFORLOOP`.
+        let prep = self.code(Op::TForPrep(base, NO_JUMP), 1)?;
+        self.forbody(base, line, nvars, None, prep)
     }
 
+    /// The client's `forstat` (`0x6fe300`): the loop's locals live in a block of their own,
+    /// outside the one `break` leaves, so their upvalues close after a `break` too.
     fn forstat(&mut self, line: u32) -> R<()> {
-        self.enterblock(true);
+        self.enterblock(false);
         self.next()?;
         let varname = self.str_checkname()?;
         match self.tok() {
@@ -817,11 +875,6 @@ impl<'a> Parser<'a> {
             if let Kind::Local(r) = nv.k {
                 self.check_conflict(&mut lhs, r)?;
             }
-            let nvars = lhs.len();
-            let limit = MAXCCALLS.saturating_sub(self.ccalls) as usize;
-            if nvars > limit {
-                return Err(self.errorlimit(limit, "variables in assignment"));
-            }
             lhs.push(nv);
         }
         self.checknext(Tok::Char(b'='))?;
@@ -875,7 +928,7 @@ impl<'a> Parser<'a> {
                 if let (Kind::Call(pc), 1) = (e.k, n) {
                     // A tail call. 5.1 asserts its function sits at `nactvar`, which its
                     // release build does not check and which does not hold in the body of a
-                    // generic `for` over more than three values (see `enterblock`).
+                    // generic `for` given more values than locals (see `enterblock`).
                     let fs = self.fs();
                     let Op::Call(a, b, _) = fs.code[pc] else {
                         unreachable!()
@@ -889,7 +942,7 @@ impl<'a> Parser<'a> {
                 nret = 1;
             } else {
                 // 5.1 asserts the values went to `nactvar` on, unchecked in its release build
-                // and untrue in a generic `for` over more than three values: the return then
+                // and untrue in a generic `for` given more values than locals: the return then
                 // reads the registers from `nactvar`, as the C build's does.
                 self.exp2nextreg(&mut e)?;
                 first = self.fsr().nactvar;
@@ -980,6 +1033,10 @@ impl<'a> Parser<'a> {
 
     fn listfield(&mut self, cc: &mut ConsControl) -> R<()> {
         cc.v = self.expr()?;
+        // The client's `listfield` (`0x6fd7aa`).
+        if cc.na > MAXLISTITEMS {
+            return Err(self.errorlimit(MAXLISTITEMS as usize, "items in a constructor"));
+        }
         cc.na += 1;
         cc.tostore += 1;
         Ok(())
@@ -1221,6 +1278,7 @@ impl<'a> Parser<'a> {
                 let line = self.lx.line;
                 return self.body(false, line, hint);
             }
+            Tok::Dots if self.heap.manila_lua51() => return self.manila_vararg(),
             _ => return self.primaryexp(),
         };
         self.next()?;
@@ -1231,7 +1289,7 @@ impl<'a> Parser<'a> {
     /// answers the first untreated operator.
     fn subexpr(&mut self, limit: u8) -> R<(Exp, Option<BinOpr>)> {
         self.enterlevel()?;
-        let mut v = match getunopr(self.tok()) {
+        let mut v = match self.unopr() {
             Some(uop) => {
                 self.next()?;
                 let (mut v, _) = self.subexpr(UNARY_PRIORITY)?;
@@ -1240,7 +1298,7 @@ impl<'a> Parser<'a> {
             }
             None => self.simpleexp()?,
         };
-        let mut op = getbinopr(self.tok());
+        let mut op = self.binopr();
         while let Some(o) = op {
             let (left, right) = priority(o);
             if left <= limit {
@@ -1258,5 +1316,58 @@ impl<'a> Parser<'a> {
 
     fn expr(&mut self) -> R<Exp> {
         Ok(self.subexpr(0)?.0)
+    }
+
+    /// The current token's unary operator: the 1.12 grammar's, and on a pfUI state 5.1's `#`
+    /// (manila carry, [`Heap::set_manila_lua51`]).
+    fn unopr(&self) -> Option<UnOpr> {
+        let t = self.tok();
+        getunopr(t).or_else(|| {
+            (t == Tok::Char(b'#') && self.heap.manila_lua51()).then_some(UnOpr::Len)
+        })
+    }
+
+    /// The current token's binary operator, `%` on a pfUI state (manila carry).
+    fn binopr(&self) -> Option<BinOpr> {
+        let t = self.tok();
+        getbinopr(t).or_else(|| {
+            (t == Tok::Char(b'%') && self.heap.manila_lua51()).then_some(BinOpr::Mod)
+        })
+    }
+
+    /// manila carry: 5.1's `...` as an expression, on a pfUI state. A 5.0 vararg function keeps
+    /// its extra arguments in its `arg` local, so `...` is `unpack(arg)`, every value `arg.n`
+    /// counts; a main chunk keeps its in [`MAIN_VARARG`].
+    fn manila_vararg(&mut self) -> R<Exp> {
+        let main = self.fs.len() == 1;
+        if !self.fsr().vararg {
+            return Err(self.lx.error("cannot use `...' outside a vararg function"));
+        }
+        let line = self.lx.line;
+        self.next()?;
+        let k = self.string_k(b"unpack")?;
+        let mut f = Exp::new(Kind::Global(k));
+        self.exp2nextreg(&mut f)?;
+        let Kind::NonReloc(base) = f.k else {
+            unreachable!("the function is in a register")
+        };
+        let top = self.fs.len() - 1;
+        let name: &[u8] = if main { MAIN_VARARG } else { b"arg" };
+        let arg = self.singlevaraux(top, name, true)?;
+        match arg {
+            Some(kind) => {
+                let mut a = Exp::new(kind);
+                self.exp2nextreg(&mut a)?;
+            }
+            None => {
+                let r = self.fsr().freereg;
+                self.reserveregs(1)?;
+                self.code(Op::NewTable(r, 0, 0), 0)?;
+            }
+        }
+        f.k = Kind::Call(self.code(Op::Call(base, 2, 2), 1)?);
+        self.fixline(line);
+        self.fs().freereg = base + 1;
+        Ok(f)
     }
 }

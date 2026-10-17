@@ -15,6 +15,7 @@ use benilla_ui::script::{
 use crate::creature_type::CreatureTypeSources;
 use crate::names::NameCache;
 use crate::net::{Guid, NetCommands, ObjectStore, Reputations, SelfPlayer};
+use crate::query_cache::Ask;
 use crate::target::{ring_reaction, Factions, Selection};
 use crate::ui_script::{gate, SweepApp, UiInput};
 
@@ -1251,8 +1252,11 @@ fn player_snapshot(
     factions: Option<&Factions>,
     guild: &mut crate::ui_guild::GuildState,
 ) -> UnitState {
+    // The unit's create looked its name up with a callback (`0x5dec12`); a frame asks only
+    // a name the cache holds nothing for, as one invalidated since, and a refused one waits
+    // for the next create.
     let name = names
-        .resolve_unit(guid, Some(store), commands)
+        .resolve_unit(guid, Some(store), Ask::New(commands))
         .map(str::to_string);
     let mut s = snapshot(
         store,
@@ -1352,20 +1356,12 @@ pub(crate) fn feed_units(
     // `ResMut` because the guild-identity cache is lazy: a miss sends `CMSG_GUILD_QUERY`.
     mut guild: ResMut<crate::ui_guild::GuildState>,
     interact: Option<Res<crate::ui_session::InteractNpc>>,
-    // Rested billing minutes, sent only in `SMSG_AUTH_RESPONSE`; the reference keeps a global.
-    entered_world: Option<MessageReader<crate::net::EnteredWorldMessage>>,
 ) {
     let Some(mut script) = script else {
         return;
     };
     // wenilla carry: the `fu_us` meter, the whole body from here.
     let _span = crate::perf::journal::SpanGuard::new(&crate::perf::journal::FU_US);
-    // Ahead of the gate: a login edge, with no snapshot to diff.
-    if let Some(entered) =
-        entered_world.and_then(|mut r| r.read().last().map(|m| m.billing_time_rested))
-    {
-        script.set_billing_time_rested(entered);
-    }
     let chr = tables.unit_names();
     let types = tables.types(&names);
     // One reborrow, so the memo and `warned_sideless` borrow disjointly rather than alias.

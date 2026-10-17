@@ -312,7 +312,7 @@ fn feed_inventory(
                 let item_id = item.object_entry().unwrap_or(0);
                 let count = item.item_stack_count().unwrap_or(1);
                 let charges = item.item_spell_charges(0).unwrap_or(0);
-                let name = items.template_cached(item_id).map(|t| {
+                let name = items.template(item_id, 0, crate::query_cache::Ask::Read).map(|t| {
                     crate::items::item_display_name(
                         &t.name,
                         item.item_random_properties_id() as i32,

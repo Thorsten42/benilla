@@ -42,17 +42,38 @@ pub fn fire_pfui_event(lua: &Lua, event: &str, args: Vec<super::ScriptValue>) {
     super::tick::fire_event_into(lua, event, args);
 }
 
+/// Whether `manila-pfui::install` ran on this VM.
+pub(crate) fn installed(lua: &Lua) -> mlua::Result<bool> {
+    Ok(lua.named_registry_value::<Option<bool>>("manila.pfui.installed")? == Some(true))
+}
+
+/// A handler call on pfUI's VM: `globals` is the stock convention's list (`this`, then `event`
+/// when `has_event`, then `arg1..`). A unit event a frame filtered to other units is dropped; the
+/// rest call the handler with `this, event, arg1..` as arguments while the globals hold, each put
+/// back after, as the stock call does.
 pub(crate) fn invoke_handler(
     lua: &Lua,
     handler: &Function,
-    frame: Table,
-    event: Option<&str>,
-    extra: &[Value],
+    globals: &[(&str, Value)],
+    has_event: bool,
 ) -> mlua::Result<()> {
-    if lua.named_registry_value::<Option<bool>>("manila.pfui.installed")? != Some(true) {
-        return handler.call(());
-    }
-    if let Some(event) = event {
+    let Some((_, Value::Table(frame))) = globals.first() else {
+        return lua.call_with_globals(handler, globals);
+    };
+    let event = if has_event {
+        match globals.get(1) {
+            Some((_, Value::String(s))) => Some(s.to_string_lossy()),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    let extra: Vec<Value> = globals
+        .iter()
+        .skip(if has_event { 2 } else { 1 })
+        .map(|(_, v)| v.clone())
+        .collect();
+    if let Some(event) = event.as_deref() {
         let filters: Table = lua.named_registry_value("manila.pfui.unit_events")?;
         if let Value::Table(events) = filters.raw_get::<Value>(frame.clone())? {
             if let Value::Table(units) = events.raw_get::<Value>(event)? {
@@ -69,13 +90,20 @@ pub(crate) fn invoke_handler(
             }
         }
     }
-    let mut args = Vec::with_capacity(extra.len() + 2);
-    args.push(Value::Table(frame));
-    if let Some(event) = event {
-        args.push(Value::String(lua.create_string(event)?));
+    let g = lua.globals();
+    let saved: Vec<Value> = globals
+        .iter()
+        .map(|(name, _)| g.get::<Value>(*name))
+        .collect::<mlua::Result<_>>()?;
+    for (name, v) in globals {
+        g.set(*name, v.clone())?;
     }
-    args.extend_from_slice(extra);
-    handler.call(MultiValue::from_vec(args))
+    let args: Vec<Value> = globals.iter().map(|(_, v)| v.clone()).collect();
+    let outcome = handler.call::<()>(MultiValue::from_vec(args));
+    for ((name, _), v) in globals.iter().zip(saved) {
+        g.set(*name, v)?;
+    }
+    outcome
 }
 
 /// Publish the GUID resolved by the stock unit resolver. Its case folding and target hops are

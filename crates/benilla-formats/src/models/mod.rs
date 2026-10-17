@@ -97,8 +97,10 @@ fn remap_submesh(
             rgb_seq: None,
             wmo_batch: None,
             env_map: false,
-            section: None,
             stage1: None,
+            combine: 1,
+            section: None,
+            stage1_uv: None,
         },
         globals,
     )

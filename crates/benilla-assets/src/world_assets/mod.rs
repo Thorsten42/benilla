@@ -845,8 +845,10 @@ impl WorldAssets {
                 tint: Vec4::ONE, // clutter has no animated M2Color tint and is not a WMO batch
                 sidn: Vec4::ZERO, // clutter is never SIDN/WINDOW glass (WMO-only)
                 anim_slots: Vec4::ZERO,
-                // MONKEY (skybox): no second stage.
-                stage1: Vec4::ZERO,
+                // MONKEY (skybox): no second stage on its own UV set.
+                stage_uv: Vec4::ZERO,
+                stage_uv_texture: None,
+                stage1: Vec4::ZERO, // a tuft is one texture
                 stage1_texture: None,
                 light_buf: self.shared_light.clone(),
                 // MONKEY (torch shadows Phase 3A): the shared torch receiver bindings.
