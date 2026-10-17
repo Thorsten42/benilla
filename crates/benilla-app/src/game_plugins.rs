@@ -324,6 +324,8 @@ pub(crate) mod schedule_tests {
             connect: false,
             start: crate::client_state::ClientState::Login,
         });
+        #[cfg(feature = "pfui")]
+        app.add_plugins(crate::pfui::PfuiPlugin);
         app.finish();
         app.cleanup();
         app
@@ -880,12 +882,12 @@ pub(crate) mod schedule_tests {
     /// reason read off the dump, or declare the order (`.after`, a set, a `chain`). A resource
     /// that commutes by construction belongs in [`Classes`].
     ///
-    /// MONKEY (merge upstream a9c2672b, 2026-10-16): upstream 3,966 → 3,939; 4,026 − 27 by
-    /// arithmetic.
-    ///
-    /// MONKEY (merge upstream 87f3b24f, 2026-10-16): upstream 3,939 → 3,348 with the native glue
-    /// screens gone; 3,999 − 591 by arithmetic.
+    #[cfg(not(feature = "pfui"))]
     const UPDATE_ACTIONABLE_CEILING: usize = 3_408;
+    // The optional feeds order stock producers before their consumers, so the pfUI build has its
+    // own ratchet: 3,933 − 591 by arithmetic at upstream 87f3b24f.
+    #[cfg(feature = "pfui")]
+    const UPDATE_ACTIONABLE_CEILING: usize = 3_342;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {

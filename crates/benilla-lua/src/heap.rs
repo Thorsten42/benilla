@@ -548,6 +548,10 @@ struct SourceBook {
     /// lived after the last such pass, 64 at least, so the passes cost the heap's size once per
     /// that many new chunks.
     scan_in: usize,
+    /// manila carry: [`Heap::set_manila_lua51`].
+    manila_lua51: bool,
+    /// manila carry: [`Heap::set_manila_string_meta`].
+    manila_str_meta: Option<TableRef>,
 }
 
 /// Which VM or heap this is: a fresh number for each one made and each clone. Natives hold
@@ -610,6 +614,24 @@ impl Default for Heap {
 }
 
 impl Heap {
+    /// manila carry (pfUI's dialect): chunks compiled from now on also take Lua 5.1's `...`
+    /// expression, `#` and `%`, which the 1.12 grammar rejects. Off on every state but the one
+    /// the pfUI extension installs into.
+    pub fn set_manila_lua51(&mut self, on: bool) {
+        self.src.manila_lua51 = on;
+    }
+
+    pub(crate) fn manila_lua51(&self) -> bool {
+        self.src.manila_lua51
+    }
+
+    /// manila carry (pfUI's dialect): every string's metatable, 5.1's `__index = string` that
+    /// makes `s:lower()` a call. 1.12's strings have none, and every other state keeps `None`.
+    /// The table is not a collector root here: the caller keeps it reachable.
+    pub fn set_manila_string_meta(&mut self, meta: Option<TableRef>) {
+        self.src.manila_str_meta = meta;
+    }
+
     // ── strings ──────────────────────────────────────────────────────────────────────────────
 
     /// The interned string for `s`.
@@ -935,6 +957,7 @@ impl Heap {
         match v.unpack() {
             V::Table(t) => self.table(t).meta,
             V::User(u) => self.user(u).meta,
+            V::Str(_) => self.src.manila_str_meta,
             _ => None,
         }
     }

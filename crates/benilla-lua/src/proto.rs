@@ -107,6 +107,11 @@ pub enum Op {
     DivKR(Reg, u16, Reg),
     Unm(Reg, Reg),
     Not(Reg, Reg),
+    /// manila carry (pfUI's 5.1 dialect, [`crate::heap::Heap::set_manila_lua51`]): 5.1's `%`,
+    /// `R(a) = RK(b) - floor(RK(b) / RK(c)) * RK(c)`.
+    Mod(Reg, Rk, Rk),
+    /// manila carry: 5.1's `#`, `R(a) = #R(b)`, a string's length or a table's border.
+    Len(Reg, Reg),
     /// `R(a) = R(b) .. ... .. R(c)`.
     Concat(Reg, Reg, Reg),
     Jmp(i32),
@@ -467,7 +472,7 @@ impl Proto {
             let r = |x: Reg| reg(x as usize);
             let ku = |i: u16| k(i as usize);
             match op {
-                Op::Move(x, y) | Op::Unm(x, y) | Op::Not(x, y) => {
+                Op::Move(x, y) | Op::Unm(x, y) | Op::Not(x, y) | Op::Len(x, y) => {
                     r(x);
                     r(y);
                 }
@@ -494,7 +499,7 @@ impl Proto {
                     r(y);
                     rk(z);
                 }
-                Op::SetTable(x, y, z) | Op::Pow(x, y, z) => {
+                Op::SetTable(x, y, z) | Op::Pow(x, y, z) | Op::Mod(x, y, z) => {
                     r(x);
                     rk(y);
                     rk(z);

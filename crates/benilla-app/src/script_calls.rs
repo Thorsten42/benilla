@@ -47,6 +47,7 @@ macro_rules! pet_in_order {
 #[allow(clippy::type_complexity)] // the appliers, one per owner of the state a call touches
 pub(crate) fn apply_script_calls(
     script: Option<NonSendMut<UiScript>>,
+    #[cfg(feature = "pfui")] pick: Option<Res<crate::target::PickOcclusion>>,
     mut appliers: ParamSet<(
         crate::target::ScriptSelect,
         crate::spell::ScriptCursor,
@@ -65,7 +66,20 @@ pub(crate) fn apply_script_calls(
     let Some(mut script) = script else {
         return;
     };
+    #[cfg(feature = "pfui")]
+    crate::pfui::spell_queue::resume(&mut script, &appliers.p3());
     in_call_order(&mut script, |script, call| {
+        #[cfg(feature = "pfui")]
+        let Some(call) = crate::pfui::spell_queue::intercept(
+            script,
+            call,
+            &appliers.p3(),
+            pick.as_ref().and_then(|p| p.point),
+        ) else {
+            return;
+        };
+        #[cfg(feature = "pfui")]
+        let attempt = crate::pfui::spell_queue::before(script, &call, &appliers.p3());
         // The gate's answer for this call, made where the Lua verb ran: its casts start only if
         // tag 2 passed there. The ladder reads it for as long as this call applies.
         appliers.p3().ladder.permit(call.may_cast());
@@ -75,6 +89,16 @@ pub(crate) fn apply_script_calls(
             appliers.p3().ladder.cast_errors.0.len(),
         );
         match call {
+            #[cfg(feature = "pfui")]
+            ScriptCall::PfuiClick(
+                benilla_ui::script::pfui_host::attributes::ClickAction::Item { guid, target },
+            ) => {
+                appliers.p5().pfui_use_item(script, guid, target);
+            }
+            #[cfg(feature = "pfui")]
+            ScriptCall::PfuiClick(action) => {
+                crate::pfui::clicks::apply(script, action, &mut appliers.p3());
+            }
             ScriptCall::Select { request, .. } => appliers.p0().select(request),
             ScriptCall::TargetByName { name, exact, .. } => {
                 appliers.p0().target_by_name(&name, exact)
@@ -115,6 +139,9 @@ pub(crate) fn apply_script_calls(
             }
             ScriptCall::PetAction(slot) => pet_in_order!(appliers, begin_slot(slot)),
             ScriptCall::PetOrder(packed) => pet_in_order!(appliers, begin_order(packed)),
+            #[cfg(not(feature = "pfui"))]
+            #[allow(unreachable_patterns)]
+            _ => {}
         }
         // A selection this call made with the targeting cursor up was handed to the cast
         // (`SelectTarget`, `0x4935d5`) and is bound now, before the next call reads either.
@@ -151,6 +178,8 @@ pub(crate) fn apply_script_calls(
                 fail.input = input;
             }
         }
+        #[cfg(feature = "pfui")]
+        crate::pfui::spell_queue::after(script, attempt, &appliers.p3());
     });
     // Whatever casts next is the engine's own, which asks no gate.
     appliers.p3().ladder.permit(true);
@@ -192,6 +221,8 @@ pub(crate) fn in_call_order(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "pfui")]
+    include!("pfui/spell_queue_deferred_tests.rs");
     use super::*;
     use crate::net::{
         ClientCommand, Guid, GuidIndex, NetCommands, ObjectStore, SelfGuid, SelfPlayer,

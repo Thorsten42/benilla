@@ -6,6 +6,10 @@
 
 use std::borrow::Cow;
 
+#[cfg(feature = "pfui")]
+#[path = "pfui_host/frame_events.rs"]
+pub(crate) mod pfui;
+
 use mlua::{Function, Lua, Table, Value};
 
 use super::{Model, ScriptValue, REG_SCRIPTS};
@@ -182,6 +186,11 @@ pub(crate) fn invoke_with_globals(
     let names: Vec<Cow<'static, str>> = (1..=extra.len()).map(arg_name).collect();
     for (name, v) in names.iter().zip(extra) {
         globals.push((name.as_ref(), v));
+    }
+    // pfUI's VM calls its handlers with `self, event, ...` too, and filters unit events.
+    #[cfg(feature = "pfui")]
+    if super::pfui_host::installed(lua)? {
+        return super::pfui_host::invoke_handler(lua, func, &globals, event_name.is_some());
     }
     // A protected call; the globals are put back before its outcome returns.
     lua.call_with_globals(func, &globals)

@@ -325,6 +325,8 @@ pub(crate) fn clear(model: &mut Model, how: Clear) {
         }
     }
     model.end_cursor_view();
+    #[cfg(feature = "pfui")]
+    super::pfui_host::equipment_actions::cursor_changed(model);
     model.raise("CURSOR_UPDATE", Vec::new());
 }
 
@@ -372,6 +374,8 @@ pub(crate) fn put(model: &mut Model, payload: CursorPayload) {
                 model.raise("ACTIONBAR_SHOWGRID", Vec::new());
                 model.cursor_grid = true;
             }
+            #[cfg(feature = "pfui")]
+            super::pfui_host::equipment_actions::cursor_changed(model);
             model.raise("CURSOR_UPDATE", Vec::new());
         }
         Tail::BarGrid => {
@@ -398,6 +402,9 @@ pub(crate) fn set_cursor(
     unlock: bool,
     payload: impl FnOnce(&Model) -> Option<CursorPayload>,
 ) -> bool {
+    // The extension reports one transition per setter, old payload to new, not the inner clear.
+    #[cfg(feature = "pfui")]
+    let hold = super::pfui_host::equipment_actions::hold();
     verb(lua, |model| {
         clear(
             model,
@@ -407,12 +414,19 @@ pub(crate) fn set_cursor(
             },
         );
     });
-    verb(lua, |model| match payload(model) {
-        Some(payload) => {
-            put(model, payload);
-            true
-        }
-        None => false,
+    #[cfg(feature = "pfui")]
+    drop(hold);
+    verb(lua, |model| {
+        let on = match payload(model) {
+            Some(payload) => {
+                put(model, payload);
+                true
+            }
+            None => false,
+        };
+        #[cfg(feature = "pfui")]
+        super::pfui_host::equipment_actions::cursor_changed(model);
+        on
     })
 }
 

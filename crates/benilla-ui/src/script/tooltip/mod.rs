@@ -302,6 +302,8 @@ pub(super) fn clear(lua: &Lua, h: FrameHandle) {
 
 /// Fires `OnTooltipCleared`; a script error is recorded, never propagated.
 pub(super) fn fire_cleared(lua: &Lua, h: FrameHandle) {
+    #[cfg(feature = "pfui")]
+    let subject_epoch = super::pfui_host::tooltip_subjects::clear(lua, h);
     let id = {
         let mut model = lua.app_data_mut::<Model>().expect("model app_data");
         model.frame_id(h)
@@ -311,6 +313,8 @@ pub(super) fn fire_cleared(lua: &Lua, h: FrameHandle) {
             .expect("model app_data")
             .record_lua_error(&e);
     }
+    #[cfg(feature = "pfui")]
+    super::pfui_host::tooltip_subjects::resume(lua, h, subject_epoch);
 }
 
 /// A content `Set*`'s tail: the builders' show, the shown bit and the show slot (`0x52a711`/

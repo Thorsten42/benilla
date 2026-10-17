@@ -12,6 +12,10 @@ use crate::net::{ClientCommand, NetCommands, ObjectStore, Objects, SelfPlayer};
 use super::{slot_guid, wire_pos, ITEM_CLASS_PROJECTILE};
 use crate::query_cache::Ask;
 
+#[cfg(feature = "pfui")]
+#[path = "../pfui/item_use.rs"]
+pub(super) mod pfui_use;
+
 /// The one auto-equip sender (`AutoEquipCursorItem`, `0x5e1480`, past its question). A
 /// projectile, the template class `0x5d9f30` reads (`0x5e16ff`, `0x5e1704`), loads by entry with
 /// `CMSG_SET_AMMO` and stays in its bag, and the arm's `ClearCursor(1,1)` unlocks it (`0x5e1711`,
@@ -1712,6 +1716,17 @@ pub(super) fn drain_bind_on_use_confirms(
     };
     if super::item_use_refused(&script, it.guid) {
         debug!("ui_items: bind-on-use confirmed on a locked item — refused");
+        return;
+    }
+    #[cfg(feature = "pfui")]
+    if pfui_use::confirm(
+        &mut script,
+        it,
+        &targeting,
+        &mut ladder,
+        &mut gate,
+        &mut ui_errors,
+    ) {
         return;
     }
     debug!(

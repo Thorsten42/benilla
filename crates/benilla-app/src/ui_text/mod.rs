@@ -16,6 +16,9 @@
 //! under `cosmic-text`'s default cache key, which hints.
 
 mod engine;
+#[cfg(feature = "pfui")]
+#[path = "../pfui/inline_texture.rs"]
+pub(crate) mod inline_texture;
 mod layout;
 mod markup;
 mod measurer;

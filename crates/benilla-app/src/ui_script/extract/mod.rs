@@ -605,6 +605,8 @@ pub(crate) fn tick_script(
             let rows: Vec<(u32, u32, u16, u64)> = requests
                 .iter()
                 .map(|r| {
+                    #[cfg(feature = "pfui")]
+                    crate::ui_text::inline_texture::set_scale(&mut atlas.lock(), s * r.scale);
                     let n = crate::ui_text::measure_wrapped_rows(
                         &mut atlas.lock(),
                         &r.text,
@@ -1496,6 +1498,10 @@ fn convert_entry(
             // folds the frame alpha into every vertex's byte.
             let corner_colors =
                 gradient.map(|corners| corners.map(|v| std::array::from_fn(|i| v[i] * color[i])));
+            // A quad thinner than a device pixel, a backdrop's border piece among them, is
+            // seated on a pixel row.
+            #[cfg(feature = "pfui")]
+            let rect = crate::pfui::thin_edge::seat(rect, dpi);
             out.push(UiQuad {
                 rect,
                 z_key: eq.z,
@@ -1567,6 +1573,8 @@ fn convert_entry(
             let (Some(atlas), Some(text)) = (font_atlas.as_deref_mut(), text) else {
                 return;
             };
+            #[cfg(feature = "pfui")]
+            crate::ui_text::inline_texture::prepare(atlas, &text, assets, images);
             text::emit(
                 atlas,
                 &text,

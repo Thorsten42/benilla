@@ -16,6 +16,10 @@ use super::binding_abi;
 use super::Model;
 use crate::script::binding_abi::Idx;
 
+#[cfg(feature = "pfui")]
+#[path = "pfui_host/reputation.rs"]
+pub(crate) mod pfui;
+
 /// The synthetic header key for factions the player moved to the inactive bucket.
 const KEY_INACTIVE: i64 = -1;
 /// The synthetic header key for factions with no parent, the "Other" bucket.

@@ -19,6 +19,9 @@ use super::{ItemTemplateView, Model};
 
 pub(in crate::script) mod build;
 pub(in crate::script) mod names;
+#[cfg(feature = "pfui")]
+#[path = "../pfui_host/tooltip_compare.rs"]
+pub(crate) mod pfui;
 pub(in crate::script) mod render;
 
 use build::{build_item, InFlight, ItemBuild};

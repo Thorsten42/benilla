@@ -13,6 +13,10 @@ use super::cursor::{set_cursor, CursorMacro, CursorPayload};
 use super::Model;
 use crate::script::binding_abi::Idx;
 
+#[cfg(feature = "pfui")]
+#[path = "pfui_host/macros.rs"]
+pub(crate) mod pfui;
+
 /// Macros per tab (`Blizzard_MacroUI.lua:1`), and so the character tab's base.
 pub const MAX_MACROS: usize = 18;
 

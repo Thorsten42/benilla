@@ -138,6 +138,8 @@ fn new_vm<E: std::fmt::Display>(
             return None;
         }
     };
+    #[cfg(feature = "pfui")]
+    crate::pfui::enable_vm(world, &script);
     script.set_european_numbers(european_numbers);
     // `[0xc0e080]`, which start-up sets once from `Wow.ini`, so every VM answers `GetLocale` alike.
     script.set_locale(super::client_locale().index());

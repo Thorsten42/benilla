@@ -960,6 +960,23 @@ impl Lua {
             .map_err(|e| self.error_from(e))
     }
 
+    /// manila carry: chunks this state compiles from now on also take Lua 5.1's `...`
+    /// expression, `#` and `%` (`benilla_lua::heap::Heap::set_manila_lua51`). Only the pfUI
+    /// extension calls it, on its own state.
+    pub fn set_manila_lua51(&self, on: bool) {
+        self.vm().heap.set_manila_lua51(on);
+    }
+
+    /// manila carry: every string's metatable on this state (`Heap::set_manila_string_meta`),
+    /// which the caller keeps reachable. Only the pfUI extension sets one.
+    pub fn set_manila_string_metatable(&self, meta: Option<&Table>) {
+        let r = meta.and_then(|t| match self.unref(&t.0).unpack() {
+            V::Table(tr) => Some(tr),
+            _ => None,
+        });
+        self.vm().heap.set_manila_string_meta(r);
+    }
+
     /// A Lua error value as an `Error`: its text, as mlua reports a runtime error. A callback's
     /// panic resumes here, as mlua's `pop_error` resumes it.
     pub(crate) fn error_from(&self, e: benilla_lua::Value) -> Error {

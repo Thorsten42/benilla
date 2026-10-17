@@ -80,6 +80,8 @@ mod game_plugins;
 mod glue_session;
 mod go_anim;
 mod go_templates;
+#[cfg(not(target_arch = "wasm32"))]
+mod hd_patches;
 #[cfg(feature = "dev")]
 mod hover_log;
 mod item_watch;
@@ -95,6 +97,8 @@ mod npc_text;
 /// Ships in part (the FPS journal and the clocks it reads); the rest is `dev`.
 mod perf;
 mod character_shadow;
+#[cfg(feature = "pfui")]
+mod pfui;
 mod pipe_warm;
 mod player;
 mod player_distance;
@@ -283,6 +287,11 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
         extended: extend.is_some(),
         ..build
     };
+    #[cfg(feature = "pfui")]
+    let build = BuildId {
+        extended: true,
+        ..build
+    };
 
     // A dev build's install, state folder and probe identity resolve from the launcher's folder,
     // so a crate on top of benilla keeps them in its own and not in cargo's checkout of benilla.
@@ -296,6 +305,9 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
             );
         }
     }
+    // Before anything opens the patch chain: whether the lettered archives are part of it.
+    #[cfg(not(target_arch = "wasm32"))]
+    hd_patches::apply_saved();
 
     // From here on a panic leaves `benilla-config/Diagnostics/crash-<unix>.txt` behind (decision
     // 2266 §B2) — armed before the `App` exists, so a panic while plugins build is a report too.
@@ -327,6 +339,9 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     app.set_error_handler(bevy::ecs::error::warn);
     // The panel footer and the build banner read the stamp back.
     app.insert_resource(build);
+    // `restartClient`: quit and start again, for a setting read only at start.
+    #[cfg(not(target_arch = "wasm32"))]
+    app.add_observer(hd_patches::on_cvar);
     // Static-scene transform tracking pinned on: the default threshold re-decides every frame with
     // two full scans of the rows the tracking exists to skip, and this scene is static-heavy. It
     // costs more only when most rows move in one frame (a load burst into a near-empty world).
@@ -483,6 +498,9 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
         start: run_mode::start_state(),
     });
 
+    #[cfg(feature = "pfui")]
+    app.add_plugins(pfui::PfuiPlugin);
+
     app.add_plugins(webbridge::WebBridgePlugin);
 
     // Register benilla-assets' loaders AFTER `AssetPlugin` (they go into the live `AssetServer`).
@@ -528,5 +546,8 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
 
     // Returns the app's exit status: a failed capture sets `AppExit::error()`
     // (`capture::drive_capture`), which must not exit 0 with no PNG on disk.
-    app.run()
+    let exit = app.run();
+    #[cfg(not(target_arch = "wasm32"))]
+    hd_patches::relaunch_if_requested();
+    exit
 }

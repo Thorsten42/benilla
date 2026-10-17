@@ -25,6 +25,8 @@ pub(crate) mod feed;
 mod lock_openers;
 pub(crate) mod locks;
 mod net;
+#[cfg(feature = "pfui")]
+pub(crate) mod pfui;
 
 pub(crate) use drain::{dispatch_fork, send_auto_equip};
 use drain::{
