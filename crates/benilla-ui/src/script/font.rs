@@ -124,6 +124,7 @@ pub(crate) fn repaint(d: &mut RegionData, fo: &FontObject) {
     }
     if !ex.outline {
         d.outline = fo.outline;
+        d.monochrome = fo.monochrome;
     }
     if !ex.shadow {
         if let Some(s) = fo.shadow {
@@ -180,7 +181,7 @@ pub(crate) struct FontLink {
 }
 
 /// `own` over `parent`: a property the font holds wins, the rest is inherited. An outline of
-/// none is the unset state here, as [`Outline`] has no other.
+/// none and a monochrome of false are the unset states here, as neither type has another.
 fn derive(parent: &FontObject, own: &FontObject) -> FontObject {
     FontObject {
         font: own.font.clone().or_else(|| parent.font.clone()),
@@ -192,6 +193,8 @@ fn derive(parent: &FontObject, own: &FontObject) -> FontObject {
         } else {
             own.outline
         },
+        // Unset is false, so a font is monochrome when it or its parent says so (#1821).
+        monochrome: own.monochrome || parent.monochrome,
         justify_h: own.justify_h.or(parent.justify_h),
         justify_v: own.justify_v.or(parent.justify_v),
         spacing: own.spacing.or(parent.spacing),
@@ -344,6 +347,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     path,
                     height,
                     flags,
+                    monochrome,
                 } = super::font_block::set_font_args(lua, &this, &file, &height, &flags)?;
                 if !super::font_block::instance_loads(lua, &path, height) {
                     return Ok(Value::Nil);
@@ -351,6 +355,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 edit(lua, &this, |fo| {
                     fo.font = Some(path);
                     fo.outline = flags;
+                    fo.monochrome = monochrome;
                     fo.height = Some(height);
                 })?;
                 Ok(Value::Number(1.0))

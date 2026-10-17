@@ -16,8 +16,9 @@ pub const RK_CONST: u16 = 256;
 
 /// 5.1's `MAXSTACK`: a function uses fewer registers than this.
 pub const MAXSTACK: usize = 250;
-/// 5.1's `LFIELDS_PER_FLUSH`: list items a constructor stores per `SetList`.
-pub const FIELDS_PER_FLUSH: u32 = 50;
+/// 5.0's `LFIELDS_PER_FLUSH`: list items a constructor stores per `SetList`, 32 in the client's
+/// `closelistfield` (`0x6fd6d0`).
+pub const FIELDS_PER_FLUSH: u32 = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cmp {
@@ -83,7 +84,8 @@ pub enum Op {
     GetField(Reg, Reg, u16),
     /// `R(a)[K(b)] = RK(c)` for a string constant key.
     SetField(Reg, u16, Rk),
-    /// `R(a) = {}` with an array part and a hash part of `2^c` nodes.
+    /// `R(a) = {}` with an array part of `b` slots and a hash part of `2^c` nodes, the dummy
+    /// node for 0: `luaH_new(L, fb2int(B), C)` (`0x6f8b45`), `b` kept decoded.
     NewTable(Reg, u32, u8),
     /// `R(a+1) = R(b); R(a) = R(b)[RK(c)]`.
     SelfOp(Reg, Reg, Rk),
@@ -140,8 +142,8 @@ pub enum Op {
     /// variables, into the variables from `R(a+2)`, the first of them the control; when it is
     /// nil the next instruction, the jump back to the body, is skipped.
     TForLoop(Reg, u8),
-    /// 5.1's `SETLIST`: `R(a)[base + i] = R(a + i)` for `i` in `1..=n`, the array part grown
-    /// first to hold them all.
+    /// 5.0's `SETLIST`: `R(a)[base + i] = R(a + i)` for `i` from `n` down to 1, each by
+    /// `luaH_setnum` (`0x6f95b1`), the array part as it is.
     SetList(Reg, u32, u16),
     /// The same, items up to the top (the last item was a call).
     SetListTop(Reg, u32),
@@ -355,6 +357,9 @@ pub struct Proto {
     pub(crate) gc_mark: std::cell::Cell<u32>,
 }
 
+/// 5.0's `Proto` record, which `luaF_newproto` allocates (`0x6f9fea`).
+pub(crate) const PROTO_BYTES: usize = 0x48;
+
 impl Proto {
     /// This function's prototype in the collector's count, as 5.0's `close_func` sizes its
     /// vectors (`0x6fcb48`..`0x6fcc26`) and `luaF_freeproto` frees them (`0x6fa069`..`0x6fa102`):
@@ -362,11 +367,25 @@ impl Proto {
     /// 4 a nested prototype, 12 a local and 4 an upvalue name, at the client's own code size and
     /// constant count.
     pub fn bytes(&self) -> usize {
-        0x48 + 8 * self.code50
+        PROTO_BYTES
+            + 8 * self.code50
             + 16 * self.consts50
             + 4 * self.protos.len()
             + 12 * self.locvars.len()
             + 4 * self.upval_names.len()
+    }
+
+    /// The vectors [`Proto::bytes`] counts beside the `Proto`, as (element bytes, elements): the
+    /// code and its lines, the constants, the nested prototypes, the locals, the upvalue names.
+    pub(crate) fn vectors(&self) -> [(usize, usize); 6] {
+        [
+            (4, self.code50),
+            (4, self.code50),
+            (16, self.consts50),
+            (4, self.protos.len()),
+            (12, self.locvars.len()),
+            (4, self.upval_names.len()),
+        ]
     }
 
     /// [`Proto::bytes`] of this function and every one nested in it.

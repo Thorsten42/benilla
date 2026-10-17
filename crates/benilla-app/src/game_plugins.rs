@@ -206,9 +206,6 @@ impl PluginGroup for GamePlugins {
             .add(BattlefieldPositionsPlugin)
             .add(crate::game_tip::GameTipPlugin)
             .add(crate::text_filter::TextFilterPlugin)
-            // Re-shapes a `bevy_ui` text root whose last span was despawned, an upstream hole
-            // that otherwise panics in `bevy_text` on the next resize.
-            .add(crate::text_reshape::TextReshapePlugin)
             .add(TutorialPlugin)
             .add(crate::swing_refusal::SwingRefusalPlugin)
             .add(UiSummonPlugin)
@@ -885,7 +882,10 @@ pub(crate) mod schedule_tests {
     ///
     /// MONKEY (merge upstream 87f3b24f, 2026-10-16): upstream 3,939 → 3,348 with the native glue
     /// screens gone; 3,999 − 591 by arithmetic.
-    const UPDATE_ACTIONABLE_CEILING: usize = 3_408;
+    ///
+    /// MONKEY (merge upstream f55bb79b, 2026-10-18): upstream 3,348 → 3,346; 3,408 − 2 by
+    /// arithmetic.
+    const UPDATE_ACTIONABLE_CEILING: usize = 3_406;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {

@@ -173,6 +173,7 @@ mod summon;
 mod talent;
 mod taxi;
 mod tick;
+pub use tick::system_chat_args;
 mod tooltip;
 mod tooltip_item;
 mod tooltip_spell;
@@ -297,7 +298,7 @@ pub use pvp::{decorated_name, pvp_name_global_keys, HonorState, InspectHonorData
 pub use quest::{
     QuestAction, QuestItemView, QuestPanel, QuestRewardSpell, QuestSelect, QuestState,
 };
-pub use quest_log::{QuestLogDetail, QuestLogEntryView, QuestLogObjectiveView, QuestLogState};
+pub use quest_log::{QuestObjectiveView, QuestRecordView, QuestSlotView, QUEST_LOG_SLOTS};
 pub(crate) use region::{
     apply_font_parts, apply_wrap_attrs, implicit_creation_anchor_lua, install_loaded_texture,
     load_texture_file,
@@ -326,12 +327,12 @@ pub use trainer::{
     TrainerAbilityReq, TrainerGroup, TrainerService, TrainerServiceCategory, TrainerSkillReq,
     TrainerState, TrainerTooltip, TRAINER_GROUP_KNOWN,
 };
+pub(crate) use types::{monochrome_flag, FontExplicit, MeasuredText, RegionData};
 pub use types::{
     BlendMode, EditAction, EditBoxAdvanceRequest, EditBoxTextUi, EditOutcome, EditUnit,
     ExtractedQuad, FontObject, FontShadow, Gradient, JustifyH, JustifyV, LineMeasureRequest,
     MeasureRequest, Outline, QuadContent, ScriptValue, TexCoords,
 };
-pub(crate) use types::{FontExplicit, MeasuredText, RegionData};
 pub use unit::by_name::{self, NameCandidate};
 pub use unit::{
     grey_band, level_reads_unknown, parse_unit_token, power_token, unit_is_grey, PlayerRecord,
@@ -600,13 +601,10 @@ pub fn addon_chunk_name(folder: &str, file: &str) -> String {
     format!("@Interface\\AddOns\\{folder}\\{}", file.replace('/', "\\"))
 }
 
-/// What both FrameScript states hold: FrameScript's Lua init (`0x7039e0`), the bare state the glue
-/// builder starts from (left by startup `0x402aee` on its first build, re-run by its reset
-/// `0x703b80` on a later one) and `UI_Init` rebuilds through its own, and the three registrars
-/// the glue registrar `0x46abb0` shares with `UI_Init`: `0x51bb20` (the clock, `ConsoleExec` and
-/// the file trio), `0x706350` (the frame factory globals and the 17 widget method tables) and
-/// `0x4587f0` (sound).
-fn install_framescript(vm: VmKind) -> mlua::Result<Lua> {
+/// The state as `0x7039e0` leaves it: benilla-lua's client-shaped opening with the host's base
+/// functions, the dialect and the stdlib layer set over it, which replace values and add no key.
+fn open_state(vm: VmKind) -> mlua::Result<Lua> {
+    // `Lua::new` sets `InitLua`'s 256 KB threshold first (`0x7039f2`), then opens the state.
     let lua = Lua::new();
     let mut model = Model::new();
     model.vm = vm;
@@ -621,6 +619,18 @@ fn install_framescript(vm: VmKind) -> mlua::Result<Lua> {
     lua50::install(&lua)?;
     taint::install(&lua)?;
     stdlib::install(&lua)?;
+
+    Ok(lua)
+}
+
+/// What both FrameScript states hold: FrameScript's Lua init (`0x7039e0`), the bare state the glue
+/// builder starts from (left by startup `0x402aee` on its first build, re-run by its reset
+/// `0x703b80` on a later one) and `UI_Init` rebuilds through its own, and the three registrars
+/// the glue registrar `0x46abb0` shares with `UI_Init`: `0x51bb20` (the clock, `ConsoleExec` and
+/// the file trio), `0x706350` (the frame factory globals and the 17 widget method tables) and
+/// `0x4587f0` (sound).
+fn install_framescript(vm: VmKind) -> mlua::Result<Lua> {
+    let lua = open_state(vm)?;
 
     // `0x51bb20` (table `0x8503f4`): `GetTime`, `GetGameTime` and `ConsoleExec`. `ReadFile`,
     // `DeleteFile` and `AppendToFile` are not built.
@@ -1006,9 +1016,10 @@ impl UiScript {
         let Some(h) = model.arena.lookup(frame) else {
             return false;
         };
+        let rows = Self::message_viewport(&model, h);
         match model.arena.frame_mut(h).map(|f| &mut f.kind_state) {
             Some(crate::widget::KindState::ScrollingMessage(smf)) => {
-                smf.add(text.to_string(), r, g, b);
+                smf.add_with_id(text.to_string(), r, g, b, 0, rows);
                 true
             }
             _ => false,
