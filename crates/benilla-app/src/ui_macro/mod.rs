@@ -33,18 +33,28 @@ pub(crate) struct MacroBoundSpells(pub(crate) std::collections::HashMap<u32, Bou
 
 pub(crate) use run::BoundSpell;
 
+/// The icon chooser's list, built once per session: listing the patch chain reads every
+/// archive's `(listfile)`, about a second on a large install, and the list never changes.
+#[derive(Resource, Default)]
+struct MacroIconCatalog(Option<Vec<String>>);
+
 pub(crate) struct UiMacroPlugin;
 
 impl Plugin for UiMacroPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MacroFiles>()
             .init_resource::<MacroBoundSpells>()
+            .init_resource::<MacroIconCatalog>()
             .add_systems(
                 Update,
                 (
                     // Once per VM, in `Update`: it needs both the patch chain and the VM, and each
-                    // login builds a fresh VM.
-                    load_icon_catalog.in_set(crate::ui_script::UiFeed),
+                    // login builds a fresh VM. In-world only: the glue screens show no chooser,
+                    // and the one listing then falls behind the world entry's loading screen,
+                    // not before the login screen's first frame.
+                    load_icon_catalog
+                        .in_set(crate::ui_script::UiFeed)
+                        .in_set(InWorldGated),
                     // Before the action feeds read it (they run in `UnitFeed`), so a macro edited
                     // this frame reports its new spell's cooldown the same frame.
                     rebind_macro_spells
@@ -62,12 +72,14 @@ impl Plugin for UiMacroPlugin {
     }
 }
 
-/// Build the icon chooser's list once per VM: the `Spell_` and `Ability_` files under
-/// `Interface\Icons\` ([`benilla_formats::load_macro_icons`]). A failed load leaves it empty, and
+/// Hand each VM the icon chooser's list: the `Spell_` and `Ability_` files under
+/// `Interface\Icons\` ([`benilla_formats::load_macro_icons`]), listed at the session's first world
+/// entry and kept in [`MacroIconCatalog`] for every later VM. A failed load leaves it empty, and
 /// `MacroPopupOkayButton_Update` then keeps OKAY disabled.
 fn load_icon_catalog(
     script: Option<NonSendMut<UiScript>>,
     assets: Option<Res<WorldAssets>>,
+    mut catalog: ResMut<MacroIconCatalog>,
     mut seeded: Local<crate::ui_script::VmMemo<bool>>,
 ) {
     let (Some(mut script), Some(assets)) = (script, assets) else {
@@ -76,17 +88,23 @@ fn load_icon_catalog(
     if !seeded.claim(&script) {
         return;
     }
-    let loaded = {
-        let mut chain = assets.chain.lock_recover();
-        benilla_formats::load_macro_icons(&mut chain)
-    };
-    match loaded {
-        Ok(icons) => {
-            info!("ui_macro: {} macro icons in the chooser", icons.len());
-            script.set_macro_icons(icons);
+    let icons = catalog.0.get_or_insert_with(|| {
+        let loaded = {
+            let mut chain = assets.chain.lock_recover();
+            benilla_formats::load_macro_icons(&mut chain)
+        };
+        match loaded {
+            Ok(icons) => {
+                info!("ui_macro: {} macro icons in the chooser", icons.len());
+                icons
+            }
+            Err(e) => {
+                error!("ui_macro: no Interface\\Icons\\ listing — the chooser is empty: {e:#}");
+                Vec::new()
+            }
         }
-        Err(e) => error!("ui_macro: no Interface\\Icons\\ listing — the chooser is empty: {e:#}"),
-    }
+    });
+    script.set_macro_icons(icons.clone());
 }
 
 /// `(realm, character)` off the roster's login pick, keying the per-character files.
