@@ -37,7 +37,7 @@ pub fn char_rename(guid: u64, name: &str) -> Vec<u8> {
 /// `CMSG_CHAR_CREATE` body: the name cstring then nine bytes (`Packets/Character.cpp:4-19`); the
 /// last, `outfit_id`, is 0 because the server ignores it (`CharacterHandler.cpp:310`).
 pub fn char_create(req: &CharCreateReq) -> Vec<u8> {
-    let mut body = Vec::with_capacity(req.name.len() + 10);
+    let mut body = Vec::with_capacity(req.name.len() + 14);
     body.extend_from_slice(req.name.as_bytes());
     body.push(0);
     body.extend_from_slice(&[
@@ -51,6 +51,9 @@ pub fn char_create(req: &CharCreateReq) -> Vec<u8> {
         req.facial_hair,
         0,
     ]);
+    // tortoise: Turtle's realm reads a trailing `challengeMask`; without it the anticheat kicks
+    // on create. A stock vmangos ignores the extra bytes.
+    body.extend_from_slice(&0u32.to_le_bytes());
     body
 }
 
