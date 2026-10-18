@@ -848,7 +848,9 @@ fn sync_tiles(
         }
         // A model frame's `SetModel` creates the model with flags 5 (`0x76ccf5`), so the `.m2` and
         // its textures open loose-flagged.
-        let url = m2_url_on(MPQ_LOOSE_SOURCE, &key);
+        // tortoise: the key is extension-less (`model_key`), which the model-name rule refuses as
+        // the error cube; the file it names is the key's `.m2`.
+        let url = m2_url_on(MPQ_LOOSE_SOURCE, &format!("{key}.m2"));
         let handle = assets.asset_server.load::<M2Model>(url);
         state.pending_facts.insert(key, handle);
     }
