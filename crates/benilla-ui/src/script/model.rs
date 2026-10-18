@@ -1216,9 +1216,14 @@ impl Model {
     /// Records a non-fatal warning for the host's terminal and the retained diagnostic log.
     pub(crate) fn record_warning(&mut self, msg: impl Into<String>) {
         let msg = msg.into();
-        self.diagnostics
-            .record(super::diagnostics::DiagnosticKind::Warning, &msg);
-        self.warnings.push(msg);
+        // tortoise: the terminal hears a warning once; its row's count carries the repeats.
+        // Turtle's shop scans a tooltip per entry, which was 242 identical lines a session.
+        if self
+            .diagnostics
+            .record(super::diagnostics::DiagnosticKind::Warning, &msg)
+        {
+            self.warnings.push(msg);
+        }
     }
 
     /// A warning for the host's terminal only, for a message already retained under another kind.
