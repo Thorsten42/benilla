@@ -375,6 +375,12 @@ pub struct TextureStage {
     /// The combine preset (`benilla_m2::M2Model::stage_combine`): 0 and 1 modulate the colour
     /// with alpha passed or modulated, 3 adds, 4 modulates ×2, 2 and 5 interpolate.
     pub combine: u8,
+    /// tortoise: a stage on UV set 0 rather than the generated coordinate, that set's coordinates
+    /// in the submesh's vertex order; empty for every other stage. The only lane that binds it is
+    /// the glue booth's (Turtle WoW's `UI_MainMenu.m2`, whose portal fire a noise stage masks).
+    pub uvs: Vec<[f32; 2]>,
+    /// tortoise: the batch's shader id names the ×2 modulate (`shader_id & 0xf == 4`).
+    pub mod2x: bool,
 }
 
 /// A flat ground-plane quad: four vertices on one horizontal plane at or just above z = 0 (hover
