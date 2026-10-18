@@ -416,6 +416,8 @@ pub fn parse_m2_render_submeshes(
                 wrap_y,
                 env_map: model.stage_is_env_mapped(batch, 1),
                 combine: model.stage_combine(batch, 1),
+                uvs: Vec::new(),
+                mod2x: batch.shader_id & 0xf == 4,
             }
         });
         // Render flag 0x01, unlit: full texture brightness (lamp glass, glow cards).
@@ -574,6 +576,21 @@ pub fn parse_m2_render_submeshes(
             });
             sub.env_map = env_map;
             sub.stage1 = stage1.clone();
+            // tortoise: a stage reading UV set 0 takes that set in this submesh's vertex order.
+            // Set 1 is not parsed, so such a stage still draws stage 0 alone.
+            if let Some(st) = sub
+                .stage1
+                .as_mut()
+                .filter(|st| !st.env_map && model.stage_coord(batch, 1) == Some(0))
+            {
+                st.uvs = globals
+                    .iter()
+                    .map(|&g| {
+                        let c = &model.vertices[g as usize].tex_coords;
+                        [c.x, c.y]
+                    })
+                    .collect();
+            }
             sub.combine = combine;
             sub.additive = additive;
             sub.no_depth_write = no_depth_write;
@@ -875,6 +892,8 @@ mod tests {
                 wrap_y: false,
                 env_map: true,
                 combine: 1,
+                uvs: Vec::new(),
+                mod2x: false,
             })
         );
         // One texture binds one stage, whatever the lookups past it hold.
