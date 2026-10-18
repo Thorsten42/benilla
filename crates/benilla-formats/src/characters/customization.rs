@@ -28,6 +28,7 @@ const SECTION_HAIR: u8 = 3;
 type SectionKey = (u8, u8, u8, u8, u8);
 
 /// The playable races, ChrRaces ids 1–8; Goblin (9) and above are not creatable.
+#[cfg_attr(not(test), allow(dead_code))] // tortoise: the runtime set is `playable_races`
 const PLAYABLE_RACES: [u8; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 /// The shipped ChrRaces fileStrings (col 15), guarding [`load_races`]' string columns.
@@ -268,7 +269,7 @@ impl CharCreateCatalog {
 
         let mut ranges = HashMap::new();
         let mut hair_colors = HashMap::new();
-        for race in PLAYABLE_RACES {
+        for race in playable_races(&displays, &combos) {
             for sex in [0u8, 1] {
                 ranges.insert((race, sex), derive_ranges(race, sex, &avail, &facial));
                 hair_colors.insert((race, sex), hair_colors_by_style(race, sex, &avail));
@@ -327,7 +328,7 @@ impl CharCreateCatalog {
                 );
             }
         }
-        for race in PLAYABLE_RACES {
+        for race in playable_races(&self.displays, &self.combos) {
             for sex in [0u8, 1] {
                 if self.body_display(race, sex).unwrap_or(0) == 0 {
                     bail!("ChrRaces: race {race} sex {sex} has no body displayId");
@@ -352,6 +353,19 @@ impl CharCreateCatalog {
         }
         Ok(())
     }
+}
+
+/// tortoise: the races the data makes creatable, every ChrRaces row `CharBaseInfo` offers classes
+/// for. On 5875 data that is [`PLAYABLE_RACES`]; a Turtle-derived DBC adds 9 (Goblin) and 10
+/// (High Elf), which then get dial ranges and the load guards like the shipped eight.
+fn playable_races(displays: &HashMap<u8, (u32, u32)>, combos: &HashSet<(u8, u8)>) -> Vec<u8> {
+    let mut races: Vec<u8> = displays
+        .keys()
+        .copied()
+        .filter(|&race| combos.iter().any(|&(r, _)| r == race))
+        .collect();
+    races.sort_unstable();
+    races
 }
 
 /// ChrRaces (29 fields, 116-byte records) → the rows in order, and per race: displayIds (cols
