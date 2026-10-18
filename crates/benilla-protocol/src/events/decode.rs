@@ -1124,7 +1124,15 @@ fn decode_objects(objects: Vec<Object>) -> Vec<SessionEvent> {
                 // The block's own position, for every type: the GameObject constructor copies it
                 // over `GAMEOBJECT_POS_X`..`FACING` (`0x5f7046`..`0x5f706b`), so the descriptor's
                 // copy never places anything.
-                if let Some((position, orientation)) = movement.position {
+                // tortoise: the Turtle core sends every ship and zeppelin at login with its path
+                // progress alone. Its pose is its timetable's from the first tick, so it is
+                // created at the origin, where an object with no pose and no path is dropped.
+                let placed = movement.position.or_else(|| {
+                    (object_type == ObjectType::GameObject
+                        && movement.transport_progress.is_some())
+                    .then_some((Vector3d { x: 0.0, y: 0.0, z: 0.0 }, 0.0))
+                });
+                if let Some((position, orientation)) = placed {
                     let display = display_id(object_type, &mask);
                     let scale = object_scale(object_type, &mask);
                     let speeds = movement.speeds.map(MoveSpeeds::from_wire);
