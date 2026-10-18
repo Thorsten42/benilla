@@ -286,9 +286,11 @@ pub(in crate::entities) fn ensure_item_model(
         Some(d) if d.model[col].is_some() => {
             let mut model = d.model[col].clone().unwrap();
             if let ItemModelKind::Helm { race, sex } = kind {
-                // Race 1-8 is Hu Or Dw Ni Sc Ta Gn Tr, sex M or F.
-                const RACE_PREFIX: [&str; 8] = ["Hu", "Or", "Dw", "Ni", "Sc", "Ta", "Gn", "Tr"];
-                let prefix = RACE_PREFIX[(race.clamp(1, 8) - 1) as usize];
+                // Race 1-8 is Hu Or Dw Ni Sc Ta Gn Tr, sex M or F. tortoise: a Turtle-derived
+                // client adds Goblin (9, `_GoM`) and High Elf (10, `_BeM`); its listing ships both.
+                const RACE_PREFIX: [&str; 10] =
+                    ["Hu", "Or", "Dw", "Ni", "Sc", "Ta", "Gn", "Tr", "Go", "Be"];
+                let prefix = RACE_PREFIX[(race.clamp(1, 10) - 1) as usize];
                 let letter = if sex == 1 { 'F' } else { 'M' };
                 let stem = model.strip_suffix(".m2").unwrap_or(&model).to_string();
                 model = format!("{stem}_{prefix}{letter}.m2");
