@@ -319,6 +319,18 @@ pub fn write_logon_proof(
 /// read), or an [`AuthReject`].
 pub fn read_proof_reply(r: &mut impl Read) -> Result<Option<[u8; 20]>> {
     let opcode = read_u8(r)?;
+    // tortoise: a Turtle-derived realmd refuses a wrong build at the proof stage with a
+    // challenge-shaped reply (`0x00, 0x00, code`), which the build negotiation must see as a
+    // refusal (`turtle_auth.rs`).
+    if opcode == CMD_AUTH_LOGON_CHALLENGE {
+        let _padding = read_u8(r)?;
+        let result = read_u8(r)?;
+        return Err(AuthReject {
+            code: result,
+            reply: LogonReply::Proof,
+        }
+        .into());
+    }
     if opcode != CMD_AUTH_LOGON_PROOF {
         bail!("expected CMD_AUTH_LOGON_PROOF (0x01), got {opcode:#x}");
     }

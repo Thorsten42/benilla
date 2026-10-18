@@ -27,13 +27,24 @@ pub fn logon(host: &str, username: &str, password: &str, locale: u32) -> Result<
         Some(build) => std::slice::from_ref(build),
         None => &LOGIN_BUILDS,
     };
-    for (index, &build) in builds.iter().enumerate() {
+    let mut first_refusal = None;
+    for &build in builds {
         let result = crate::logon_with_build(host, username, password, build, locale);
-        if !version_rejected(&result) || index + 1 == builds.len() {
-            return result;
+        if !version_rejected(&result) {
+            // A later build that fails for no realmd reason at all (a closed link, say) says less
+            // than the version refusal that sent us there.
+            return match (result, first_refusal) {
+                (Err(error), Some(refusal))
+                    if error.downcast_ref::<crate::AuthReject>().is_none() =>
+                {
+                    Err(refusal)
+                }
+                (result, _) => result,
+            };
         }
+        first_refusal.get_or_insert(result.err().expect("a refusal"));
     }
-    unreachable!("at least one login build")
+    Err(first_refusal.expect("at least one login build"))
 }
 
 /// `WOW_REALMD_BUILD`: unset or empty tries every build; otherwise one positive build number.
