@@ -448,6 +448,11 @@ fn vertex(vertex: WowVertex) -> WowVsOut {
 #endif
 #ifdef VERTEX_UVS_B
     out.uv_b = vertex.uv_b;
+    // tortoise: a stage 1 on a UV set (`stage1.w`, Turtle WoW's login scene)
+    // reads UV set B instead of the generated coordinate, combined by the same presets.
+    if (m.stage1.w > 0.5) {
+        out.env_uv = vertex.uv_b;
+    }
 #endif
 
 #ifdef VERTEX_COLORS
