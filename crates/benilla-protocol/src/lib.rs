@@ -2,6 +2,9 @@
 //! [`world`] and [`events`] for the world server. SRP6 and the header crypto are `benilla-srp`'s.
 
 pub mod auth;
+// tortoise: login build negotiation for Turtle-derived realms (`turtle_auth.rs`).
+mod turtle_auth;
+pub use turtle_auth::logon;
 pub mod events;
 pub mod guid;
 pub mod messages;
@@ -293,8 +296,15 @@ impl Logon {
 
 /// The full SRP6 logon against a vanilla `realmd`, then the realm list. `realmlist` is one or more
 /// `host[:port]` separated by `;`, the server dialled one of their addresses (`logon_target`).
-/// `locale` is the client's locale tag the challenge carries ([`auth::write_logon_challenge`]).
-pub fn logon(realmlist: &str, username: &str, password: &str, locale: u32) -> Result<Logon> {
+/// `locale` is the client's locale tag the challenge carries ([`auth::write_logon_challenge`]);
+/// `build` the client build the challenge presents ([`logon`] picks it).
+fn logon_with_build(
+    realmlist: &str,
+    username: &str,
+    password: &str,
+    build: u16,
+    locale: u32,
+) -> Result<Logon> {
     let username_n =
         NormalizedString::new(username).map_err(|e| anyhow!("invalid username: {e}"))?;
     let password_n =
@@ -309,13 +319,8 @@ pub fn logon(realmlist: &str, username: &str, password: &str, locale: u32) -> Re
         let mut dialed = None;
         for _ in 0..MAX_CHALLENGE_DIALS {
             let mut stream = connect(target, &address)?;
-            auth::write_logon_challenge(
-                &mut stream,
-                &username.to_uppercase(),
-                CLIENT_BUILD,
-                locale,
-            )
-            .context("sending logon challenge")?;
+            auth::write_logon_challenge(&mut stream, &username.to_uppercase(), build, locale)
+                .context("sending logon challenge")?;
             let Some(reply) =
                 auth::read_challenge_reply(&mut stream).context("reading logon challenge reply")?
             else {
