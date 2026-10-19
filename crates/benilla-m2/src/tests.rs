@@ -170,11 +170,12 @@ fn transparency_lookup_reads_0xa4_not_the_texture_unit_lookup_at_0x9c() {
     assert_eq!(m.texture_transform_lookup, vec![0xffff]);
 }
 
-/// The draw reads the coordinate table unchecked (`0x70b8bd`), so a stage past it reads the file's
-/// next u16: a one-entry `[0]` followed by `0, 0xffff` gives stage 1 a vertex UV set and stage 2
-/// the sphere map. A table ending the file, or an empty one, leaves nothing to read.
+/// tortoise: a stage past the coordinate table reads the UV set of its own number, as the Turtle
+/// client draws it, where 1.12.1's unchecked read (`0x70b8bd`) takes the file's next u16: a
+/// one-entry `[0]` followed by `0, 0xffff` gives stage 1 UV set 1, not the u16 after the table. A
+/// table ending the file and an empty one read the same way.
 #[test]
-fn a_stage_past_the_coordinate_table_reads_on_into_the_file() {
+fn a_stage_past_the_coordinate_table_reads_its_own_uv_set() {
     let mut b = header();
     let unit_ofs = b.len() as u32;
     for v in [0u16, 0, 0xffff] {
@@ -186,34 +187,33 @@ fn a_stage_past_the_coordinate_table_reads_on_into_the_file() {
     let batch = combine_batch();
     assert_eq!(m.texture_unit_lookup, vec![0]);
     assert_eq!(m.stage_coord(&b, &batch, 0), Some(0));
-    assert_eq!(m.stage_coord(&b, &batch, 1), Some(0), "the file's next u16");
+    assert_eq!(m.stage_coord(&b, &batch, 1), Some(1), "its own UV set");
     assert!(
         !m.stage_is_env_mapped(&b, &batch, 1),
-        "0 is a vertex UV set, not the sphere map"
+        "UV set 1, not the sphere map"
     );
-    assert_eq!(m.stage_coord(&b, &batch, 2), Some(0xffff));
-    assert!(m.stage_is_env_mapped(&b, &batch, 2));
-    // The combo index itself past the table reads on the same way.
+    assert_eq!(m.stage_coord(&b, &batch, 2), Some(2));
+    // The combo index itself past the table reads the same way.
     let past = SkinBatch {
         texture_coord_combo_index: 2,
         ..combine_batch()
     };
-    assert_eq!(m.stage_coord(&b, &past, 0), Some(0xffff));
+    assert_eq!(m.stage_coord(&b, &past, 0), Some(0));
 
-    // The table is the file's last bytes: nothing past it, the sphere map.
+    // The table is the file's last bytes: the same rule, nothing read past it.
     b.truncate(unit_ofs as usize + 2);
     let fmt = parse(&b).expect("a table at the end of the file parses");
-    assert_eq!(fmt.model().stage_coord(&b, &batch, 1), None);
-    assert!(fmt.model().stage_is_env_mapped(&b, &batch, 1));
+    assert_eq!(fmt.model().stage_coord(&b, &batch, 1), Some(1));
+    assert!(!fmt.model().stage_is_env_mapped(&b, &batch, 1));
 
-    // An empty table is a null pointer in the reference, whatever follows its offset.
+    // An empty table (a null pointer in the reference) reads the same way.
     let mut b = header();
     let unit_ofs = b.len() as u32;
     b.extend([0u8; 4]);
     set_arr(&mut b, OFS_TEX_UNIT_LOOKUP, 0, unit_ofs);
     let fmt = parse(&b).expect("an empty coordinate table parses");
-    assert_eq!(fmt.model().stage_coord(&b, &batch, 0), None);
-    assert!(fmt.model().stage_is_env_mapped(&b, &batch, 0));
+    assert_eq!(fmt.model().stage_coord(&b, &batch, 0), Some(0));
+    assert!(!fmt.model().stage_is_env_mapped(&b, &batch, 0));
 }
 
 /// The draw reads the transform table unchecked too (`0x70b8aa`): a one-entry `[1]` followed by
