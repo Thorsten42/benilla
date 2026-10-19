@@ -232,6 +232,8 @@ pub struct M2Model {
     pub texture_unit_lookup: Vec<u16>,
     /// The file offset of [`Self::texture_unit_lookup`], `None` for an empty table, which the
     /// reference's fixup leaves a null pointer (`0x71e160`); see [`Self::stage_coord`].
+    // tortoise: the Turtle client's past-table rule ([`Self::stage_coord`]) reads no further.
+    #[allow(dead_code)]
     pub(crate) texture_unit_lookup_at: Option<usize>,
     /// The texture transforms, reached through [`Self::texture_transform_lookup`].
     pub texture_transforms: Vec<M2TextureTransform>,
@@ -277,17 +279,18 @@ pub struct M2Model {
 
 impl M2Model {
     /// The coordinate entry `batch`'s stage `stage` reads: the u16 at `texture_coord_combo_index +
-    /// stage` of [`Self::texture_unit_lookup`], from `bytes`, the file this model was parsed from.
-    /// The draw indexes the table unchecked (`0x70b8bd`) in the file it holds whole, so an index
-    /// past the table reads the file's next u16s. `None` for an empty table, which the reference
-    /// reads through a null pointer, and past the file's end.
-    pub fn stage_coord(&self, bytes: &[u8], batch: &crate::SkinBatch, stage: u16) -> Option<u16> {
+    /// stage` of [`Self::texture_unit_lookup`]. The 1.12.1 draw indexes the table unchecked
+    /// (`0x70b8bd`) in the file it holds whole (`bytes`), so an index past the table reads the
+    /// file's next u16s, and an empty table reads through a null pointer.
+    ///
+    /// tortoise deviation: past the table a stage reads the UV set of its own number, as the Turtle
+    /// WoW client draws it. HD model packs (OctoWoW HD's `UI_MainMenu.m2`) ship two-texture units
+    /// over a one-entry table; on the Turtle client their stage 1 reads UV set 1, where the
+    /// clamped masks fit (the pillar swirls' `T_VFX_Border_256`, the portal's door masks). 1.12.1's
+    /// read-past gives UV set 0 there, which hides the swirls entirely.
+    pub fn stage_coord(&self, _bytes: &[u8], batch: &crate::SkinBatch, stage: u16) -> Option<u16> {
         let idx = batch.texture_coord_combo_index as usize + stage as usize;
-        if let Some(&v) = self.texture_unit_lookup.get(idx) {
-            return Some(v);
-        }
-        let at = self.texture_unit_lookup_at?.checked_add(idx * 2)?;
-        bytes.u16_at(at)
+        self.texture_unit_lookup.get(idx).copied().or(Some(stage))
     }
 
     /// The texture transform `batch`'s stage `stage` moves by: the texAnimLookup entry at
