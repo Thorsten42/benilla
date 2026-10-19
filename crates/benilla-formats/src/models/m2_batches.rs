@@ -576,17 +576,14 @@ pub fn parse_m2_render_submeshes(
             });
             sub.env_map = env_map;
             sub.stage1 = stage1.clone();
-            // tortoise: a stage reading UV set 0 takes that set in this submesh's vertex order.
-            // Set 1 is not parsed, so such a stage still draws stage 0 alone.
-            if let Some(st) = sub
-                .stage1
-                .as_mut()
-                .filter(|st| !st.env_map && model.stage_coord(batch, 1) == Some(0))
-            {
+            // tortoise: a stage reading UV set 0 or 1 takes that set in this submesh's vertex order.
+            let set = model.stage_coord(batch, 1).unwrap_or(0);
+            if let Some(st) = sub.stage1.as_mut().filter(|st| !st.env_map && set <= 1) {
                 st.uvs = globals
                     .iter()
                     .map(|&g| {
-                        let c = &model.vertices[g as usize].tex_coords;
+                        let v = &model.vertices[g as usize];
+                        let c = if set == 1 { &v.tex_coords2 } else { &v.tex_coords };
                         [c.x, c.y]
                     })
                     .collect();
