@@ -25,6 +25,12 @@ const NOT_YET_ASSERTED: &[(&str, usize, &str)] = &[
         1,
         "Deviation: the same stack-top return (0x4dcd7c)",
     ),
+    (
+        "GetAuctionSellItemInfo",
+        6,
+        "tortoise: Turtle's patched Blizzard_AuctionUI.lua reads maxStack and the link past the \
+         stock six",
+    ),
 ];
 
 /// The query verbs the negative-index rule reads: a verb that acts on its index (`PickupAction`)
