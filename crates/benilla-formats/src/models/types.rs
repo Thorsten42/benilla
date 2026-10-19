@@ -381,6 +381,10 @@ pub struct TextureStage {
     pub uvs: Vec<[f32; 2]>,
     /// tortoise: the batch's shader id names the ×2 modulate (`shader_id & 0xf == 4`).
     pub mod2x: bool,
+    /// tortoise: the stage's own texture transform, `textureTransform[combo + 1]` (`0x70b740`
+    /// binds one per stage), its translation loop on sequence slot 0; `None` for no transform or
+    /// an env-mapped stage, which the reference excludes from `textureTransform`.
+    pub uv_anim: Option<crate::UvAnim>,
 }
 
 /// A flat ground-plane quad: four vertices on one horizontal plane at or just above z = 0 (hover
