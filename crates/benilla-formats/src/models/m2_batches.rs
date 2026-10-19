@@ -417,7 +417,6 @@ pub fn parse_m2_render_submeshes(
                 env_map: model.stage_is_env_mapped(batch, 1),
                 combine: model.stage_combine(batch, 1),
                 uvs: Vec::new(),
-                mod2x: batch.shader_id & 0xf == 4,
                 // 0xffff is the no-transform sentinel; `checked_add` keeps it absent rather than
                 // wrapping onto stage 0's transform at index 0.
                 uv_anim: (!model.stage_is_env_mapped(batch, 1))
@@ -896,7 +895,6 @@ mod tests {
                 env_map: true,
                 combine: 1,
                 uvs: Vec::new(),
-                mod2x: false,
                 uv_anim: None,
             })
         );
