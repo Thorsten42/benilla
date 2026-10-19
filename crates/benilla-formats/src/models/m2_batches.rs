@@ -418,6 +418,12 @@ pub fn parse_m2_render_submeshes(
                 combine: model.stage_combine(batch, 1),
                 uvs: Vec::new(),
                 mod2x: batch.shader_id & 0xf == 4,
+                // 0xffff is the no-transform sentinel; `checked_add` keeps it absent rather than
+                // wrapping onto stage 0's transform at index 0.
+                uv_anim: (!model.stage_is_env_mapped(batch, 1))
+                    .then(|| batch.texture_transform_combo_index.checked_add(1))
+                    .flatten()
+                    .and_then(|combo| tex_anim::bake_uv_anim(model, combo, seq0_slot)),
             }
         });
         // Render flag 0x01, unlit: full texture brightness (lamp glass, glow cards).
@@ -891,6 +897,7 @@ mod tests {
                 combine: 1,
                 uvs: Vec::new(),
                 mod2x: false,
+                uv_anim: None,
             })
         );
         // One texture binds one stage, whatever the lookups past it hold.
