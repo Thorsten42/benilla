@@ -14,82 +14,86 @@
     </Font>
 
     <Script><![CDATA[
-        -- ══ The frame: the era layout, 28+144+28 wide, 32 top, 28 bottom, 7 rungs of 21 and
-        -- three gaps of 20 ═══════════════════════════════════════════════════════════════════════
-        GameMenuFrame:SetWidth(200)
-        GameMenuFrame:SetHeight(267)
+        -- tortoise: a Turtle-derived FrameXML (its combined options window, OptionsFrameCategoryList)
+        -- keeps its own game menu, Options and Key Bindings included, as its client shows it.
+        if ( not OptionsFrameCategoryList ) then
+            -- ══ The frame: the era layout, 28+144+28 wide, 32 top, 28 bottom, 7 rungs of 21 and
+            -- three gaps of 20 ═══════════════════════════════════════════════════════════════════════
+            GameMenuFrame:SetWidth(200)
+            GameMenuFrame:SetHeight(267)
 
-        -- The stock title (`GameMenuFrame.xml:36`) has no name: found as addons find it.
-        for _, region in ipairs({ GameMenuFrame:GetRegions() }) do
-            if region:GetObjectType() == "FontString" and region:GetText() == MAIN_MENU then
-                region:SetFontObject(BenillaGameFontNormalMed1)
+            -- The stock title (`GameMenuFrame.xml:36`) has no name: found as addons find it.
+            for _, region in ipairs({ GameMenuFrame:GetRegions() }) do
+                if region:GetObjectType() == "FontString" and region:GetText() == MAIN_MENU then
+                    region:SetFontObject(BenillaGameFontNormalMed1)
+                end
             end
-        end
 
-        -- BENILLA_ERA_WINDOW_SCALE (OptionsFrame.xml) stands in for the era's UIParent scale;
-        -- read at every show, then the stock OnShow.
-        local Ref_GameMenuFrame_OnShow = GameMenuFrame:GetScript("OnShow")
-        GameMenuFrame:SetScript("OnShow", function()
-            this:SetScale(BENILLA_ERA_WINDOW_SCALE or 1)
-            Ref_GameMenuFrame_OnShow()
-        end)
+            -- BENILLA_ERA_WINDOW_SCALE (OptionsFrame.xml) stands in for the era's UIParent scale;
+            -- read at every show, then the stock OnShow.
+            local Ref_GameMenuFrame_OnShow = GameMenuFrame:GetScript("OnShow")
+            GameMenuFrame:SetScript("OnShow", function()
+                this:SetScale(BENILLA_ERA_WINDOW_SCALE or 1)
+                Ref_GameMenuFrame_OnShow()
+            end)
 
-        -- ══ The rungs ═══════════════════════════════════════════════════════════════════════════
-        -- Every stock rung stays, anchored TOP to a BOTTOM as in the stock file, so an addon's
-        -- `SetPoint("TOP", …)` replaces its one anchor. The three the era menu lacks are hidden
-        -- in place, with Sound and UI Options each laid over the rung above it, so they take no
-        -- space: a width or height of 0 is no size in 1.12's layout, not a flat rect.
+            -- ══ The rungs ═══════════════════════════════════════════════════════════════════════════
+            -- Every stock rung stays, anchored TOP to a BOTTOM as in the stock file, so an addon's
+            -- `SetPoint("TOP", …)` replaces its one anchor. The three the era menu lacks are hidden
+            -- in place, with Sound and UI Options each laid over the rung above it, so they take no
+            -- space: a width or height of 0 is no size in 1.12's layout, not a flat rect.
 
-        -- Literal: 1.12 has no GAMEMENU_OPTIONS; its OPTIONS_MENU is "Options Menu".
-        GameMenuButtonOptions:SetText("Options")
-        GameMenuButtonOptions:ClearAllPoints()
-        GameMenuButtonOptions:SetPoint("TOP", GameMenuFrame, "TOP", 0, -32)
-        GameMenuButtonOptions:SetScript("OnClick", function()
-            PlaySound("igMainMenuOption")
-            HideUIPanel(GameMenuFrame)
-            ShowUIPanel(BenillaOptionsFrame)
-        end)
+            -- Literal: 1.12 has no GAMEMENU_OPTIONS; its OPTIONS_MENU is "Options Menu".
+            GameMenuButtonOptions:SetText("Options")
+            GameMenuButtonOptions:ClearAllPoints()
+            GameMenuButtonOptions:SetPoint("TOP", GameMenuFrame, "TOP", 0, -32)
+            GameMenuButtonOptions:SetScript("OnClick", function()
+                PlaySound("igMainMenuOption")
+                HideUIPanel(GameMenuFrame)
+                ShowUIPanel(BenillaOptionsFrame)
+            end)
 
-        for _, fold in ipairs({
-            { GameMenuButtonSoundOptions, GameMenuButtonOptions },
-            { GameMenuButtonUIOptions, GameMenuButtonSoundOptions },
-        }) do
-            local button, above = fold[1], fold[2]
-            -- tortoise: Turtle's GameMenuFrame drops a stock rung, so a fold may be missing.
-            if ( button ) then
-                button:Hide()
-                button:ClearAllPoints()
-                button:SetPoint("TOP", above or GameMenuButtonOptions, "BOTTOM", 0,
-                    button:GetHeight())
+            for _, fold in ipairs({
+                { GameMenuButtonSoundOptions, GameMenuButtonOptions },
+                { GameMenuButtonUIOptions, GameMenuButtonSoundOptions },
+            }) do
+                local button, above = fold[1], fold[2]
+                -- tortoise: Turtle's GameMenuFrame drops a stock rung, so a fold may be missing.
+                if ( button ) then
+                    button:Hide()
+                    button:ClearAllPoints()
+                    button:SetPoint("TOP", above or GameMenuButtonOptions, "BOTTOM", 0,
+                        button:GetHeight())
+                end
             end
+            -- Key Bindings keeps its stock anchor, 1 under UI Options: the era rungs hang from its
+            -- top, so an addon that inserts a button above it and re-anchors it under that button
+            -- (ShaguTweaks) moves them down as it moves the stock rungs.
+            GameMenuButtonKeybindings:Hide()
+
+            -- The era's Edit Mode, with nothing behind it yet: disabled.
+            local editMode = CreateFrame("Button", "BenillaGameMenuButtonEditMode", GameMenuFrame,
+                "GameMenuButtonTemplate")
+            editMode:SetPoint("TOP", GameMenuButtonKeybindings, "TOP", 0, -19)
+            editMode:SetText("Edit Mode")
+            editMode:Disable()
+            local support = CreateFrame("Button", "BenillaGameMenuButtonSupport", GameMenuFrame,
+                "GameMenuButtonTemplate")
+            support:SetPoint("TOP", editMode, "BOTTOM", 0, 0)
+            support:SetText("Support")
+            -- The era's Support opens the help window, which 1.12 opens from its "?" micro button
+            -- (`MainMenuBarMicroButtons.xml:217`); closing the menu first, as the Macros rung does.
+            support:SetScript("OnClick", function()
+                PlaySound("igMainMenuOption")
+                HideUIPanel(GameMenuFrame)
+                ToggleHelpFrame()
+            end)
+
+            GameMenuButtonMacros:SetPoint("TOP", support, "BOTTOM", 0, 0)
+            GameMenuButtonLogout:SetPoint("TOP", GameMenuButtonMacros, "BOTTOM", 0, -20)
+            GameMenuButtonQuit:SetPoint("TOP", GameMenuButtonLogout, "BOTTOM", 0, 0)
+            GameMenuButtonContinue:SetPoint("TOP", GameMenuButtonQuit, "BOTTOM", 0, -20)
         end
-        -- Key Bindings keeps its stock anchor, 1 under UI Options: the era rungs hang from its
-        -- top, so an addon that inserts a button above it and re-anchors it under that button
-        -- (ShaguTweaks) moves them down as it moves the stock rungs.
-        GameMenuButtonKeybindings:Hide()
-
-        -- The era's Edit Mode, with nothing behind it yet: disabled.
-        local editMode = CreateFrame("Button", "BenillaGameMenuButtonEditMode", GameMenuFrame,
-            "GameMenuButtonTemplate")
-        editMode:SetPoint("TOP", GameMenuButtonKeybindings, "TOP", 0, -19)
-        editMode:SetText("Edit Mode")
-        editMode:Disable()
-        local support = CreateFrame("Button", "BenillaGameMenuButtonSupport", GameMenuFrame,
-            "GameMenuButtonTemplate")
-        support:SetPoint("TOP", editMode, "BOTTOM", 0, 0)
-        support:SetText("Support")
-        -- The era's Support opens the help window, which 1.12 opens from its "?" micro button
-        -- (`MainMenuBarMicroButtons.xml:217`); closing the menu first, as the Macros rung does.
-        support:SetScript("OnClick", function()
-            PlaySound("igMainMenuOption")
-            HideUIPanel(GameMenuFrame)
-            ToggleHelpFrame()
-        end)
-
-        GameMenuButtonMacros:SetPoint("TOP", support, "BOTTOM", 0, 0)
-        GameMenuButtonLogout:SetPoint("TOP", GameMenuButtonMacros, "BOTTOM", 0, -20)
-        GameMenuButtonQuit:SetPoint("TOP", GameMenuButtonLogout, "BOTTOM", 0, 0)
-        GameMenuButtonContinue:SetPoint("TOP", GameMenuButtonQuit, "BOTTOM", 0, -20)
 
         -- ══ Our options window in the stock "is an options window open?" checks ═══════════════
         -- Each wraps the stock function to add `BenillaOptionsFrame`.
