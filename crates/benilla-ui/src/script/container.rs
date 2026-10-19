@@ -793,6 +793,12 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     lua.globals().set(
         "GetContainerNumSlots",
         lua.create_function(|lua, bag: i64| {
+            // tortoise: the backpack, the bank and bags 1 to 10 have slots; anything else answers
+            // 0, the keyring included (`0x4f9560`), which addons read as "hidden" and size by
+            // `GetKeyRingSize` instead.
+            if !(-1..=10).contains(&bag) {
+                return Ok(0);
+            }
             let model = lua.app_data_ref::<Model>().expect("model app_data");
             Ok(model.containers.get(&bag).map_or(0, |c| c.num_slots))
         })?,
