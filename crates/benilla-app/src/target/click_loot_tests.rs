@@ -538,3 +538,28 @@ fn the_loot_cursor_lights_only_over_the_object_being_looted() {
     assert!(unable(&mut c, BODY_B), "another loot held");
     assert!(!unable(&mut c, BODY_A), "the one being looted");
 }
+
+/// A gather or an opening is our own cast: its GO ends the precast at rest and owes the close
+/// `0x48f200(1, 0, 0)` (`0x60d10b`) in that packet, before the chest's loot response, so no window
+/// is open for it to take. The response that follows opens a window the frame's drain keeps.
+#[test]
+fn the_gathers_go_close_does_not_take_the_window_its_response_opens() {
+    let mut c = client();
+    let world = c.app.world_mut();
+    world.resource_mut::<LootLatch>().0 = Some(CHEST);
+    world.resource_mut::<crate::ui_loot::LootCloseAtRest>().0 = true;
+    c.respond(CHEST, vec![linen(0)]);
+    crate::ui_loot::drain_loot_once(c.app.world_mut());
+    let world = c.app.world();
+    assert_eq!(
+        world.resource::<crate::ui_loot::LootState>().source(),
+        Some(CHEST),
+        "the herb's window stays open"
+    );
+    assert!(
+        !c.sent()
+            .iter()
+            .any(|cmd| matches!(cmd, ClientCommand::LootRelease { .. })),
+        "and is not released"
+    );
+}
