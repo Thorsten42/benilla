@@ -1189,6 +1189,16 @@ pub(crate) fn feed_loot_once(world: &mut World) {
         .expect("the loot feed runs as a one-shot system");
 }
 
+/// [`drain_loot`] once, for the tests that run the frame's owed closes after its feed.
+#[cfg(test)]
+pub(crate) fn drain_loot_once(world: &mut World) {
+    use bevy::ecs::system::RunSystemOnce;
+    seat_loot_steps(world);
+    world
+        .run_system_once(drain_loot)
+        .expect("the loot drain runs as a one-shot system");
+}
+
 /// Seat what [`LootSteps`] reads that a harness's world need not hold; the commands are the
 /// harness's own.
 #[cfg(test)]

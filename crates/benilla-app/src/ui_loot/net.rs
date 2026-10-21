@@ -5,7 +5,7 @@ use benilla_protocol::messages::ItemPushResult;
 use benilla_protocol::{SessionEvent, SessionEventKind};
 use bevy::prelude::*;
 
-use super::{LootLatch, LootMoveStart, LootState};
+use super::{LootCloseAtRest, LootLatch, LootMoveStart, LootState};
 use crate::net::{ClientCommand, NetCommands, NetHandlerApp, SelfGuid};
 use crate::ui_action::{UiError, UiErrorKeys};
 
@@ -29,12 +29,15 @@ pub(super) fn register(app: &mut App) {
 /// open on it. One for an object we lack shows `ERR_LOOT_DIDNT_KILL` and returns (`0x5ebb33`,
 /// mask 1, `0x5ebb3f`) before the latch (`0x5ebb60`) and the open. One that lands while our own
 /// body moves takes the move-start close (`0x5ebc3a`-`0x5ebc51`), which the feed runs after the
-/// copier's end, or the drain when the window waits on an item template.
+/// copier's end, or the drain when the window waits on an item template. A precast end's close
+/// at rest a packet ahead owed ([`LootCloseAtRest`], the GO of our own Herb Gathering, Mining or
+/// Opening, `0x60d10b`) ran in that packet, on the window open then, never on this one.
 fn on_response(
     In(ev): In<SessionEvent>,
     mut select: crate::target::SelectCommit,
     player: Option<Res<crate::player::Player>>,
     mut move_start: ResMut<LootMoveStart>,
+    mut at_rest: ResMut<LootCloseAtRest>,
     index: Res<crate::net::GuidIndex>,
     errors: Res<UiErrorKeys>,
 ) {
@@ -48,6 +51,13 @@ fn on_response(
         return;
     };
     let seam = &mut select.seam;
+    if std::mem::take(&mut at_rest.0) {
+        if seam.loot.disenchant_holds() {
+            seam.loot.owe_sweep();
+        } else {
+            super::close_interaction(&mut seam.loot, &mut seam.loot_latch, Some(&seam.net));
+        }
+    }
     if !admit_response(
         guid,
         loot_type,
