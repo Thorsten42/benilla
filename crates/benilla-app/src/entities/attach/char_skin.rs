@@ -96,9 +96,12 @@ pub(super) fn resolve_char_look(
 
 /// The `mpq://` URL of a baked NPC atlas under `Textures\BakedNpcTextures\`.
 fn baked_npc_url(bake_name: &str) -> String {
+    // A bare bake name (Turtle WoW stores them so) asks for its `.blp`, as `TextureCreate` does.
     format!(
         "mpq://textures/bakednpctextures/{}",
-        bake_name.replace('\\', "/").to_ascii_lowercase()
+        benilla_assets::texture_name_with_ext(bake_name)
+            .replace('\\', "/")
+            .to_ascii_lowercase()
     )
 }
 
