@@ -633,28 +633,38 @@ impl<'a> UnitNames<'a> {
     }
 }
 
+/// The race → PvP team digit table read from the chain at load ([`set_race_teams`]); unset before
+/// it, or without data, where [`race_pvp_team`]'s frozen rows answer.
+static RACE_TEAMS: std::sync::OnceLock<HashMap<u8, i8>> = std::sync::OnceLock::new();
+
+/// Set [`RACE_TEAMS`] once, from the loaded chain (`chr_classes::load_chr_races`).
+pub(crate) fn set_race_teams(teams: HashMap<u8, i8>) {
+    let _ = RACE_TEAMS.set(teams);
+}
+
 /// A playable race's fixed side, for where no faction template is at hand, as at world entry,
 /// where addons concatenate `UnitFactionGroup("player")` at file scope; [`faction_group`] reads
-/// the live template.
+/// the live template. The race's own `ChrRaces` → `FactionTemplate` side, as [`race_pvp_team`].
 pub(crate) fn race_faction_group(race: u8) -> Option<&'static str> {
-    if !(1..=8).contains(&race) {
-        return None;
+    match race_pvp_team(race) {
+        1 => Some("Alliance"),
+        0 => Some("Horde"),
+        _ => None,
     }
-    // Human, Dwarf, Night Elf, Gnome.
-    Some(if [1, 3, 4, 7].contains(&race) {
-        "Alliance"
-    } else {
-        "Horde"
-    })
 }
 
 /// A unit's PvP team digit, `0x5efe00`'s `0` Horde, `1` Alliance, `-1` no side, from the race and
 /// never the live template: `ChrRaces.dbc` field 2 to `FactionTemplate.dbc` field 3's group mask,
 /// `& 4` Horde, else `& 2` Alliance, so a template-35 GM keeps his rank title. Read by
 /// `GetPVPRankInfo` (`0x51a9af`, `0x51a9c8`), `UnitPVPName` (`0x5efe60`) and the scoreboard
-/// (`0x4aa200`). A frozen copy of TurtleWoW's ten rows; race 9 (Goblin, template 1609, mask 5)
-/// answers Horde and race 10 (Blood Elf, 1610, mask 3) Alliance.
+/// (`0x4aa200`). Read from the chain at load ([`set_race_teams`]); before that, or without data, a
+/// frozen copy of TurtleWoW's ten rows: race 9 (Goblin, template 1609, mask 5) answers Horde and
+/// race 10 (Blood Elf, 1610, mask 3) Alliance.
 pub(crate) fn race_pvp_team(race: u8) -> i8 {
+    // The chain's own answer where it loaded: a chain's added races take their data's side.
+    if let Some(teams) = RACE_TEAMS.get() {
+        return teams.get(&race).copied().unwrap_or(-1);
+    }
     match race {
         // Group mask 3, Player|Alliance: `& 4` clear, `& 2` set.
         1 | 3 | 4 | 7 | 10 => 1,
@@ -2812,6 +2822,22 @@ mod tests {
         for race in [0u8, 11, 255] {
             assert!(!want.contains_key(&race));
             assert_eq!(race_pvp_team(race), -1, "race {race} has no ChrRaces row");
+        }
+    }
+
+    /// `UnitFactionGroup`'s fallback answers from the same side as the rank title, so a chain's
+    /// added races have one: Turtle WoW's Goblin is Horde and its High Elf Alliance, and the stock
+    /// eight keep theirs.
+    #[test]
+    fn the_faction_group_fallback_follows_the_race_side() {
+        for race in [1u8, 3, 4, 7, 10] {
+            assert_eq!(race_faction_group(race), Some("Alliance"), "race {race}");
+        }
+        for race in [2u8, 5, 6, 8, 9] {
+            assert_eq!(race_faction_group(race), Some("Horde"), "race {race}");
+        }
+        for race in [0u8, 11, 255] {
+            assert_eq!(race_faction_group(race), None, "race {race} has no side");
         }
     }
 
