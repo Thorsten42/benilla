@@ -169,6 +169,20 @@ impl AssetReader for LooseAssetReader {
 /// The sampler-mode marker in an `mpq://` texture URL.
 const SAMPLER_MARKER: char = '@';
 
+/// A texture name as `TextureCreate` (`0x449d90`) asks for it: one with no three-character
+/// extension (`0x449590`: the byte four from the end is not `.`) gets `.blp`, the first candidate
+/// it tries for such a name; a name with one is kept. HD packs store M2 textures and Turtle WoW
+/// stores bake names without one. Deviation: the reference tries `.tga` when `.blp` fails, and a
+/// `.tga` name `.tga` first; here an extension in the name is taken as written.
+pub fn texture_name_with_ext(name: &str) -> std::borrow::Cow<'_, str> {
+    let b = name.as_bytes();
+    if b.len() >= 4 && b[b.len() - 4] == b'.' {
+        std::borrow::Cow::Borrowed(name)
+    } else {
+        std::borrow::Cow::Owned(format!("{name}.blp"))
+    }
+}
+
 /// The `mpq://` URL of a model texture at a sampler address mode. Bevy keys the sampler to the
 /// `Image` and the `Image` to its path, so a mode other than repeat/repeat marks the path before
 /// the extension (`…/leaves01@cc.blp`), which must stay `.blp` to pick the loader.
@@ -179,7 +193,9 @@ pub fn texture_url(internal: &str, wrap: (bool, bool)) -> String {
 /// [`texture_url`] on the asset source `source`: a model's textures are read from the source its
 /// `.m2` was, as they open with the model's flag (`0x71da64`).
 pub fn texture_url_on(source: &str, internal: &str, wrap: (bool, bool)) -> String {
-    let path = internal.replace('\\', "/").to_ascii_lowercase();
+    let path = texture_name_with_ext(internal)
+        .replace('\\', "/")
+        .to_ascii_lowercase();
     if wrap == (true, true) {
         return format!("{source}://{path}");
     }
@@ -293,6 +309,32 @@ pub fn register_asset_loaders(app: &mut App) {
 
 #[cfg(test)]
 mod tests {
+    /// `TextureCreate`'s split (`0x449590`): a bare name asks for its `.blp`, a name with a
+    /// three-character extension is kept. An HD pack's `RedridgeTreeCanopy01.m2` stores its
+    /// canopy texture with none.
+    #[test]
+    fn a_texture_name_without_an_extension_asks_for_its_blp() {
+        let bare = r"world\azeroth\redridge\passivedoodads\trees\redtreecanopy_base02";
+        assert_eq!(
+            texture_url(bare, (true, true)),
+            "mpq://world/azeroth/redridge/passivedoodads/trees/redtreecanopy_base02.blp"
+        );
+        assert_eq!(
+            texture_url(bare, (false, false)),
+            "mpq://world/azeroth/redridge/passivedoodads/trees/redtreecanopy_base02@cc.blp"
+        );
+        assert_eq!(
+            texture_name_with_ext("Creature\\Wolf\\Wolf.blp"),
+            "Creature\\Wolf\\Wolf.blp"
+        );
+        assert_eq!(texture_name_with_ext("Foo.tga"), "Foo.tga");
+        assert_eq!(
+            texture_name_with_ext("Northwindbutcher"),
+            "Northwindbutcher.blp"
+        );
+        assert_eq!(texture_name_with_ext("ab"), "ab.blp");
+    }
+
     use super::*;
     use bevy::camera::primitives::MeshAabb;
     use bevy::tasks::block_on;
