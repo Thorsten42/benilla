@@ -700,20 +700,26 @@ pub(in crate::net) fn ground_clamp_creatures(
     // extents are not built.
     capsule: Res<crate::player::PlayerCapsule>,
     mut commands: Commands,
-    mut q: Query<(
-        Entity,
-        &NetEntity,
-        Option<&Spline>,
-        &mut Transform,
-        Option<&mut GroundClamped>,
-        Has<CreatureSwimming>,
-        // HOVER and WATERWALKING both move the answer.
-        Option<&crate::net::UnitMoveModes>,
-        // [`ground_derived`]'s other Z authority, the controller.
-        Has<crate::net::Embodied>,
-        // The mover state a re-grounded unit's dead-reckoning goes on from.
-        Option<&mut crate::net::RemoteMotion>,
-    )>,
+    mut q: Query<
+        (
+            Entity,
+            &NetEntity,
+            Option<&Spline>,
+            &mut Transform,
+            Option<&mut GroundClamped>,
+            Has<CreatureSwimming>,
+            // HOVER and WATERWALKING both move the answer.
+            Option<&crate::net::UnitMoveModes>,
+            // [`ground_derived`]'s other Z authority, the controller.
+            Has<crate::net::Embodied>,
+            // The mover state a re-grounded unit's dead-reckoning goes on from.
+            Option<&mut crate::net::RemoteMotion>,
+        ),
+        // A mount child is kind `Unit` but rides its host (`0x607a00`, no movement of its own):
+        // its `Transform` is host-local, so a world ray from `(0, 0, 0)` would write the world
+        // origin's floor into its local Y.
+        Without<crate::entities::mount::MountBody>,
+    >,
 ) {
     let cost = clamp_cost_enabled();
     let legacy = clamp_seat_disabled();
@@ -1069,7 +1075,9 @@ fn creature_swim_state(marked: bool, depth: f32, boundary: f32, unit_flags: u32)
 /// Chained before [`ground_clamp_creatures`] so a fresh mark exempts the clamp the same frame.
 pub(in crate::net) fn mark_swimming_creatures(
     mut commands: Commands,
-    units: Query<SwimMarkQuery, SwimMarkGate>,
+    // A mount child rides its host: a host-local `Transform` cannot answer a world water query,
+    // and the clamp beside this system walks the same population.
+    units: Query<SwimMarkQuery, (SwimMarkGate, Without<crate::entities::mount::MountBody>)>,
     stamped: Query<Entity, With<SwimEvaluated>>,
     world: benilla_world::world_point::WorldPoint,
     epoch: Res<benilla_world::collision::ColliderEpoch>,
