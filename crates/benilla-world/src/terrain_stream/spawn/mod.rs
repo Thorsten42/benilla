@@ -945,6 +945,8 @@ mod retire_tests {
 
     fn placement(model: ModelHandle, doodads: Vec<WmoDoodadInst>) -> Placement {
         Placement {
+            uid: 0,
+            ident: Default::default(),
             model,
             transform: Transform::IDENTITY,
             entities: Vec::new(),

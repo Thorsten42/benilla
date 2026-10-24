@@ -497,6 +497,8 @@ mod tests {
 
     fn wmo(spawned: bool, entities: Vec<Entity>, doodads: Vec<WmoDoodadInst>) -> Placement {
         Placement {
+            uid: 7,
+            ident: Default::default(),
             model: ModelHandle::Wmo(Default::default()),
             transform: Transform::IDENTITY,
             root_entities: entities.len(),
