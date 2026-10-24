@@ -975,6 +975,7 @@ impl GlueMgr {
                     hair_style: r.hair_style,
                     hair_color: r.hair_color,
                     facial_hair: r.facial_hair,
+                    challenge_mask: r.challenge_modes,
                 }),
             ),
             Step::Delete(guid) => char_op(
