@@ -320,6 +320,7 @@ fn drive_rig(
                 hair_style: 0,
                 hair_color: 0,
                 facial_hair: 0,
+                challenge_mask: 0,
             };
             match glue_press::press_body(vm, &req) {
                 Ok(()) => {

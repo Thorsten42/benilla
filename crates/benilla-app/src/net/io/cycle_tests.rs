@@ -540,6 +540,7 @@ fn a_create_sends_its_result_alone() {
         hair_style: 0,
         hair_color: 0,
         facial_hair: 0,
+        challenge_mask: 0,
     };
     let (realmd, world) = fake::servers(|world| vec![FakeRealm::new(REALM, world)]);
     let cycles = fake::spawn_cycles();
