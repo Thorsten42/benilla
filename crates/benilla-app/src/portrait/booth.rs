@@ -454,7 +454,7 @@ pub(super) fn spawn_booth_model(
     let Some((skeleton, ibp, anims)) = rig.filter(|(s, _, _)| !s.joints.is_empty()) else {
         // No palette slot: every part draws its static twin at bind pose.
         for p in parts {
-            spawn_batch(commands, root, &layer, p, 0, instance, None);
+            spawn_batch(commands, root, &layer, p, 0, instance, None, None);
         }
         return BoothRig {
             root,
@@ -516,8 +516,15 @@ pub(super) fn spawn_booth_model(
     // A live booth's batch alphas follow the sequence its root plays, on its clock; a still's
     // stay pinned.
     let host = (motion == BoothMotion::Loop && anims.is_some()).then_some(root);
+    // tortoise: the file slot of the Stand armed above, which a still's material alpha reads:
+    // slot 0 is not always Stand (Turtle WoW's GoblinFemale opens on anim 125).
+    let stand_seq = anims
+        .and_then(|a| a.find(catalog.map_or(0, |c| a.resolve(0, c).id)))
+        .map(|clip| clip.seq_index);
     for p in parts {
-        spawn_batch(commands, root, &layer, p, rig_slot, instance, host);
+        spawn_batch(
+            commands, root, &layer, p, rig_slot, instance, host, stand_seq,
+        );
     }
     let mut booth_rig = BoothRig {
         root,
@@ -575,6 +582,7 @@ fn spawn_batch(
     rig_slot: u16,
     instance: BoothInstance,
     host: Option<Entity>,
+    stand_seq: Option<usize>,
 ) -> Entity {
     let use_rig = p.skinned.is_some() && rig_slot != 0;
     let mut child = commands.spawn((
@@ -584,7 +592,7 @@ fn spawn_batch(
         ChildOf(root),
         BoothBatch,
     ));
-    dress_batch(&mut child, p, rig_slot, instance, host);
+    dress_batch(&mut child, p, rig_slot, instance, host, stand_seq);
     if use_rig {
         child.insert(benilla_world::rig_palette::RigPart(root));
         // A skinned booth part is never frustum-culled: Bevy's bound is the bind-pose box, the
@@ -604,6 +612,7 @@ fn dress_batch(
     rig_slot: u16,
     instance: BoothInstance,
     host: Option<Entity>,
+    stand_seq: Option<usize>,
 ) {
     child.insert(MeshMaterial3d(instance.material(&p.material, &p.twins)));
     mark_mat_anim(child, p.mat_anim);
@@ -615,8 +624,9 @@ fn dress_batch(
     if let Some(anim) = &p.alpha_anim {
         // The batch's material alpha times the instance alpha, the reference's
         // `model+0x180 × the batch factor` (`0x707680`).
-        let mat_anim = benilla_world::doodad_anim::MatAnim::driving_tag(anim.clone(), 0.0, None)
-            .following_host(host);
+        let mat_anim =
+            benilla_world::doodad_anim::MatAnim::driving_tag(anim.clone(), 0.0, stand_seq)
+                .following_host(host);
         child.insert((
             bevy::mesh::MeshTag(benilla_world::mesh_tag::spawn_tag(
                 tag_slot,
@@ -741,10 +751,19 @@ pub(super) fn redress_booth_batches(
                         benilla_world::doodad_anim::AnimMatPart,
                     )>()
                     .insert(Visibility::Inherited);
-                dress_batch(&mut child, p, rig_slot, instance, Some(root));
+                dress_batch(&mut child, p, rig_slot, instance, Some(root), None);
             }
             None => {
-                spawn_batch(commands, root, layer, p, rig_slot, instance, Some(root));
+                spawn_batch(
+                    commands,
+                    root,
+                    layer,
+                    p,
+                    rig_slot,
+                    instance,
+                    Some(root),
+                    None,
+                );
             }
         }
     }
