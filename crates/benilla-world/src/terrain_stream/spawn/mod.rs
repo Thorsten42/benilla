@@ -143,6 +143,7 @@ pub(super) fn spawn_loaded_placements(
         by_id,
         materials: mat_cache,
         pending_spawns,
+        ..
     } = placements;
 
     // At most `SPAWN_BUDGET` per frame, resumed next frame through the `spawned` flags; the check
@@ -935,6 +936,8 @@ mod retire_tests {
 
     fn placement(model: ModelHandle, doodads: Vec<WmoDoodadInst>) -> Placement {
         Placement {
+            uid: 0,
+            ident: Default::default(),
             model,
             transform: Transform::IDENTITY,
             entities: Vec::new(),
