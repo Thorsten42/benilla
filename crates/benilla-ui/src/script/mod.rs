@@ -386,8 +386,8 @@ pub use party::{
 };
 pub use pet::{PetActionView, PetCall, PetStats, PET_DISMISS_WORD};
 pub use pvp::{
-    decorated_name, pvp_name_global_keys, HonorNow, HonorState, InspectHonorData, InspectHonorNow,
-    InspectHonorSlot, PvpCall, RankTitle,
+    decorated_name, medal_line, pvp_name_global_keys, HonorNow, HonorState, InspectHonorData,
+    InspectHonorNow, InspectHonorSlot, PvpCall, RankTitle,
 };
 pub use quest::{QuestCall, QuestItemView, QuestPanel, QuestRewardSpell, QuestSelect, QuestState};
 pub use quest_live::{
