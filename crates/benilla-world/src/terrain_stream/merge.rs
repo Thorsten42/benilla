@@ -723,6 +723,8 @@ mod tests {
 
     fn blank_placement(portal_instance: Option<Entity>) -> Placement {
         Placement {
+            uid: 0,
+            ident: Default::default(),
             model: ModelHandle::M2(Default::default()),
             transform: Transform::IDENTITY,
             entities: Vec::new(),
