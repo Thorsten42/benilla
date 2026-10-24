@@ -434,8 +434,8 @@ pub use pet::{
 };
 pub use pointer::PointerTarget;
 pub use pvp::{
-    decorated_name, pvp_name_global_keys, HonorNow, HonorState, InspectHonorData, InspectHonorNow,
-    InspectHonorSlot, PvpCall, RankTitle,
+    decorated_name, medal_line, pvp_name_global_keys, HonorNow, HonorState, InspectHonorData,
+    InspectHonorNow, InspectHonorSlot, PvpCall, RankTitle,
 };
 pub use quest::{
     QuestCall, QuestGiverQuery, QuestItemView, QuestPanel, QuestRewardSpell, QuestSelect,
