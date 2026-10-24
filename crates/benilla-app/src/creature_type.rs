@@ -72,8 +72,12 @@ impl<'a> CreatureTypeSources<'a> {
 
 /// `ChrRaces.dbc` column 9 by race id: Humanoid on all nine shipped rows, and 0 where the table
 /// has no row (`0x6055b3`-`0x6055d1`).
+///
+/// tortoise: Turtle WoW's `ChrRaces.dbc` has a tenth row, the High Elf (10), Humanoid like the
+/// rest. Without it a High Elf read as no creature type, so `BindTarget`'s `TargetCreatureType`
+/// gate refused every spell with a mask (Polymorph, Sap) on one with "Invalid target".
 fn race_creature_type(race: u8) -> u32 {
-    if (1..=9).contains(&race) {
+    if (1..=10).contains(&race) {
         CREATURE_TYPE_HUMANOID
     } else {
         0
@@ -185,7 +189,8 @@ mod tests {
         };
         assert_eq!(sources.of(&store(69, 0, 0)), 0, "no template, race 0");
         assert_eq!(sources.of(&store(69, 0, 99)), 0, "no form row either");
-        assert_eq!(sources.of(&store(0, 10, 0)), 0, "race 10 has no row");
+        // tortoise: race 10 is the High Elf, a row on Turtle WoW; 11 has none.
+        assert_eq!(sources.of(&store(0, 11, 0)), 0, "race 11 has no row");
         assert_eq!(CreatureTypeSources::default().of(&store(0, 1, 1)), 7);
         assert_eq!(CreatureTypeSources::default().of(&store(69, 0, 1)), 0);
     }
@@ -328,13 +333,23 @@ mod tests {
         assert_eq!(sources.word(12), None);
     }
 
+    /// tortoise: Turtle WoW's tenth row, the High Elf, is Humanoid; past it there is no row.
+    #[test]
+    fn a_high_elf_is_humanoid() {
+        assert_eq!(race_creature_type(10), CREATURE_TYPE_HUMANOID);
+        assert_eq!(race_creature_type(9), CREATURE_TYPE_HUMANOID);
+        assert_eq!(race_creature_type(11), 0);
+        assert_eq!(race_creature_type(0), 0);
+    }
+
     /// The frozen race table against the shipped `ChrRaces.dbc`.
     #[test]
     fn race_creature_type_matches_the_shipped_table() {
         let data = benilla_formats::wow_data_or_skip!();
         let mut chain = benilla_formats::open_chain(&data).expect("open chain");
         let rows = benilla_formats::load_race_creature_types(&mut chain).expect("ChrRaces walk");
-        assert_eq!(rows.len(), 9, "ChrRaces.dbc row count");
+        // tortoise: Turtle WoW's chain carries ten rows (Goblin 9, High Elf 10).
+        assert_eq!(rows.len(), 10, "ChrRaces.dbc row count");
         for race in 0..=u8::MAX {
             assert_eq!(
                 race_creature_type(race),
