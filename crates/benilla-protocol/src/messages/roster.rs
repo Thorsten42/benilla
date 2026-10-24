@@ -35,6 +35,9 @@ pub struct CharCreateReq {
     pub hair_style: u8,
     pub hair_color: u8,
     pub facial_hair: u8,
+    /// tortoise: Turtle WoW 1.18.1's trailing `challengeMask`, the modes the glue screen picked
+    /// (0 = none). Its handler reads the u32 after `outfit_id` and kicks a body that ends before.
+    pub challenge_mask: u32,
 }
 
 /// The vmangos `CHARACTER_FLAG_*` bits of [`Character::flags`] that the select screen renders.
