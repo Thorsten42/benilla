@@ -178,7 +178,12 @@ fn the_glue_vm_answers_the_glue_surface() {
         .map(|(k, _)| k)
         .collect();
 
-    let beyond: Vec<&String> = ours.iter().filter(|n| !surface.contains(*n)).collect();
+    // tortoise: Turtle WoW's glue state adds its challenge-mode pair (`ChallengeList.lua`).
+    const TURTLE_GLUE: [&str; 2] = ["GetSelectedChallengeModes", "SetSelectedChallengeModes"];
+    let beyond: Vec<&String> = ours
+        .iter()
+        .filter(|n| !surface.contains(*n) && !TURTLE_GLUE.contains(&n.as_str()))
+        .collect();
     assert!(
         beyond.is_empty(),
         "the glue VM exposes {} function(s) the glue state does not have: {beyond:?}. The \
