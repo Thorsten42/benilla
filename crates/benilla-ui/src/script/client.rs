@@ -11,6 +11,12 @@ pub(super) const VERSION: &str = "1.12.1";
 pub(super) const BUILD: &str = "5875";
 pub(super) const BUILD_DATE: &str = "Sep 19 2006";
 
+/// tortoise: Turtle WoW 1.18.1's, as its `WoW.exe` spells them: the in-game `GetBuildInfo` sits at
+/// the same `0x4884a0` and loads `0x837c04`, `0x837bfc` and `0x834798`.
+const TURTLE_VERSION: &str = "1.18.1";
+const TURTLE_BUILD: &str = "7272";
+const TURTLE_BUILD_DATE: &str = "Mar 20 2026";
+
 /// The release client's debug globals that do nothing (`0x83dec0`-`0x83ded0`, `0x83df80`-`0x83dfa0`).
 const DEBUG_TOGGLES: [&str; 8] = [
     "ToggleTris",
@@ -130,13 +136,14 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
 
     // Version, build and date, and no fourth value (the TOC number is a later expansion's): the
     // in-game `GetBuildInfo` (`0x4884a0`) pushes three strings, the glue one (`0x46cd70`) five.
+    // tortoise: the in-game one answers as Turtle WoW's client does.
     g.set(
         "GetBuildInfo",
         lua.create_function(|lua, ()| {
             Ok(MultiValue::from_vec(vec![
-                Value::String(lua.create_string(VERSION)?),
-                Value::String(lua.create_string(BUILD)?),
-                Value::String(lua.create_string(BUILD_DATE)?),
+                Value::String(lua.create_string(TURTLE_VERSION)?),
+                Value::String(lua.create_string(TURTLE_BUILD)?),
+                Value::String(lua.create_string(TURTLE_BUILD_DATE)?),
             ]))
         })?,
     )?;
@@ -394,13 +401,13 @@ mod tests {
     use crate::script::UiScript;
 
     /// Three strings and no fourth, as the in-game registrar pushes (`0x4884a0`); this VM is the
-    /// in-game one, not the glue (`0x46cd70`, five).
+    /// in-game one, not the glue (`0x46cd70`, five). tortoise: Turtle WoW's strings.
     #[test]
-    fn get_build_info_answers_as_the_1_12_1_client() {
+    fn get_build_info_answers_as_the_turtle_client() {
         let s = UiScript::new().unwrap();
         assert_eq!(
             s.eval::<Vec<String>>("return { GetBuildInfo() }").unwrap(),
-            vec!["1.12.1", "5875", "Sep 19 2006"]
+            vec!["1.18.1", "7272", "Mar 20 2026"]
         );
         assert_eq!(
             s.arity("GetBuildInfo()").unwrap(),
