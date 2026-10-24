@@ -117,6 +117,10 @@ pub struct AddOnInfo {
     /// 2 (`0x51db84`) and otherwise only zeroed (`0x52059f`), so an addon the reply skips stays
     /// visible. A retail server answers 2 for all twelve `Blizzard_*` addons.
     pub hidden: bool,
+    /// tortoise: part of Turtle WoW's own interface, as its `Turtle_General` and
+    /// `Turtle_GroupUI` are: always enabled, whatever an enable verb or `AddOns.txt` says, and
+    /// never in the Lua index, so no AddOns screen lists it or can turn it off.
+    pub pinned: bool,
     /// The files live in the patch chain, not the AddOns folder: Blizzard's twelve LoadOnDemand
     /// addons, read at `Interface/AddOns/<Name>/<file>` and loaded as a player's addon is.
     pub chain: bool,
@@ -185,7 +189,8 @@ fn rebuild_index(model: &mut Model) {
     apply_reply(&mut model.addons, &reply);
     model.addon_reply = Some(reply);
     let mut index: Vec<usize> = (0..model.addons.len())
-        .filter(|&i| !model.addons[i].hidden)
+        // tortoise: a pinned row is never listed either.
+        .filter(|&i| !model.addons[i].hidden && !model.addons[i].pinned)
         .collect();
     let title = |i: usize| {
         let a = &model.addons[i];
@@ -254,6 +259,10 @@ fn row_of(model: &Model, key: &AddonKey) -> Option<usize> {
 /// name nothing installed answers to still gets its hash row, which the logout writer saves.
 fn set_enabled(model: &mut Model, row: Option<usize>, name: &str, on: bool) {
     if let Some(i) = row {
+        // tortoise: a pinned row stays on, and leaves no row in the hash to say otherwise.
+        if model.addons[i].pinned {
+            return;
+        }
         model.addons[i].enabled = on;
     }
     model.addon_enable.set(name, on);
@@ -266,7 +275,7 @@ fn gate_rows(model: &Model) -> Vec<GateRow<'_>> {
         .iter()
         .map(|a| GateRow {
             name: &a.name,
-            enabled: a.enabled,
+            enabled: a.enabled || a.pinned,
             interface: a.interface,
             load_on_demand: a.load_on_demand,
             banned: a.security == AddonSecurity::Banned,
