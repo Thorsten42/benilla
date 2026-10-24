@@ -20,10 +20,12 @@
 //!   first, `PVP_RANK_<rank>_<team>` off the unit's public `PLAYER_BYTES_3` byte 3 and its race's
 //!   team digit, and never a creature's.
 //!
+//! - The title line under the name is `PVP_MEDAL<n>` for a set `PLAYER_BYTES_3` byte 2
+//!   (`0x6093ef`). The reference reaches it from the ranked leg only; tortoise: a Turtle realm
+//!   stores the chosen character title in that byte, so it shows for an unranked player too.
+//!
 //! Not built: `0x609370`'s civilian leg (`0x609449`, `PVP_RANK_CIVILIAN` and a space before a
-//! hostile PvP-flagged civilian NPC's name) and its city-protector line (`0x6093ef`, `"\n"` and
-//! `PVP_MEDAL<n>` for a set `PLAYER_BYTES_3` byte 2, which vmangos's `.character citytitle` sets);
-//! a7 and a8 have no cross-realm wire here.
+//! hostile PvP-flagged civilian NPC's name); a7 and a8 have no cross-realm wire here.
 
 use std::collections::HashMap;
 
@@ -168,6 +170,9 @@ struct TitleKey {
     /// The rank, team and gender the title lookup keyed on
     /// ([`benilla_ui::script::RankTitle`]).
     title: benilla_ui::script::RankTitle,
+    /// `PLAYER_BYTES_3` byte 2: the city-protector or Turtle's chosen character title
+    /// (`PVP_MEDAL<n>`), 0 none.
+    medal: u8,
     /// The a4 bit (`0x20`) was set and the strings held the template when the line was built.
     on: bool,
     /// The [`NameLineStrings`] generation the line was built from.
@@ -195,6 +200,7 @@ fn title_key(
                 .map_or(-1, |(race, teams)| teams.team(race)),
             female: store.0.unit_gender() == Some(1),
         },
+        medal: store.0.player_pvp_medal().unwrap_or(0),
         on: cfg.player_pvp_title && strings.ready(),
         strings: strings.generation,
     })
@@ -220,6 +226,12 @@ fn grammar_lines(lines: Vec<String>) -> Vec<String> {
         std::borrow::Cow::Borrowed(_) => lines,
         std::borrow::Cow::Owned(rewritten) => rewritten.split('\n').map(str::to_owned).collect(),
     }
+}
+
+/// The title line under the main name line: the unit's `PVP_MEDAL<n>` string where `key` is on.
+fn title_line(key: Option<TitleKey>, strings: &NameLineStrings) -> Option<String> {
+    let key = key.filter(|key| key.on)?;
+    benilla_ui::script::medal_line(|global| strings.strings.get(global).cloned(), key.medal)
 }
 
 /// A live plate: its entity and stack, and the inputs the stack was built from, so a steady frame
@@ -621,6 +633,7 @@ pub(crate) fn drive_nameplates(
                     }
                 }
                 let mut lines = vec![name_line(flags, key, &pvp_strings, name)];
+                lines.extend(title_line(key, &pvp_strings));
                 if net.kind == EntityKind::Player {
                     pvp_strings.ask_reread();
                 }
@@ -861,6 +874,34 @@ mod tests {
     /// `ShouldShowName`'s first leg is `IsSelectable`: an encounter trigger such as Naxxramas's
     /// invisible "The Lich King" (`UNIT_FLAG_NOT_SELECTABLE`) shows no name with NPC names on, nor
     /// as the target.
+    /// tortoise: the title line is the medal string, for an unranked player too (Turtle's chosen
+    /// character title), and nothing without a medal.
+    #[test]
+    fn the_title_line_is_the_medal_string() {
+        let strings = strings_of(1, &[TEMPLATE, ("PVP_MEDAL18", "Still Alive")]);
+        let key = |rank, medal| {
+            Some(TitleKey {
+                title: benilla_ui::script::RankTitle {
+                    rank,
+                    team: 0,
+                    female: false,
+                },
+                medal,
+                on: true,
+                strings: strings.generation,
+            })
+        };
+        assert_eq!(
+            title_line(key(0, 18), &strings).as_deref(),
+            Some("Still Alive")
+        );
+        assert_eq!(
+            title_line(key(5, 18), &strings).as_deref(),
+            Some("Still Alive")
+        );
+        assert_eq!(title_line(key(0, 0), &strings), None, "no title");
+    }
+
     #[test]
     fn a_unit_the_player_cannot_select_shows_no_name() {
         let npc_names = NameConfig {
@@ -1166,6 +1207,7 @@ mod tests {
                 team: 1,
                 female: false,
             },
+            medal: 0,
             on: true,
             strings: strings.generation,
         };
@@ -1181,6 +1223,7 @@ mod tests {
                         rank: 0,
                         ..key.title
                     },
+                    medal: 0,
                     ..key
                 },
                 "Bob"
@@ -1195,6 +1238,7 @@ mod tests {
                         team: 0,
                         ..key.title
                     },
+                    medal: 0,
                     ..key
                 },
                 "Bob"
