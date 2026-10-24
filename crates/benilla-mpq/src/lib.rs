@@ -1,6 +1,7 @@
 //! A read-only MPQ reader for the 1.12.1 `Data/` chain: format V1/V2, every file stored whole or
-//! `COMPRESS`-flagged and sectored, no encrypted or single-unit files, no PTCH patches. Anything
-//! else is a hard error.
+//! `COMPRESS`-flagged and sectored, no single-unit files, no PTCH patches. Anything else is a hard
+//! error. tortoise: an encrypted file decrypts with the key its name derives: 1.12.1 ships none,
+//! and a Turtle WoW 1.18.1 patch archive encrypts its `(listfile)` and `(attributes)`.
 //!
 //! The patch archives carry delete markers (flag `0x02000000`, size 0): the path is deleted from
 //! the composite chain. [`Archive::contains`] reports one present and [`Archive::read_file`]
@@ -20,7 +21,7 @@ use std::sync::Arc;
 use benilla_bytes::{capped, ByteExt};
 
 mod crypto;
-use crypto::{decrypt_block, hash_string, hash_type};
+use crypto::{decrypt_block, decrypt_bytes, hash_string, hash_type};
 
 /// `MPQ\x1A` as a little-endian `u32`: the archive header signature.
 const SIGNATURE: u32 = 0x1A51_504D;
@@ -30,6 +31,8 @@ const USERDATA_SIGNATURE: u32 = 0x1B51_504D;
 const FLAG_IMPLODE: u32 = 0x0000_0100;
 const FLAG_COMPRESS: u32 = 0x0000_0200;
 const FLAG_ENCRYPTED: u32 = 0x0001_0000;
+/// The file key is offset by the block position and XOR'd with the size (Storm's `MPQ_FILE_FIX_KEY`).
+const FLAG_FIX_KEY: u32 = 0x0002_0000;
 const FLAG_SINGLE_UNIT: u32 = 0x0100_0000;
 /// A patch archive's delete marker (size 0): the path is deleted from the composite chain.
 const FLAG_DELETE_MARKER: u32 = 0x0200_0000;
@@ -217,10 +220,8 @@ impl Archive {
         if block.flags & FLAG_DELETE_MARKER != 0 {
             return Err(Error::NotFound(name.into()));
         }
-        // Outside the 1.12.1 envelope: refuse rather than guess.
-        if block.flags & FLAG_ENCRYPTED != 0 {
-            return Err(Error::Unsupported(format!("encrypted file {name}")));
-        }
+        // tortoise: an encrypted file's key derives from its name.
+        let key = (block.flags & FLAG_ENCRYPTED != 0).then(|| file_key(name, &block));
         if block.flags & FLAG_SINGLE_UNIT != 0 {
             return Err(Error::Unsupported(format!("single-unit file {name}")));
         }
@@ -245,6 +246,7 @@ impl Archive {
             avail,
             pos: 0,
             sector: None,
+            key,
         };
         if !compressed {
             // Stored: exactly `file_size` raw bytes, refused up front if the file cannot hold them.
@@ -271,6 +273,10 @@ impl Archive {
         open.file.seek(SeekFrom::Start(file_pos))?;
         let mut otab = vec![0u8; otab_cap * 4]; // == otab_len * 4, proven <= avail above
         open.file.read_exact(&mut otab)?;
+        // An encrypted file's offset table is encrypted with `key - 1`.
+        if let Some(key) = key {
+            decrypt_bytes(&mut otab, key.wrapping_sub(1));
+        }
         let offsets = otab
             .as_chunks::<4>()
             .0
@@ -304,6 +310,8 @@ pub struct ArchiveFile {
     pos: u64,
     /// The decompressed sector under `pos`, by index.
     sector: Option<(usize, Vec<u8>)>,
+    /// An encrypted file's key: sector i decrypts with `key + i`, stored or compressed.
+    key: Option<u32>,
 }
 
 impl ArchiveFile {
@@ -318,6 +326,12 @@ impl ArchiveFile {
             self.file.seek(SeekFrom::Start(self.base))?;
             let mut out = vec![0u8; self.size]; // proven <= avail by `open_file`
             self.file.read_exact(&mut out)?;
+            // A stored file is still encrypted sector by sector, sector i with `key + i`.
+            if let Some(key) = self.key {
+                for (i, sector) in out.chunks_mut(self.sector_size).enumerate() {
+                    decrypt_bytes(sector, key.wrapping_add(i as u32));
+                }
+            }
             return Ok(out);
         }
         let sector_count = self.size.div_ceil(self.sector_size);
@@ -328,11 +342,22 @@ impl ArchiveFile {
         Ok(out)
     }
 
-    /// Sector `i` of a sectored file, read and decompressed to exactly its share of the file:
-    /// the sector size, or the remainder for the last. One that inflates short is refused, since
-    /// every later byte would shift into the gap.
+    /// Sector `i`, read, decrypted and decompressed to exactly its share of the file: the sector
+    /// size, or the remainder for the last. One that inflates short is refused, since every later
+    /// byte would shift into the gap. A stored file's sector is its raw span (reached only for an
+    /// encrypted one, whose key steps per sector).
     fn decode_sector(&mut self, i: usize) -> Result<Vec<u8>> {
         let want = (self.size - i * self.sector_size).min(self.sector_size);
+        if self.offsets.is_none() {
+            self.file
+                .seek(SeekFrom::Start(self.base + (i * self.sector_size) as u64))?;
+            let mut raw = vec![0u8; want]; // within `size`, proven <= avail by `open_file`
+            self.file.read_exact(&mut raw)?;
+            if let Some(key) = self.key {
+                decrypt_bytes(&mut raw, key.wrapping_add(i as u32));
+            }
+            return Ok(raw);
+        }
         let name = &self.name;
         let offsets = self.offsets.as_deref().unwrap_or_default();
         let (Some(&start), Some(&end)) = (offsets.get(i), offsets.get(i + 1)) else {
@@ -358,6 +383,10 @@ impl ArchiveFile {
             .seek(SeekFrom::Start(self.base + u64::from(start)))?;
         let mut raw = vec![0u8; comp_len]; // proven <= avail above
         self.file.read_exact(&mut raw)?;
+        // Sector i is encrypted with `key + i`, over its stored (compressed) bytes.
+        if let Some(key) = self.key {
+            decrypt_bytes(&mut raw, key.wrapping_add(i as u32));
+        }
 
         let out = if comp_len >= want {
             // A sector that would not shrink is stored verbatim.
@@ -413,7 +442,7 @@ impl Read for ArchiveFile {
         if buf.is_empty() || self.pos >= self.size as u64 {
             return Ok(0);
         }
-        let n = if self.offsets.is_some() {
+        let n = if self.offsets.is_some() || self.key.is_some() {
             self.read_sectored(buf)
         } else {
             self.read_stored(buf)
@@ -471,6 +500,18 @@ impl Index {
             }
         }
         None
+    }
+}
+
+/// The key Storm decrypts an encrypted file with: the name's last path component under the
+/// `FILE_KEY` hash, offset by the block position and XOR'd with the size for a `FIX_KEY` entry.
+fn file_key(name: &str, block: &BlockEntry) -> u32 {
+    let base = name.rsplit(['\\', '/']).next().unwrap_or(name);
+    let key = hash_string(base, hash_type::FILE_KEY);
+    if block.flags & FLAG_FIX_KEY != 0 {
+        key.wrapping_add(block.file_pos) ^ block.file_size
+    } else {
+        key
     }
 }
 
