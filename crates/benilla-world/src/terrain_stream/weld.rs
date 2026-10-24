@@ -190,6 +190,8 @@ mod tests {
 
     fn blank_placement() -> Placement {
         Placement {
+            uid: 0,
+            ident: Default::default(),
             model: ModelHandle::M2(Default::default()),
             transform: Transform::IDENTITY,
             entities: Vec::new(),
