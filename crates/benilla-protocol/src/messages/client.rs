@@ -53,7 +53,7 @@ pub fn char_create(req: &CharCreateReq) -> Vec<u8> {
     ]);
     // tortoise: Turtle's realm reads a trailing `challengeMask`; without it the anticheat kicks
     // on create. A stock vmangos ignores the extra bytes.
-    body.extend_from_slice(&0u32.to_le_bytes());
+    body.extend_from_slice(&req.challenge_mask.to_le_bytes());
     body
 }
 
