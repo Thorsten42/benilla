@@ -36,6 +36,10 @@ pub(super) use merge::MergedFormsCache;
 mod preview;
 pub(crate) use preview::equip_slot;
 pub(super) use preview::{build_dressup_preview, build_glue_pet, build_glue_preview};
+/// tortoise: how long a player's body waits for its equipment to settle before it is built with
+/// the armour known so far, seconds (see the gate in [`attach_entity_visuals`]).
+const EQUIPMENT_SETTLE_WAIT: f32 = 3.0;
+
 #[cfg(test)]
 mod arrival_tests;
 mod redress;
@@ -310,8 +314,17 @@ pub(super) fn attach_entity_visuals(
         }
         // The appear ramp's origin: the unit's arrival, however long its visual waited to build.
         let arrived = arrival.map_or(now, |a| a.0);
-        // A player attaches once its equipment settles, so it never flashes naked.
-        if net.kind == EntityKind::Player && !equipment.is_some_and(|e| e.settled) {
+        // A player attaches once its equipment settles, so it never flashes naked - or once
+        // `EQUIPMENT_SETTLE_WAIT` has passed since it arrived. tortoise: a Turtle WoW server can
+        // leave a `PLAYER_VISIBLE_ITEM` template unanswered for good, and the plain gate then
+        // withheld that body for the session (in a battleground crowd, half of it). Past the wait
+        // the compositor paints the armour it knows and `redress_player_looks` re-dresses when a
+        // template lands, as 1.12.1 does. Not dropped outright: a crowd would composite every
+        // body twice, naked and then dressed.
+        if net.kind == EntityKind::Player
+            && !equipment.is_some_and(|e| e.settled)
+            && now - arrived < EQUIPMENT_SETTLE_WAIT
+        {
             continue;
         }
         // A corpse waits for `resolve_corpse_equipment`: it is never re-dressed, so a body
