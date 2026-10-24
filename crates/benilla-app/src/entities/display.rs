@@ -212,21 +212,23 @@ impl DisplayModel {
     }
 
     /// Whether the display names a model file. An empty `parts` from a named model is that model's
-    /// answer, draw nothing; [`empty_display`] (no catalog row, a zero-scale row, no model path) is
-    /// an unresolved display, and earns the debug cube.
+    /// answer, draw nothing; [`empty_display`] (no catalog row, no model path) is an unresolved
+    /// display, and earns the debug cube.
     pub(super) fn names_a_model(&self) -> bool {
         !matches!(self.handle, ModelHandle::None)
     }
 }
 
-/// A creature display's M2, its skins filled at build; a missing or zero-scale row is empty.
+/// A creature display's M2, its skins filled at build; a missing row is empty. The row's
+/// `creatureModelScale` gates nothing: `OBJECT_FIELD_SCALE_X` alone scales a unit (`0x613ef0`), and
+/// a row of 0 draws at that scale (Turtle WoW's Hyjal guards, display 20356, are such rows).
 pub(super) fn new_creature_display(
     catalog: &CreatureCatalog,
     display_id: u32,
     asset_server: &AssetServer,
 ) -> DisplayModel {
     match catalog.model(display_id) {
-        Some(m) if m.scale > 0.0 => DisplayModel {
+        Some(m) => DisplayModel {
             handle: ModelHandle::M2(asset_server.load(m2_url(&m.model_path))),
             dir: model_dir(&m.model_path).to_string(),
             skins: m.textures,
