@@ -31,6 +31,10 @@ pub(super) enum Source {
     Dir(PathBuf),
     /// The player's patch chain ([`super::reference_ui`]), by full chain path, `/` and `\` alike.
     Chain,
+    /// tortoise: an addon folder inside the player's archives (Turtle WoW's own,
+    /// [`TURTLE_ADDONS`]): read off the chain like [`Self::Chain`], its manifest entries under
+    /// `Interface/AddOns/<Folder>` as a loose addon's are.
+    ChainFolder,
 }
 
 /// One loadable interface: a name, its parsed manifest, and where its files come from.
@@ -84,21 +88,21 @@ impl Addon {
                     .map(String::into_bytes)
             }
             Source::Dir(root) => read_addon_file(root, req),
-            Source::Chain => super::reference_ui::read(req),
+            Source::Chain | Source::ChainFolder => super::reference_ui::read(req),
         }
     }
 
     /// Whether the files come off the player's patch chain.
     fn is_chain(&self) -> bool {
-        matches!(self.source, Source::Chain)
+        matches!(self.source, Source::Chain | Source::ChainFolder)
     }
 
     /// The base this addon's manifest entries resolve against: `Interface/AddOns/<Folder>` for a
-    /// `Dir`, empty for the shipped flat tree and the chain's full paths.
+    /// `Dir` and a chain folder, empty for the shipped flat tree and the chain's full paths.
     fn prefix(&self) -> String {
         match &self.source {
             Source::Builtin | Source::Chain => String::new(),
-            Source::Dir(_) => format!("{ADDONS_PREFIX}{}", self.name),
+            Source::Dir(_) | Source::ChainFolder => format!("{ADDONS_PREFIX}{}", self.name),
         }
     }
 
@@ -109,7 +113,9 @@ impl Addon {
     fn chunk_name(&self, file: &str, path: &str) -> String {
         match &self.source {
             Source::Builtin => benilla_ui::script::addon_chunk_name(&self.name, file),
-            Source::Dir(_) | Source::Chain => format!("@{}", path.replace('/', "\\")),
+            Source::Dir(_) | Source::Chain | Source::ChainFolder => {
+                format!("@{}", path.replace('/', "\\"))
+            }
         }
     }
 
@@ -150,7 +156,9 @@ impl Addon {
                 // the package's fault, which the reference skips silently, and an ERROR line fails
                 // `smoke.sh`.
                 match self.source {
-                    Source::Builtin | Source::Chain => error!("ui_script: {e}"),
+                    Source::Builtin | Source::Chain | Source::ChainFolder => {
+                        error!("ui_script: {e}")
+                    }
                     Source::Dir(_) => warn!("ui_script: {e}"),
                 }
                 // Retained for the player: the commonest way an addon fails with nothing on screen.
@@ -210,7 +218,9 @@ impl Addon {
             for m in &report.missing_files {
                 let e = format!("{}/{file}: {m}", self.name);
                 match self.source {
-                    Source::Builtin | Source::Chain => error!("ui_script: {e}"),
+                    Source::Builtin | Source::Chain | Source::ChainFolder => {
+                        error!("ui_script: {e}")
+                    }
                     Source::Dir(_) => warn!("ui_script: {e}"),
                 }
                 script.report_load_failure(&e);
@@ -291,20 +301,38 @@ pub(super) const BLIZZARD_ADDONS: [&str; 12] = [
     "Blizzard_TrainerUI",
 ];
 
-/// The Blizzard addons the chain carries as LoadOnDemand registry rows, for `UIParentLoadAddOn`;
-/// a toc that is not LoadOnDemand is skipped, as the startup walk does not read the chain.
+/// tortoise: Turtle WoW 1.18.1's own addons, in its archives beside the Blizzard ones (each with
+/// only its `.pub` on the install's disk): `## Secure: 1` and not LoadOnDemand, so its client's
+/// archive pass registers them and its startup walk loads them. `Turtle_General` restores the
+/// saved tables Turtle's FrameXML rows read (`TransmogOutfits`, `LFTPresets`, `ChronoboonBuffs`,
+/// `Turtle_ChallengesCache`); `Turtle_GroupUI` is its group frames.
+const TURTLE_ADDONS: [&str; 2] = ["Turtle_General", "Turtle_GroupUI"];
+
+/// The addons the chain carries as registry rows: the Blizzard ones that are LoadOnDemand, for
+/// `UIParentLoadAddOn` (a Blizzard toc that is not is skipped), then Turtle WoW's own, which the
+/// startup walk loads.
 fn chain_addons() -> Vec<Addon> {
+    chain_addons_in(super::reference_ui::read)
+}
+
+/// [`chain_addons`] over a given chain reader.
+fn chain_addons_in(chain: impl Fn(&str) -> Option<Vec<u8>>) -> Vec<Addon> {
+    let read = |name: &str, source: fn() -> Source| {
+        let bytes = chain(&format!("Interface/AddOns/{name}/{name}.toc"))?;
+        Some(Addon {
+            name: name.to_string(),
+            toc: Toc::parse(&benilla_ui::source::decode(&bytes)),
+            source: source(),
+        })
+    };
     BLIZZARD_ADDONS
         .iter()
-        .filter_map(|name| {
-            let bytes = super::reference_ui::read(&format!("Interface/AddOns/{name}/{name}.toc"))?;
-            let toc = Toc::parse(&benilla_ui::source::decode(&bytes));
-            toc.load_on_demand().then(|| Addon {
-                name: (*name).to_string(),
-                toc,
-                source: Source::Chain,
-            })
-        })
+        .filter_map(|name| read(name, || Source::Chain).filter(|a| a.toc.load_on_demand()))
+        .chain(
+            TURTLE_ADDONS
+                .iter()
+                .filter_map(|name| read(name, || Source::ChainFolder)),
+        )
         .collect()
 }
 
@@ -455,6 +483,8 @@ fn manifest_in(dir: &Path, name: &str) -> Option<String> {
 fn info_for(addon: &Addon) -> benilla_ui::script::AddOnInfo {
     let mut info = info_from_toc(&addon.name, &addon.toc, addon.is_chain());
     info.url = secure_url(&addon.name, &addon.toc, |req| addon.read(req));
+    // tortoise: Turtle WoW's own two are its interface, not an option: always on, never listed.
+    info.pinned = is_pinned(addon);
     info
 }
 
@@ -480,6 +510,15 @@ pub(crate) fn secure_url(
         .rposition(|&b| !matches!(b, b'\r' | b'\n' | b' '))
         .map_or(0, |i| i + 1);
     Some(benilla_ui::source::decode(&url[..end]).into_owned())
+}
+
+/// tortoise: whether a row is one of [`TURTLE_ADDONS`] off the player's chain, which the registry
+/// pins on and keeps out of every AddOns list ([`benilla_ui::script::AddOnInfo::pinned`]).
+fn is_pinned(addon: &Addon) -> bool {
+    matches!(addon.source, Source::ChainFolder)
+        && TURTLE_ADDONS
+            .iter()
+            .any(|n| n.eq_ignore_ascii_case(&addon.name))
 }
 
 /// What the signature check `0x6f10f0` answers for an addon, modelled: 3 (the addon is SECURE,
@@ -552,6 +591,7 @@ pub(crate) fn info_from_toc(name: &str, toc: &Toc, chain: bool) -> benilla_ui::s
         // Visible to `GetAddOnInfo(index)` until `SMSG_ADDON_INFO` hides it: the server's verdict
         // on a `## Secure:` record, not a directive.
         hidden: false,
+        pinned: false,       // `info_for` pins Turtle WoW's own
         enabled: true,       // until the enable state says otherwise
         saved_enabled: true, // re-stamped from `enabled` at registration
         loaded: false,
@@ -770,7 +810,8 @@ pub(super) fn load_third_party(
     );
     let character = identity.map(|(_, c)| c.as_str());
     for (info, addon) in infos.iter_mut().zip(addons.iter()) {
-        info.enabled = store.enabled_for(&info.name, addon.toc.default_state(), character);
+        info.enabled =
+            info.pinned || store.enabled_for(&info.name, addon.toc.default_state(), character);
     }
     script.register_addons(
         infos,
@@ -938,6 +979,44 @@ impl benilla_ui::script::AddonLoad for Walk<'_> {
 #[cfg(test)]
 mod tests {
     /// NTFS `$I30` order, not byte order: case folds away and `_` (0x5F) sorts after `Z` (0x5A).
+    /// tortoise: Turtle WoW's own two archive addons register after the Blizzard rows, as they
+    /// are, not LoadOnDemand, and pinned: always on and never listed. The same name in the
+    /// player's folder is an ordinary addon.
+    #[test]
+    fn turtles_own_addons_register_pinned_and_a_folder_namesake_is_not() {
+        let chain = |path: &str| -> Option<Vec<u8>> {
+            match path {
+                "Interface/AddOns/Turtle_General/Turtle_General.toc"
+                | "Interface/AddOns/Turtle_GroupUI/Turtle_GroupUI.toc" => {
+                    Some(b"## Interface: 11200\n## Secure: 1\nx.lua\n".to_vec())
+                }
+                "Interface/AddOns/Blizzard_TrainerUI/Blizzard_TrainerUI.toc" => {
+                    Some(b"## Interface: 11200\n## LoadOnDemand: 1\nx.lua\n".to_vec())
+                }
+                _ => None,
+            }
+        };
+        let rows = chain_addons_in(chain);
+        let names: Vec<_> = rows
+            .iter()
+            .map(|a| (a.name.as_str(), info_for(a).pinned))
+            .collect();
+        assert_eq!(
+            names,
+            [
+                ("Blizzard_TrainerUI", false),
+                ("Turtle_General", true),
+                ("Turtle_GroupUI", true)
+            ]
+        );
+        let folder = Addon {
+            name: "Turtle_General".into(),
+            toc: Toc::parse("## Interface: 11200\nx.lua\n"),
+            source: Source::Dir(PathBuf::from("AddOns")),
+        };
+        assert!(!info_for(&folder).pinned);
+    }
+
     #[test]
     fn the_walk_orders_names_the_way_ntfs_lists_a_directory() {
         let mut names: Vec<String> = [
@@ -1064,7 +1143,8 @@ mod tests {
             "the trainer addon is a row: {:?}",
             rows.iter().map(|a| &a.name).collect::<Vec<_>>()
         );
-        for a in &rows {
+        // tortoise: Turtle WoW's own archive addons ride along, walk-loaded, not LoadOnDemand.
+        for a in rows.iter().filter(|a| matches!(a.source, Source::Chain)) {
             assert!(a.toc.load_on_demand(), "{} is LoadOnDemand", a.name);
             assert!(
                 matches!(a.source, Source::Chain),
