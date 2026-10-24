@@ -424,8 +424,8 @@ pub use pet::{
     PetSlots, PetStats, PetStatsNow, PET_DISMISS_WORD,
 };
 pub use pvp::{
-    decorated_name, pvp_name_global_keys, HonorNow, HonorState, InspectHonorData, InspectHonorNow,
-    InspectHonorSlot, PvpCall, RankTitle,
+    decorated_name, medal_line, pvp_name_global_keys, HonorNow, HonorState, InspectHonorData,
+    InspectHonorNow, InspectHonorSlot, PvpCall, RankTitle,
 };
 pub use quest::{
     QuestCall, QuestGiverQuery, QuestItemView, QuestPanel, QuestRewardSpell, QuestSelect,
