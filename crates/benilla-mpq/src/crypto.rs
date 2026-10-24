@@ -75,6 +75,38 @@ pub fn decrypt_block(data: &mut [u32], mut key: u32) {
     }
 }
 
+/// tortoise: [`decrypt_block`] over a byte buffer: every whole little-endian `u32` is decrypted,
+/// and a tail shorter than four bytes is left as stored, as Storm's `DecryptMpqBlock` leaves it.
+pub fn decrypt_bytes(data: &mut [u8], key: u32) {
+    let whole = data.len() / 4 * 4;
+    let mut words: Vec<u32> = data[..whole]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect();
+    decrypt_block(&mut words, key);
+    for (dst, w) in data[..whole].as_chunks_mut::<4>().0.iter_mut().zip(words) {
+        *dst = w.to_le_bytes();
+    }
+}
+
+/// The inverse of [`decrypt_bytes`], for tests that build encrypted files.
+#[cfg(test)]
+pub(crate) fn encrypt_bytes(data: &mut [u8], key: u32) {
+    let whole = data.len() / 4 * 4;
+    let mut words: Vec<u32> = data[..whole]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect();
+    encrypt_block(&mut words, key);
+    for (dst, w) in data[..whole].as_chunks_mut::<4>().0.iter_mut().zip(words) {
+        *dst = w.to_le_bytes();
+    }
+}
+
 /// The inverse of [`decrypt_block`], for tests that build the encrypted tables an archive stores.
 #[cfg(test)]
 pub(crate) fn encrypt_block(data: &mut [u32], mut key: u32) {
@@ -94,6 +126,18 @@ pub(crate) fn encrypt_block(data: &mut [u32], mut key: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decrypt_bytes_inverts_encrypt_and_keeps_the_short_tail() {
+        let key = hash_string("(listfile)", hash_type::FILE_KEY);
+        let original = *b"Interface\\a.txt";
+        let mut buf = original;
+        encrypt_bytes(&mut buf, key);
+        assert_ne!(buf[..12], original[..12], "the whole words are encrypted");
+        assert_eq!(buf[12..], original[12..], "the 3-byte tail is stored plain");
+        decrypt_bytes(&mut buf, key);
+        assert_eq!(buf, original);
+    }
 
     #[test]
     fn hash_vectors_match_stormlib() {
