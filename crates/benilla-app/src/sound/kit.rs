@@ -8,7 +8,7 @@
 //! and restarts on its next trigger; the reference mutes it past the cutoff and restarts it on
 //! re-entry itself (`0x7a5095`, `0x7a51a2`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::{anyhow, Context, Result};
 use bevy::prelude::*;
@@ -62,6 +62,10 @@ pub(crate) struct SoundKits {
     cache: HashMap<String, StaticSoundData>,
     pick: HashMap<u32, PickState>,
     rng: Rng,
+    /// tortoise: kit ids already reported unknown. Turtle WoW's servers name kits its client
+    /// tables lack, and a looping object event re-fires one every cycle, so the first miss per id
+    /// is the error and later ones drop silently.
+    unplayable: HashSet<u32>,
 }
 
 impl SoundKits {
@@ -452,10 +456,17 @@ pub(super) fn play_kit_ext(
         return Ok(false);
     }
     let kit = match kit_ref {
-        KitRef::Id(id) => kits.catalog.get(id),
-        KitRef::Name(name) => kits.catalog.interface_sound(name),
-    }
-    .ok_or_else(|| anyhow!("unknown sound kit"))?;
+        KitRef::Id(id) => match kits.catalog.get(id) {
+            Some(kit) => kit,
+            // See [`SoundKits::unplayable`].
+            None if !kits.unplayable.insert(id) => return Ok(false),
+            None => return Err(anyhow!("unknown sound kit")),
+        },
+        KitRef::Name(name) => kits
+            .catalog
+            .interface_sound(name)
+            .ok_or_else(|| anyhow!("unknown sound kit"))?,
+    };
 
     let (id, volume, flags, min_dist, cutoff, eax_def) = (
         kit.id,
@@ -814,6 +825,7 @@ impl SoundKits {
             cache: HashMap::new(),
             pick: HashMap::new(),
             rng: Rng(0x9e37_79b9),
+            unplayable: HashSet::new(),
         }
     }
 
