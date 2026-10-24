@@ -1331,6 +1331,7 @@ fn create_request(name: &str) -> benilla_ui::script::GlueCreateRequest {
         hair_style: 6,
         hair_color: 7,
         facial_hair: 0,
+        challenge_modes: 0,
     }
 }
 
