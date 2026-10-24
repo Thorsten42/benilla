@@ -71,6 +71,7 @@ fn client_bodies_golden() {
             hair_style: 0,
             hair_color: 0,
             facial_hair: 0,
+            challenge_mask: 0,
         }),
         hx("42656e696c6c610001010000000000000000000000"),
         "CMSG_CHAR_CREATE body (zero appearance)"
@@ -86,6 +87,7 @@ fn client_bodies_golden() {
             hair_style: 5,
             hair_color: 6,
             facial_hair: 7,
+            challenge_mask: 0,
         }),
         hx("42656e696c6c610001010003040506070000000000"),
         "CMSG_CHAR_CREATE body (distinct appearance)"
