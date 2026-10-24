@@ -752,6 +752,7 @@ fn create_character_checks_the_name_then_asks_the_host() {
                 hair_style: 3,
                 hair_color: 4,
                 facial_hair: 5,
+                challenge_modes: 0,
             })] if name == "Zoë"
         ),
         "{queued:?}"
@@ -765,4 +766,25 @@ fn create_character_with_no_character_sends_nothing() {
     s.run("CreateCharacter('Newbie')").unwrap();
     assert!(s.take_glue_calls().is_empty());
     assert!(fired(&s).is_empty());
+}
+
+/// tortoise: Turtle WoW's challenge-mode pair stores the picked bits and reads them back; a
+/// non-number stores none.
+#[test]
+fn the_challenge_modes_round_trip() {
+    let s = vm();
+    assert_eq!(
+        s.eval::<u32>("return GetSelectedChallengeModes()").unwrap(),
+        0
+    );
+    s.run("SetSelectedChallengeModes(5)").unwrap();
+    assert_eq!(
+        s.eval::<u32>("return GetSelectedChallengeModes()").unwrap(),
+        5
+    );
+    s.run("SetSelectedChallengeModes({})").unwrap();
+    assert_eq!(
+        s.eval::<u32>("return GetSelectedChallengeModes()").unwrap(),
+        0
+    );
 }
