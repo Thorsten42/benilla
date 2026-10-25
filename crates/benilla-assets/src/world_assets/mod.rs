@@ -13,8 +13,8 @@ use bevy::render::render_resource::{Buffer, Face};
 use crate::materials::{WowModelExt, WowModelMaterial, VANILLA_ALPHA_KEY_REF};
 use crate::SpatialCache;
 use benilla_formats::{
-    blp_to_rgba, makes_device_texture, read_texture_native_chain, tga_texture_size, tga_to_rgba,
-    Chain, ModelBlend, TGA_GATE_PREFIX,
+    blp_to_rgba, read_texture_native_chain, tga_texture_size, tga_to_rgba, Chain, ModelBlend,
+    TGA_GATE_PREFIX,
 };
 pub use benilla_formats::{LooseFile, LooseIndex, LooseIndexCell, LooseOpen};
 
@@ -134,7 +134,7 @@ enum OnRefusal {
     /// (`0x835538`), with no next candidate. A header that makes no texture (`0x448450`, see
     /// [`tga_texture_size`]) fails the candidate as a missing file does, whether the pixels would
     /// decode or not. The BLP loader `0x44a310` returns the texture once the file opens
-    /// (`0x44a399`), and a parse, a decode or a size (`0x448450`, see [`makes_device_texture`]) its
+    /// (`0x44a399`), and a parse, a decode or a size (`0x448450`, see [`benilla_formats::makes_device_texture`]) its
     /// callback refuses (`0x44a560`) leaves the solid green texture (`0x44a50e`), with no next
     /// candidate either.
     WhiteDefault,
@@ -301,10 +301,21 @@ fn solid_green() -> (u32, u32, Vec<u8>) {
     (8, 8, [0, 0xff, 0, 0xff].repeat(64))
 }
 
+/// [`benilla_formats::makes_device_texture`] without its upper bound, for a BLP interface texture.
+///
+/// tortoise deviation: the Turtle WoW client draws BLP interface textures of 1024 and more on a
+/// side, which HD packs ship (OctoWoW HD's loading screens are 1024 by 1024, over stock 512s);
+/// 1.12.1's `0x448450` refuses such a side (`0x4484c5`, `0x4484d0`) and leaves the solid green.
+/// The power of two and `GxTexCreate`'s floor of 8 still hold.
+fn turtle_makes_device_texture(width: u32, height: u32) -> bool {
+    let fits = |n: u32| n.is_power_of_two() && n >= 8;
+    fits(width) && fits(height)
+}
+
 /// One candidate's bytes through the decoder its name picks ([`decode_by_name`]). By
 /// `on_refusal`, a TGA load gates its header's size first ([`makes_texture`]), decoded or not, and
 /// a refused decode of one that passes leaves that size of opaque white; a refused BLP, or a
-/// decoded one at a size the device texture path refuses ([`makes_device_texture`]), is the solid
+/// decoded one at a size the device texture path refuses ([`turtle_makes_device_texture`]), is the solid
 /// green.
 fn decode_candidate(candidate: &str, bytes: &[u8], on_refusal: OnRefusal) -> Candidate {
     let texture = on_refusal == OnRefusal::WhiteDefault;
@@ -320,7 +331,8 @@ fn decode_candidate(candidate: &str, bytes: &[u8], on_refusal: OnRefusal) -> Can
         // The BLP callback `0x44a560` asks `0x448450` for a texture of the decoded size; a size it
         // or `GxTexCreate` refuses (`0x448665`, `0x58ab40`) returns 0 and `0x44a500` leaves the
         // solid green (`0x44a50e`), with no next candidate.
-        let refused = texture && !is_tga_name(candidate) && !makes_device_texture(width, height);
+        let refused =
+            texture && !is_tga_name(candidate) && !turtle_makes_device_texture(width, height);
         if !refused {
             return Candidate::Pixels(width, height, rgba);
         }
@@ -1531,6 +1543,8 @@ mod tests {
     /// side that is not a power of two or is 1024 or more (`0x4484ae`-`0x4484d0`), `GxTexCreate`
     /// refuses a side below 8 (`0x58ab40`, `0x58ab4c`), and `0x44a500` leaves the solid green
     /// (`0x44a50e`) with no next candidate. A side of 8 to 16 goes to `GxTexCreate` and passes.
+    /// tortoise: a side of 1024 or more passes, as on the Turtle client
+    /// ([`turtle_makes_device_texture`]).
     #[test]
     fn a_blp_texture_size_the_device_path_refuses_is_the_solid_green() {
         let blp = "interface\\addons\\foo\\icon.blp";
@@ -1543,6 +1557,10 @@ mod tests {
             (512, 512),
             (8, 512),
             (512, 8),
+            (1024, 8),
+            (8, 1024),
+            (1024, 1024),
+            (2048, 64),
         ] {
             assert!(
                 matches!(load(w, h), Candidate::Pixels(pw, ph, _) if (pw, ph) == (w, h)),
@@ -1558,10 +1576,7 @@ mod tests {
             (1, 1),
             (24, 8),
             (8, 24),
-            (1024, 8),
-            (8, 1024),
-            (1024, 1024),
-            (2048, 64),
+            (1536, 1024),
         ] {
             assert_eq!(load(w, h), green(), "{w}x{h} is the solid green");
         }
