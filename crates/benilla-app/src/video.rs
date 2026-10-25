@@ -22,7 +22,7 @@
 //! "vsync on" is `AutoNoVsync` paced to the monitor's refresh rate ([`present_choice`]), which
 //! keeps the synced look without the crash. `$WOW_PRESENT=fifo` restores plain `Fifo`.
 
-use benilla_ui::script::ScreenResolution;
+use benilla_ui::script::{ScreenResolution, UiScript};
 use bevy::prelude::*;
 use bevy::render::renderer::RenderAdapterInfo;
 use bevy::window::{
@@ -603,13 +603,7 @@ fn publish_display_modes(
         let Ok(window) = windows.single() else {
             return;
         };
-        let res = &window.resolution;
-        let current = Some(ScreenResolution {
-            width: res.width() as u32,
-            height: res.height() as u32,
-        })
-        .filter(|r| r.width > 0 && r.height > 0);
-        let offered = offered_modes(monitors.iter(), widescreen);
+        let (offered, current) = display_modes(window, monitors.iter(), widescreen);
         // Keyed by VM: a `ReloadUI` VM has been pushed nothing, so a plain `Local` would skip it.
         let memo = last.get(script);
         if memo.as_ref() == Some(&(offered.clone(), current)) {
@@ -618,6 +612,36 @@ fn publish_display_modes(
         *memo = Some((offered.clone(), current));
         script.set_screen_resolutions(offered, current);
     })
+}
+
+/// The list [`publish_display_modes`] pushes and the live window size as its current entry.
+fn display_modes<'a>(
+    window: &Window,
+    monitors: impl IntoIterator<Item = &'a Monitor>,
+    widescreen: bool,
+) -> (Vec<ScreenResolution>, Option<ScreenResolution>) {
+    let res = &window.resolution;
+    let current = Some(ScreenResolution {
+        width: res.width() as u32,
+        height: res.height() as u32,
+    })
+    .filter(|r| r.width > 0 && r.height > 0);
+    (offered_modes(monitors, widescreen), current)
+}
+
+/// Seat a VM about to load with the list [`publish_display_modes`] keeps current: the reference
+/// builds it on the first call of any resolution verb (`0x48bc90`), so a file-scope
+/// `GetScreenResolutions()` during the load already sees every mode (Turtle's
+/// `Options\Functions.lua` keeps that first answer for the session).
+pub(crate) fn seed_display_modes(world: &mut World, script: &mut UiScript) {
+    let widescreen = world.get_resource::<Widescreen>().is_none_or(|w| w.0);
+    let mut windows = world.query_filtered::<&Window, With<PrimaryWindow>>();
+    let mut monitors = world.query::<&Monitor>();
+    let Ok(window) = windows.single(world) else {
+        return;
+    };
+    let (offered, current) = display_modes(window, monitors.iter(world), widescreen);
+    script.set_screen_resolutions(offered, current);
 }
 
 /// Check the window got the size `$WOW_WIN` asked for: the window manager may clamp it to the

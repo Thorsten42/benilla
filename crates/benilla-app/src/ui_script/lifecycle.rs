@@ -578,6 +578,10 @@ fn load_ingame_ui_seated(world: &mut World, seat: LoadSeat) {
     // The auction filter menus: `ItemClass.dbc` and `ItemSubClass.dbc` read inside the verbs, so a
     // file-scope `GetAuctionItemClasses()` (and the stock `AuctionFrameBrowse_OnLoad`) sees them.
     crate::ui_auction::seed_item_classes(world, &mut script);
+    // The Video menus' lists, built by the reference on their verbs' first call and read at file
+    // scope by Turtle's `Options\Functions.lua`, which keeps the first answer.
+    crate::video::seed_display_modes(world, &mut script);
+    crate::cvars::seed_multisample_formats(world, &mut script);
     // Screen size and measurer before the first `<OnLoad>`: this VM is loaded before `tick_script`
     // seats either, and the load measures text (the stock tab template's `OnLoad` sizes from its
     // text width, `UIPanelTemplates.xml:370-373`), which answers 0 with no measurer.
