@@ -182,6 +182,10 @@ fn new_vm<E: std::fmt::Display>(
         script.lua().srand(1);
     }
     install_addon_asset_resolvers(world, &mut script);
+    // tortoise: Turtle's `PlayerModel:SetUnit(displayId)`, which its shop previews call.
+    if let Err(e) = script.enable_turtle_model_previews() {
+        error!("ui_script: Turtle model previews: {e}");
+    }
     info!("ui_script: new VM, session {}", script.session());
     Some(script)
 }
