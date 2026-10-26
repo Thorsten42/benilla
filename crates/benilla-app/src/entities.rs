@@ -944,7 +944,8 @@ fn setup_entities(
         Ok(geosets) => commands.insert_resource(Characters(geosets)),
         Err(e) => warn!("character geosets unavailable, players show every geoset: {e:#}"),
     }
-    match CharSections::load(&mut chain) {
+    // tortoise: Turtle's flagged skin rows as the extra player colours its server sends.
+    match CharSections::load_turtle(&mut chain) {
         Ok(sections) => {
             commands.insert_resource(SkinSections::new(sections, world_assets.chain.clone()))
         }
