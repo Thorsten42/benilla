@@ -13,6 +13,7 @@ use benilla_assets::WorldAssets;
 
 mod colorselect;
 mod text;
+mod thin_edge;
 
 /// `WOW_UI_COST=1`: one untraced `[ui-cost]` line per frame, each phase's μs and the quad counts.
 pub(crate) fn ui_cost_enabled() -> bool {
@@ -1476,6 +1477,9 @@ fn convert_entry(
             // A pathless Texture region is a solid color; a textured one tints by it.
             let mut color = color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
             color[3] *= eq.alpha;
+            // A quad thinner than a device pixel, a backdrop's border piece among them, is seated
+            // on a pixel row.
+            let rect = thin_edge::seat(rect, dpi);
             // A gradient's vertex colours each multiply the fill and the alpha, as `0x77fac0`
             // folds the frame alpha into every vertex's byte.
             let corner_colors =
