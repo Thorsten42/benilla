@@ -486,6 +486,9 @@ fn load_ingame_ui_seated(world: &mut World, seat: LoadSeat) {
     // parked and uses the live one.
     unpark_glue_vm(world);
     if !ui_wanted(world) {
+        // A capture without the UI keeps a boot VM in the world: the glue's frames would paint
+        // the login screen over the world.
+        install_boot_vm(world);
         return;
     }
     mint_entry_vm(world);
@@ -1955,6 +1958,31 @@ mod tests {
             world.non_send_resource::<UiScript>().vm_kind(),
             VmKind::InGame,
             "the reload's VM is a boot VM, never the glue's"
+        );
+    }
+
+    /// A capture without the UI enters the world on a boot VM, never the glue's, whose login
+    /// screen would paint over the world.
+    #[test]
+    fn a_capture_without_the_ui_enters_the_world_on_a_boot_vm() {
+        use crate::client_state::ClientState;
+        use benilla_ui::script::VmKind;
+        let mut world = World::new();
+        world.insert_resource(State::new(ClientState::Login));
+        setup_script(&mut world);
+        assert_eq!(
+            world.non_send_resource::<UiScript>().vm_kind(),
+            VmKind::Glue
+        );
+
+        world.insert_resource(State::new(ClientState::InWorld));
+        world.insert_resource(crate::run_mode::CaptureMode);
+        arm_entry_ui_load(&mut world);
+        run_pending_entry_load(&mut world);
+        assert_eq!(
+            world.non_send_resource::<UiScript>().vm_kind(),
+            VmKind::InGame,
+            "the world holds a boot VM, not the glue's"
         );
     }
 
