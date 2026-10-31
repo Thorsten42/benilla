@@ -53,6 +53,9 @@ pub(crate) fn prepare(script: &UiScript) -> Result<(), String> {
         benilla_pfui::trade_link::Catalog::default()
     });
     benilla_pfui::install(script).map_err(|e| e.to_string())?;
+    // The feeds below hold the VM alone; what they raise runs with the host lent
+    // ([`raise_held_events`]).
+    benilla_ui::script::pfui_host::hold_unhosted_raises(lua);
     creatures.install(lua).map_err(|e| e.to_string())?;
     spells.install(lua).map_err(|e| e.to_string())?;
     trade_links
@@ -155,6 +158,14 @@ impl Plugin for PfuiPlugin {
                 .in_set(crate::ui_script::UiFeed)
                 .before(crate::ui_unit::UnitFeed),
         );
+        // After the lanes' drain: the frame's packets have fired their stock events, and the
+        // tick is next.
+        app.add_systems(
+            Update,
+            raise_held_events
+                .in_set(crate::lanes::UiLanes)
+                .after(crate::lanes::fire_in_order),
+        );
         casts::register(app);
         input::register(app);
         combat_log::register(app);
@@ -195,6 +206,18 @@ impl Plugin for PfuiPlugin {
             crate::ui_social::pfui::feed_friend_guids.in_set(crate::ui_script::UiFeed),
         );
     }
+}
+
+/// The raises the extension's feeds made with the VM alone, run with the host lent: a handler
+/// reads the player and the units through the host and makes its calls inside it, as the lanes'
+/// own handlers do. The VM's copies of the player's state are not kept current, so a handler run
+/// without the host read the player as absent (pfUI's castbar never showed).
+fn raise_held_events(mut vm: crate::script_calls::HostedVm) {
+    vm.run(|script| {
+        if let Some(script) = script {
+            benilla_ui::script::pfui_host::raise_held(script.lua());
+        }
+    });
 }
 
 fn inventory_events(script: Option<NonSend<UiScript>>) {
