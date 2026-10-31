@@ -89,6 +89,29 @@ pub fn set_unit_states(lua: &Lua, states: impl IntoIterator<Item = (u64, UnitSta
     focus::feed_states(lua, states);
 }
 
+/// The unit `TargetByName` would find by `name`: the start of a unit's name, all of it with
+/// `exact`, any case. A full match wins over a partial one; among equals, the lowest guid.
+pub(super) fn guid_by_name(lua: &Lua, name: &str, exact: bool) -> Option<u64> {
+    let wanted = name.to_lowercase();
+    let metadata = lua.app_data_ref::<Metadata>()?;
+    metadata
+        .states
+        .iter()
+        .filter(|(_, state)| state.has_object)
+        .filter_map(|(guid, state)| {
+            let have = state.name.as_deref()?.to_lowercase();
+            if have == wanted {
+                Some((false, *guid))
+            } else if !exact && have.starts_with(&wanted) {
+                Some((true, *guid))
+            } else {
+                None
+            }
+        })
+        .min()
+        .map(|(_, guid)| guid)
+}
+
 pub fn custom_guid(lua: &Lua, token: &str) -> Option<Option<u64>> {
     focus::resolve(lua, token)
 }
