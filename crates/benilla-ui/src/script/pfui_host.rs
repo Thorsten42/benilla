@@ -261,6 +261,7 @@ pub struct AddonScope<'a> {
     lua: &'a Lua,
     previous: Value,
     active: bool,
+    name: String,
 }
 
 impl Drop for AddonScope<'_> {
@@ -269,6 +270,15 @@ impl Drop for AddonScope<'_> {
             let _ = self
                 .lua
                 .set_named_registry_value("benilla.pfui.addon_context", self.previous.clone());
+            // The extension's after-load hook (its memory measure).
+            if let Ok(Some(bridge)) = self
+                .lua
+                .named_registry_value::<Option<Table>>("benilla.pfui.globals_bridge")
+            {
+                if let Ok(Some(after)) = bridge.get::<Option<Function>>("afterAddon") {
+                    let _ = after.call::<()>(self.name.as_str());
+                }
+            }
         }
     }
 }
@@ -295,7 +305,7 @@ pub fn addon_scope<'a>(lua: &'a Lua, name: &str) -> mlua::Result<AddonScope<'a>>
             lua.named_registry_value::<Option<Table>>("benilla.pfui.globals_bridge")?
         {
             if let Some(adapt) = bridge.get::<Option<Function>>("beforeAddon")? {
-                adapt.call::<()>(())?;
+                adapt.call::<()>(name)?;
             }
         }
     }
@@ -303,6 +313,7 @@ pub fn addon_scope<'a>(lua: &'a Lua, name: &str) -> mlua::Result<AddonScope<'a>>
         lua,
         previous,
         active,
+        name: name.to_string(),
     })
 }
 
