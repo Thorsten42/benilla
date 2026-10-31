@@ -8,7 +8,9 @@ fn carried(bag: i64) -> bool {
     (0..=4).contains(&bag) || bag == -2 || bag == EQUIPMENT_BAG
 }
 
-fn instance(lua: &Lua, input: Value) -> mlua::Result<Option<u64>> {
+/// The carried item `input` names (a location, an item guid, an id or link, or a name), the
+/// first in bag order; `None` when none is carried or it is locked.
+pub(in crate::script::pfui_host) fn instance(lua: &Lua, input: Value) -> mlua::Result<Option<u64>> {
     let location = if let Value::Table(location) = &input {
         if let Some(slot) = location
             .get::<Option<u32>>("equipmentSlotIndex")
