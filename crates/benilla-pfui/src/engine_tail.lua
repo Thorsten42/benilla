@@ -87,3 +87,105 @@ versionFrame:SetScript("OnEvent", function()
     versionFrame:UnregisterEvent("ADDON_LOADED")
   end
 end)
+
+-- The paper doll slot for an inventory slot number, the reverse of GetInventorySlotInfo.
+local slotNames = {
+  "HeadSlot", "NeckSlot", "ShoulderSlot", "ShirtSlot", "ChestSlot", "WaistSlot", "LegsSlot",
+  "FeetSlot", "WristSlot", "HandsSlot", "Finger0Slot", "Finger1Slot", "Trinket0Slot",
+  "Trinket1Slot", "BackSlot", "MainHandSlot", "SecondaryHandSlot", "RangedSlot", "TabardSlot",
+  "Bag0Slot", "Bag1Slot", "Bag2Slot", "Bag3Slot",
+}
+slotNames[0] = "AmmoSlot"
+C_PaperDollInfo = C_PaperDollInfo or {}
+function C_PaperDollInfo.GetInventorySlotInfoForInvSlot(invSlot)
+  if type(invSlot) ~= "number" then
+    error("Usage: C_PaperDollInfo.GetInventorySlotInfoForInvSlot(invSlot)", 2)
+  end
+  local name = slotNames[invSlot]
+  if not name then return end
+  local id, texture = GetInventorySlotInfo(name)
+  return id, texture, invSlot == 18, name
+end
+
+-- Loss of control: the player's harmful auras whose spell applies a control aura, by its aura
+-- type. A per-frame diff raises LOSS_OF_CONTROL_ADDED for each new effect and one
+-- LOSS_OF_CONTROL_UPDATE when the set changed. School lockouts are not seen yet.
+local controlAuras = {
+  [2] = "POSSESS", [5] = "CONFUSE", [6] = "CHARM", [7] = "FEAR", [12] = "STUN", [25] = "PACIFY",
+  [26] = "ROOT", [27] = "SILENCE", [60] = "PACIFYSILENCE", [67] = "DISARM",
+}
+local controlOf = {}
+local function controlType(spellID)
+  local known = controlOf[spellID]
+  if known ~= nil then return known or nil end
+  local found = false
+  local effects = C_Spell and C_Spell.GetSpellEffectInfo and C_Spell.GetSpellEffectInfo(spellID)
+  for _, effect in ipairs(effects or {}) do
+    if controlAuras[effect.auraName] then found = controlAuras[effect.auraName] break end
+  end
+  controlOf[spellID] = found
+  return found or nil
+end
+local active = {}
+local function scan()
+  local now, list = GetTime(), {}
+  for i = 1, 16 do
+    local name, icon, _, _, duration, expiration, _, _, _, spellID =
+      C_UnitAuras.UnitAura("player", i, "HARMFUL")
+    if not name then break end
+    local locType = spellID and controlType(spellID)
+    if locType then
+      local timed = duration and duration > 0 and expiration and expiration > 0
+      tinsert(list, {
+        locType = locType, spellID = spellID, displayText = name, iconTexture = icon or "",
+        startTime = timed and expiration - duration or nil,
+        timeRemaining = timed and math.max(0, expiration - now) or nil,
+        duration = timed and duration or nil, lockoutSchool = 0, priority = 0, displayType = 2,
+      })
+    end
+  end
+  return list
+end
+local function key(entry) return entry.locType .. ":" .. entry.spellID end
+local lossFrame = CreateFrame("Frame")
+lossFrame:SetScript("OnUpdate", function()
+  if not UnitExists("player") then return end
+  local list = scan()
+  local before = {}
+  for _, entry in ipairs(active) do before[key(entry)] = true end
+  local changed = table.getn(list) ~= table.getn(active)
+  active = list
+  for index, entry in ipairs(list) do
+    if not before[key(entry)] then
+      changed = true
+      bridge.fire("LOSS_OF_CONTROL_ADDED", index)
+    end
+  end
+  if changed then bridge.fire("LOSS_OF_CONTROL_UPDATE", "player") end
+end)
+C_LossOfControl = C_LossOfControl or {}
+function C_LossOfControl.GetActiveLossOfControlDataCount() return table.getn(active) end
+function C_LossOfControl.GetActiveLossOfControlData(index)
+  local entry = active[index]
+  if not entry then return nil end
+  local copy = {}
+  for field, value in pairs(entry) do copy[field] = value end
+  if copy.startTime then copy.timeRemaining = math.max(0, copy.startTime + copy.duration - GetTime()) end
+  return copy
+end
+
+-- CopyToClipboard: the client writes the text once this frame's scripts are done.
+function CopyToClipboard(text, removeMarkup)
+  text = tostring(text or "")
+  if removeMarkup then
+    text = string.gsub(text, "|c%x%x%x%x%x%x%x%x", "")
+    text = string.gsub(text, "|r", "")
+    text = string.gsub(text, "|H.-|h(.-)|h", "%1")
+    text = string.gsub(text, "|T.-|t", "")
+    text = string.gsub(text, "|A.-|a", "")
+    text = string.gsub(text, "|n", "\n")
+    text = string.gsub(text, "||", "|")
+  end
+  bridge.clipboard(text)
+  return string.len(text)
+end
