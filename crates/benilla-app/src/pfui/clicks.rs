@@ -59,11 +59,15 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
         }
         ClickAction::Cast { .. }
         | ClickAction::Item { .. }
+        | ClickAction::ItemAtPoint { .. }
+        | ClickAction::StartAttack { .. }
+        | ClickAction::StopAttack
         | ClickAction::TargetItem { .. }
         | ClickAction::TargetSpell { .. }
         | ClickAction::CancelQueue { .. }
         | ClickAction::QueueScript { .. } => {
-            // The queue's own actions, and a target chain `normalize_targets` resolved first.
+            // The queue's own actions, a target chain `normalize_targets` resolved first, and the
+            // item and attack steps the call host applies itself.
             unreachable!("frame actions are normalized before they apply")
         }
         ClickAction::RunScript { body } => {
@@ -109,7 +113,21 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
         ClickAction::Spell {
             spell_id,
             target: Some(guid),
-        } => cast_at_unit(cast, spell_id, guid),
+        } => cast_at_unit(cast, spell_id, guid, true),
+        ClickAction::CastAt {
+            spell_id,
+            target,
+            place_ground,
+            no_toggle,
+        } => {
+            if no_toggle && toggled_on(cast, spell_id) {
+                return;
+            }
+            match target {
+                Some(guid) => cast_at_unit(cast, spell_id, guid, place_ground),
+                None => crate::ui_spellbook::cast_spell(cast, spell_id, false),
+            }
+        }
         ClickAction::GroundSpell { spell_id, point } => {
             // A second press of the spell whose cursor is up only commits: the stock ladder would
             // take the cursor down, and the point would find nothing to bind.
@@ -162,7 +180,33 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
     }
 }
 
-fn cast_at_unit(cast: &mut ScriptCast, spell_id: u32, guid: u64) {
+/// Whether casting `spell_id` would turn it off: its auto-repeat runs, its own cancelable aura is
+/// up, or it is the player's form. `CastSpellNoToggle` leaves those alone.
+fn toggled_on(cast: &ScriptCast, spell_id: u32) -> bool {
+    let ScriptCast { targeting, ladder } = cast;
+    if ladder.auto_repeat.0 == Some(spell_id) {
+        return true;
+    }
+    let ctx = targeting.context();
+    let (Some(spells), Some(store)) = (ladder.spells.as_ref(), ctx.rel.self_store) else {
+        return false;
+    };
+    let Some(def) = spells.catalog.get(spell_id) else {
+        return false;
+    };
+    let form = store.0.unit_shapeshift_form();
+    crate::ui_action::toggle::active_action_toggle(spell_id, def, store)
+        || crate::ui_action::toggle::form_recast_disposition(
+            def,
+            form,
+            spells.forms.get(&u32::from(form)),
+        )
+        .is_some()
+}
+
+/// The spell at the unit `guid`; a ground-target spell lands at its feet when `place_ground`, else
+/// its reticle stays up for the player.
+fn cast_at_unit(cast: &mut ScriptCast, spell_id: u32, guid: u64, place_ground: bool) {
     let ScriptCast { targeting, ladder } = cast;
     let Some(ctx) = targeting.pfui_context(guid) else {
         return;
@@ -191,7 +235,10 @@ fn cast_at_unit(cast: &mut ScriptCast, spell_id: u32, guid: u64) {
     }
     // No attack auto-pick: it could move selection and override the clicked GUID.
     ladder.send(spell_id, &ctx, CastCommit::Spell);
-    if ladder.ground.spell() == Some(spell_id) && ladder.ground.wants(TargetingWants::Location) {
+    if place_ground
+        && ladder.ground.spell() == Some(spell_id)
+        && ladder.ground.wants(TargetingWants::Location)
+    {
         if let Some(position) = ctx.range.target_pos {
             let at = benilla_assets::coords::bevy_to_wow(position);
             commit_ground_ladder(ladder, spell_id, at);
@@ -203,7 +250,11 @@ fn commit_ground(cast: &mut ScriptCast, spell_id: u32, point: [f32; 3]) {
     commit_ground_ladder(&mut cast.ladder, spell_id, point);
 }
 
-fn commit_ground_ladder(ladder: &mut crate::spell::CastLadder, spell_id: u32, point: [f32; 3]) {
+pub(crate) fn commit_ground_ladder(
+    ladder: &mut crate::spell::CastLadder,
+    spell_id: u32,
+    point: [f32; 3],
+) {
     if ladder.ground.spell() != Some(spell_id) || !ladder.ground.wants(TargetingWants::Location) {
         return;
     }

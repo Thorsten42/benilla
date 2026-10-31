@@ -193,6 +193,13 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "C_LossOfControl",
         "CopyToClipboard",
         "UnitHasIncomingResurrection",
+        "IsUnitToken",
+        "UnitTokenFromName",
+        "CastSpellNoToggle",
+        "StartAttack",
+        "StopAttack",
+        "GetClickFrame",
+        "CancelSpellByName",
         "ClassicAPI",
         "GetPhysicalScreenSize",
         "IsModifiedClick",
@@ -261,6 +268,12 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "school_lockout",
         lua.create_function(|lua, ()| {
             lua.named_registry_value::<Option<mlua::Table>>(SCHOOL_LOCKOUT)
+        })?,
+    )?;
+    engine.set(
+        "item_use_spell",
+        lua.create_function(|lua, item: mlua::Value| {
+            benilla_ui::script::pfui_host::items::use_spell(lua, item)
         })?,
     )?;
     engine.set(
@@ -446,12 +459,8 @@ const INTRINSICS: &str = r#"<Ui>
 </Ui>"#;
 
 /// The ClassicAPI addon's files this client does not load yet, as their engine half is missing:
-/// the macro-condition slash commands (which would replace `/cast`, `/use`, `/target` and 45
-/// more), and the trade-skill link buttons (`C_TradeSkillUI`).
-const SKIPPED: &[(&str, &str)] = &[
-    ("!!!ClassicAPI", "Util\\SlashCommandsRegistry.lua"),
-    ("!!!ClassicAPI", "Util\\TradeSkillLink.lua"),
-];
+/// the trade-skill link buttons (`GetTradeSkillListLink`).
+const SKIPPED: &[(&str, &str)] = &[("!!!ClassicAPI", "Util\\TradeSkillLink.lua")];
 
 /// Whether `file` of `addon`'s manifest stays unloaded ([`SKIPPED`]).
 pub fn skipped_file(addon: &str, file: &str) -> bool {
@@ -516,3 +525,6 @@ mod focus_retention_tests;
 
 #[cfg(test)]
 mod item_use_tests;
+
+#[cfg(test)]
+mod macro_verb_tests;
