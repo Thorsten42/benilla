@@ -205,6 +205,8 @@ function C_Texture.RegisterAtlas(name, file, width, height, left, right, top, bo
     leftTexCoord = left, rightTexCoord = right, topTexCoord = top, bottomTexCoord = bottom,
     tilesHorizontally = tilesH and true or false, tilesVertically = tilesV and true or false,
   }
+  -- `|A…|a` text escapes draw from the host's copy, which takes only a complete atlas.
+  pcall(bridge.atlas_registered, name, file, width, height, left, right, top, bottom)
   return true
 end
 local function atlas(name) return type(name) == "string" and atlases[string.lower(name)] end
