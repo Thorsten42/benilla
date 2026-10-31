@@ -3,6 +3,9 @@
 use crate::script::{Model, ScriptCall, ScriptValue};
 use mlua::{Function, Lua, MultiValue, Table};
 
+#[cfg(feature = "nampower")]
+mod nampower;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum QueuePolicy {
     #[default]
@@ -120,6 +123,8 @@ fn target(lua: &Lua, unit: Option<String>) -> mlua::Result<Option<Option<u64>>> 
 
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     let actions = lua.create_table()?;
+    #[cfg(feature = "nampower")]
+    nampower::install(lua, &actions)?;
     actions.set(
         "spell",
         lua.create_function(|lua, (spell, unit): (mlua::Value, Option<String>)| {
