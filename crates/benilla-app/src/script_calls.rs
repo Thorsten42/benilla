@@ -953,6 +953,30 @@ impl ScriptCallHost<'_, '_> {
         }
     }
 
+    /// `StartAttack([unit])`, the pfUI extension's ClassicAPI verb: [`Self::attack_at`]'s start leg
+    /// alone, at `target`, else the selection. An attack already running is left as it is, where
+    /// the toggle would stop it.
+    #[cfg(feature = "pfui")]
+    fn start_attack(
+        &mut self,
+        script: &mut UiScript,
+        at: &mut Signalled,
+        target: Option<u64>,
+        may_pick: bool,
+    ) {
+        if self.appliers.attack().toggles_off() {
+            return;
+        }
+        let Some(owed) = self.appliers.attack().pick_attack_at(target, may_pick) else {
+            return;
+        };
+        self.appliers.cursor().bind_parked();
+        self.settle_selection(script, at, owed.into());
+        if let Some(guid) = self.appliers.attack().settle_attack() {
+            self.appliers.attack().start_attack(guid);
+        }
+    }
+
     /// A pet bar press past its dispatcher's gates (`0x4bd1d0`): Attack's validator (`0x4bd40d`)
     /// signals its pick's selection in place, ahead of its latch (`0x4bd42e`) and its
     /// `CMSG_PET_ACTION` (`0x4bd4a4`), and a cast the validator binds to a standing targeting
@@ -1515,6 +1539,32 @@ impl CallHost for ScriptCallHost<'_, '_> {
             ) => {
                 if let Some(open) = appliers.item_use().pfui_use_item(script, guid, target) {
                     tail = appliers.loot().open_item(script, open);
+                }
+            }
+            // ClassicAPI's macro verbs: the attack's legs alone, and an item placed at the cursor.
+            #[cfg(feature = "pfui")]
+            ScriptCall::PfuiClick(
+                benilla_ui::script::pfui_host::attributes::ClickAction::StartAttack {
+                    target,
+                    may_pick,
+                },
+            ) => self.start_attack(script, &mut at, target, may_pick),
+            #[cfg(feature = "pfui")]
+            ScriptCall::PfuiClick(
+                benilla_ui::script::pfui_host::attributes::ClickAction::StopAttack,
+            ) => self.stop_attack(script, &mut at),
+            #[cfg(feature = "pfui")]
+            ScriptCall::PfuiClick(
+                benilla_ui::script::pfui_host::attributes::ClickAction::ItemAtPoint { guid, point },
+            ) => {
+                // A reticle already up is replaced by this use's own.
+                appliers.cursor().stop_targeting();
+                if let Some(open) = appliers.item_use().pfui_use_item(script, guid, None) {
+                    tail = appliers.loot().open_item(script, open);
+                }
+                let mut cast = appliers.cast();
+                if let Some(spell) = cast.ladder.ground.spell() {
+                    crate::pfui::clicks::commit_ground_ladder(&mut cast.ladder, spell, point);
                 }
             }
             #[cfg(feature = "pfui")]

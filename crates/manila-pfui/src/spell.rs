@@ -267,6 +267,7 @@ impl Catalog {
         )?;
         lua.globals().set("C_Spell", api)?;
         benilla_ui::script::pfui_host::auras::install_spell_cancel(lua)?;
+        benilla_ui::script::pfui_host::macro_verbs::install_spell_verbs(lua)?;
         benilla_ui::script::pfui_host::casts::install(lua)?;
         lua.load(SPELL_ENGINE)
             .set_name("@manila-pfui/spell_engine.lua")
