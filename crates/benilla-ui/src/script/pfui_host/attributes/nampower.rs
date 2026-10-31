@@ -1,6 +1,6 @@
 //! Resolve Nampower's spellbook overloads without changing the stock Lua bindings.
 
-use super::{ClickAction, Model, QueuePolicy, ScriptCall};
+use super::{ClickAction, QueuePolicy, ScriptCall};
 use crate::script::{
     parse_unit_token, resolve_spell_in_books, PetBookState, SpellBookState, UnitBase,
     UnitTokenParse,
@@ -122,12 +122,12 @@ pub(super) fn install(lua: &Lua, actions: &Table) -> mlua::Result<()> {
                     }
                 };
                 let resolved = {
-                    let model = lua.app_data_ref::<Model>().expect("model");
-                    let slots = if pet {
-                        &model.pet_book.slots
+                    let book = if pet {
+                        crate::script::pfui_host::pet_book(lua).slots
                     } else {
-                        &model.spellbook.slots
+                        crate::script::pfui_host::player_book(lua).slots
                     };
+                    let slots = &book;
                     if let Some(index) = lua.coerce_number(input.clone())? {
                         let index = (index - 1.0).trunc();
                         if !(0.0..1024.0).contains(&index) {
