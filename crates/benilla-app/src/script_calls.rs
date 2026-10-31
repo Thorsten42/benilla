@@ -1567,6 +1567,30 @@ impl CallHost for ScriptCallHost<'_, '_> {
                     crate::pfui::clicks::commit_ground_ladder(&mut cast.ladder, spell, point);
                 }
             }
+            // A profession link clicked in chat: its window shows the linker's book.
+            #[cfg(feature = "pfui")]
+            ScriptCall::PfuiClick(
+                benilla_ui::script::pfui_host::attributes::ClickAction::OpenTradeLink {
+                    opener,
+                    guid,
+                    spells,
+                    rank,
+                    max_rank,
+                },
+            ) => {
+                let book = crate::ui_tradeskill::LinkedBook {
+                    spells,
+                    rank,
+                    max_rank,
+                };
+                if self
+                    .appliers
+                    .trade_skill()
+                    .open_link(script, opener, guid, book)
+                {
+                    self.at_point(script, &mut at);
+                }
+            }
             #[cfg(feature = "pfui")]
             ScriptCall::PfuiClick(action) => {
                 crate::pfui::clicks::apply(script, action, &mut appliers.cast());
