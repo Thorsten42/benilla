@@ -225,16 +225,22 @@ pub fn record(lua: &Lua, event: Event) {
             event,
             args: args.clone(),
         });
-        log.dispatching.push(args.clone());
         passes
     };
-    pfui_host::fire_pfui_event(lua, "COMBAT_LOG_EVENT_UNFILTERED", args.clone());
-    if passes {
-        pfui_host::fire_pfui_event(lua, "COMBAT_LOG_EVENT", args);
-    }
-    if let Some(mut log) = lua.app_data_mut::<Log>() {
-        log.dispatching.pop();
-    }
+    // The event's values stay current around its raises, which wait for the host when none is
+    // lent.
+    pfui_host::run_hosted(lua, move |lua| {
+        if let Some(mut log) = lua.app_data_mut::<Log>() {
+            log.dispatching.push(args.clone());
+        }
+        pfui_host::fire_pfui_event(lua, "COMBAT_LOG_EVENT_UNFILTERED", args.clone());
+        if passes {
+            pfui_host::fire_pfui_event(lua, "COMBAT_LOG_EVENT", args);
+        }
+        if let Some(mut log) = lua.app_data_mut::<Log>() {
+            log.dispatching.pop();
+        }
+    });
 }
 
 /// Forget the entries and filters: a logout.
