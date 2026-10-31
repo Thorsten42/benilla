@@ -55,9 +55,13 @@
             { GameMenuButtonUIOptions, GameMenuButtonSoundOptions },
         }) do
             local button, above = fold[1], fold[2]
-            button:Hide()
-            button:ClearAllPoints()
-            button:SetPoint("TOP", above, "BOTTOM", 0, button:GetHeight())
+            -- tortoise: Turtle's GameMenuFrame drops a stock rung, so a fold may be missing.
+            if ( button ) then
+                button:Hide()
+                button:ClearAllPoints()
+                button:SetPoint("TOP", above or GameMenuButtonOptions, "BOTTOM", 0,
+                    button:GetHeight())
+            end
         end
         -- Key Bindings keeps its stock anchor, 1 under UI Options: the era rungs hang from its
         -- top, so an addon that inserts a button above it and re-anchors it under that button
