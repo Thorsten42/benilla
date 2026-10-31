@@ -268,6 +268,24 @@ impl Catalog {
         lua.globals().set("C_Spell", api)?;
         benilla_ui::script::pfui_host::auras::install_spell_cancel(lua)?;
         benilla_ui::script::pfui_host::casts::install(lua)?;
+        lua.load(SPELL_ENGINE)
+            .set_name("@manila-pfui/spell_engine.lua")
+            .exec()?;
         runtime::install(lua)
     }
 }
+
+/// The ClassicAPI calls built on the catalog's own `C_Spell`.
+const SPELL_ENGINE: &str = r#"
+function C_Spell.CastingInfo() return C_Spell.UnitCastingInfo("player") end
+
+-- A single school's name; a mask of more than one school has none here.
+function C_Spell.GetSchoolString(mask)
+  mask = tonumber(mask) or 0
+  local masks = {1, 2, 4, 8, 16, 32, 64}
+  for school = 0, 6 do
+    if mask == masks[school + 1] then return getglobal("SPELL_SCHOOL" .. school .. "_CAP") or "Unknown" end
+  end
+  return "Unknown"
+end
+"#;
