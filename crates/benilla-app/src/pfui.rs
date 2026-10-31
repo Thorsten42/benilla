@@ -47,9 +47,17 @@ pub(crate) fn prepare(script: &UiScript) -> Result<(), String> {
         .map_err(|e| format!("pfUI creature metadata: {e}"))?;
     let spells = manila_pfui::spell::Catalog::read(&reader, &locale)
         .map_err(|e| format!("pfUI spell metadata: {e}"))?;
+    // Without its tables the profession links answer nil; the rest of the data still installs.
+    let trade_links = manila_pfui::trade_link::Catalog::read(&reader).unwrap_or_else(|e| {
+        warn!("pfUI profession links: {e}");
+        manila_pfui::trade_link::Catalog::default()
+    });
     manila_pfui::install(script).map_err(|e| e.to_string())?;
     creatures.install(lua).map_err(|e| e.to_string())?;
     spells.install(lua).map_err(|e| e.to_string())?;
+    trade_links
+        .install(lua, &spells)
+        .map_err(|e| e.to_string())?;
     static MAPS: std::sync::OnceLock<Result<manila_pfui::maps::Catalog, String>> =
         std::sync::OnceLock::new();
     MAPS.get_or_init(|| manila_pfui::maps::Catalog::read(&reader).map_err(|e| e.to_string()))
