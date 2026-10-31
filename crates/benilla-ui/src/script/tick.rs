@@ -322,6 +322,9 @@ pub(crate) fn fire_event_into(lua: &Lua, event: &str, args: Vec<ScriptValue>) {
         super::calls::hold(lua, super::calls::Held::Event(event.to_string(), args));
         return;
     }
+    // A ClassicAPI client's `GetCurrentChatEvent` answers this event while its handlers run.
+    #[cfg(feature = "pfui")]
+    let _chat = super::pfui_host::chat_event::enter(lua, event, &args);
     let globals = lua.globals();
     let saved = globals.get::<mlua::Value>("event").ok();
     if let Ok(name) = lua.create_string(event) {
