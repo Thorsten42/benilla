@@ -449,6 +449,10 @@ pub(super) fn duration(
     mods.map_or(span, |m| m.apply(def, 1, span))
 }
 
+#[cfg(all(test, feature = "nampower"))]
+#[path = "cast_channel_tests.rs"]
+mod channel_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
