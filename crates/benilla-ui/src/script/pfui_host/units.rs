@@ -112,6 +112,18 @@ pub(super) fn guid_by_name(lua: &Lua, name: &str, exact: bool) -> Option<u64> {
         .map(|(_, guid)| guid)
 }
 
+/// The name the client holds for the unit `guid`: a nearby unit's, else a token's.
+pub fn name_of(lua: &Lua, guid: u64) -> Option<String> {
+    let held = lua
+        .app_data_ref::<Metadata>()
+        .and_then(|metadata| metadata.states.get(&guid)?.name.clone());
+    held.or_else(|| {
+        let token = token_from_guid(lua, guid)?;
+        let model = lua.app_data_ref::<Model>()?;
+        crate::script::unit::view(lua, &model, &token).and_then(|unit| unit.name.clone())
+    })
+}
+
 pub fn custom_guid(lua: &Lua, token: &str) -> Option<Option<u64>> {
     focus::resolve(lua, token)
 }
