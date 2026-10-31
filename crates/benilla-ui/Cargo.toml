@@ -12,6 +12,8 @@ workspace = true
 # `test_support`: the geometry comparisons and the zone guard (`civil::ZoneGuard`) other crates'
 # tests check the UI with. Only their dev-dependencies enable it: the player build has neither.
 test-support = []
+# Fork extension seam; building the feature alone leaves every ordinary VM unchanged.
+pfui = []
 
 [dependencies]
 roxmltree = "0.20"
