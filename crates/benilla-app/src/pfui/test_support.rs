@@ -1,7 +1,11 @@
 //! The pfUI app tests' world: the headless client with a player, a known book, the extension
 //! installed, and the frame's steps a test runs Lua through.
 
+#[cfg(feature = "nampower")]
+use benilla_ui::script::pfui_host::casts;
 use benilla_ui::script::{SpellBookState, SpellSlotView, UiScript, UnitGuids};
+#[cfg(feature = "nampower")]
+use bevy::ecs::system::RunSystemOnce;
 use bevy::prelude::*;
 
 pub(crate) const HEAL: u32 = 2050;
@@ -78,6 +82,8 @@ pub(crate) fn fixture() -> (App, crossbeam_channel::Receiver<crate::net::ClientC
     "#,
         )
         .unwrap();
+    #[cfg(feature = "nampower")]
+    script.run("SetCVar('NP_MinBufferTimeMs',0)").unwrap();
     world.insert_non_send_resource(script);
     (app, rx)
 }
@@ -94,12 +100,58 @@ fn teach(app: &mut App) {
         .extend(book.slots.iter().map(|slot| slot.spell_id));
 }
 
-/// Run `lua` with the host lent, so its calls apply inside their verbs.
+/// Run `lua` with the host lent, so its calls apply inside their verbs, then, with Nampower, the
+/// frame's release of its queue.
 pub(crate) fn run(app: &mut App, lua: &str) {
     teach(app);
+    // The frame's pick point, as the queue reads it in a call.
+    #[cfg(feature = "nampower")]
+    app.world_mut()
+        .run_system_once(crate::pfui::spell_queue::track_pick)
+        .unwrap();
     crate::script_calls::with_hosted_vm(app.world_mut(), |script| {
         script.expect("a VM").run(lua).unwrap();
     });
+    #[cfg(feature = "nampower")]
+    app.world_mut()
+        .run_system_once(crate::pfui::spell_queue::release)
+        .unwrap();
+}
+
+#[cfg(feature = "nampower")]
+pub(crate) fn casting(app: &App, end_ms: Option<f64>) {
+    casts::set_casts(
+        app.world().non_send_resource::<UiScript>().lua(),
+        end_ms.map(|end_ms| {
+            (
+                ME,
+                casts::Cast {
+                    spell_id: OTHER,
+                    start_ms: 0.0,
+                    end_ms,
+                    name: "Heal2052".into(),
+                    rank: String::new(),
+                    icon: None,
+                    tradeskill: false,
+                    cast_guid: "Cast-3-1".into(),
+                    delay_ms: 0,
+                    channel: false,
+                },
+            )
+        }),
+    );
+}
+
+#[cfg(feature = "nampower")]
+pub(crate) fn cast_packets(
+    rx: &crossbeam_channel::Receiver<crate::net::ClientCommand>,
+) -> Vec<u32> {
+    rx.try_iter()
+        .filter_map(|c| match c {
+            crate::net::ClientCommand::CastSpell { spell_id, .. } => Some(spell_id),
+            _ => None,
+        })
+        .collect()
 }
 
 pub(crate) fn with_unit_targets(app: &mut App) {
@@ -151,4 +203,16 @@ pub(crate) fn with_unit_targets(app: &mut App) {
             held: [(ME, 4), (4, 0)].into(),
             ..Default::default()
         });
+}
+
+#[cfg(feature = "nampower")]
+pub(crate) fn targets(
+    rx: &crossbeam_channel::Receiver<crate::net::ClientCommand>,
+) -> Vec<Option<u64>> {
+    rx.try_iter()
+        .filter_map(|call| match call {
+            crate::net::ClientCommand::CastSpell { target, .. } => Some(target),
+            _ => None,
+        })
+        .collect()
 }
