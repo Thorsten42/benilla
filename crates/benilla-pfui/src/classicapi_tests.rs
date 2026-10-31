@@ -551,3 +551,79 @@ fn the_addons_scroll_and_dropdown_atlases_are_built_in() {
         )
         .unwrap();
 }
+
+fn combat_event(
+    subevent: &'static str,
+    source: u64,
+    flags: u32,
+    amount: i64,
+) -> super::combat_log::Event {
+    use benilla_ui::script::ScriptValue;
+    super::combat_log::Event {
+        subevent,
+        source: Some(super::combat_log::Unit {
+            guid: source,
+            name: Some("Me".into()),
+            flags,
+            raid_flags: 0,
+        }),
+        dest: None,
+        spell: Some((133, Some("Fireball".into()))),
+        values: vec![
+            ScriptValue::Int(133),
+            ScriptValue::Str("Fireball".into()),
+            ScriptValue::Int(4),
+            ScriptValue::Int(amount),
+        ],
+    }
+}
+
+#[test]
+fn the_combat_log_raises_its_events_with_the_values_and_filters_the_second() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        seen = {}
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        f:RegisterEvent("COMBAT_LOG_EVENT")
+        f:SetScript("OnEvent", function()
+          local ts, sub, hide, sguid, sname, sflags, sraid, dguid, dname, dflags, draid, id, name, school, amount =
+            CombatLogGetCurrentEventInfo()
+          table.insert(seen, event .. ":" .. sub .. ":" .. tostring(sname) .. ":" .. tostring(dname) .. ":" ..
+            tostring(dflags == COMBATLOG_OBJECT_NONE) .. ":" .. name .. ":" .. amount .. ":" .. tostring(arg2 == sub))
+        end)
+        CombatLogAddFilter("SPELL_DAMAGE", COMBATLOG_FILTER_MINE)
+        assert(not pcall(CombatLogAddFilter, nil, COMBATLOG_OBJECT_AFFILIATION_MINE))
+    "#,
+        )
+        .unwrap();
+    let mine = 0x1 | 0x10 | 0x100 | 0x400;
+    let theirs = 0x8 | 0x40 | 0x200 | 0x800;
+    super::combat_log::record(script.lua(), combat_event("SPELL_DAMAGE", 1, mine, 100));
+    super::combat_log::record(script.lua(), combat_event("SPELL_DAMAGE", 2, theirs, 50));
+    script
+        .run(
+            r#"
+        assert(table.getn(seen) == 3, table.concat(seen, " | "))
+        assert(seen[1] == "COMBAT_LOG_EVENT_UNFILTERED:SPELL_DAMAGE:Me:nil:true:Fireball:100:true", seen[1])
+        assert(seen[2] == "COMBAT_LOG_EVENT:SPELL_DAMAGE:Me:nil:true:Fireball:100:true", seen[2])
+        assert(string.find(seen[3], "^COMBAT_LOG_EVENT_UNFILTERED:.*:50:"))
+        assert(CombatLogGetCurrentEventInfo() == nil)
+        -- The kept entries: the filter counts one, both without it.
+        assert(CombatLogGetNumEntries() == 1 and CombatLogGetNumEntries(true) == 2)
+        assert(CombatLogSetCurrentEntry(1) == 1)
+        local _, sub, _, _, _, _, _, _, _, _, _, _, _, _, amount = CombatLogGetCurrentEntry()
+        assert(sub == "SPELL_DAMAGE" and amount == 100)
+        assert(CombatLogSetCurrentEntry(0, true) == 1)
+        assert(select(15, CombatLogGetCurrentEntry()) == 50)
+        assert(CombatLogAdvanceEntry(-1, true) == 1 and select(15, CombatLogGetCurrentEntry()) == 100)
+        assert(CombatLog_Object_IsA(COMBATLOG_FILTER_ME, COMBATLOG_FILTER_MINE) == 1)
+        assert(CombatLog_Object_IsA(COMBATLOG_OBJECT_NONE, COMBATLOG_FILTER_MINE) == nil)
+        CombatLogClearEntries()
+        assert(CombatLogGetNumEntries(true) == 0)
+    "#,
+        )
+        .unwrap();
+}
