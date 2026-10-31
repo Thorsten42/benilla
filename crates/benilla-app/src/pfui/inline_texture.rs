@@ -91,6 +91,9 @@ fn parse(body: &str) -> Option<Spec> {
 #[derive(Default)]
 pub(crate) struct Registry {
     enabled: bool,
+    /// The VM's atlases for `|A…|a` escapes, as of their generation.
+    atlases: HashMap<String, benilla_ui::script::pfui_host::inline_texture::AtlasPiece>,
+    atlas_generation: u64,
     /// Device px per unit of an explicit size: the UI scale of the string being laid out times
     /// the DPI, set by the callers that know it.
     units_to_dev: f32,
@@ -106,16 +109,27 @@ impl Registry {
         self.specs.get((ch as u32 - FIRST) as usize)
     }
 
-    /// `text` with each well-formed escape replaced by its placeholder. An escaped pipe (`||T`)
-    /// and an escape with no closing `|t` stay as they are.
+    /// `text` with each well-formed escape replaced by its placeholder, an atlas escape by its
+    /// atlas's texture escape's. An escaped pipe (`||T`), an escape with no closing tag and an
+    /// atlas the VM never registered stay as they are.
     pub(super) fn substitute<'a>(&mut self, text: &'a str) -> Cow<'a, str> {
-        if !self.enabled || !text.contains("|T") {
+        use benilla_ui::script::pfui_host::inline_texture as escape;
+        if !self.enabled || !(text.contains("|T") || text.contains("|A")) {
             return Cow::Borrowed(text);
         }
         let mut out = String::with_capacity(text.len());
         let mut copied = 0usize;
-        for span in benilla_ui::script::pfui_host::inline_texture::spans(text) {
-            let Some(ch) = self.placeholder(&text[span.start + 2..span.end - 2]) else {
+        for span in escape::spans(text) {
+            let body = &text[span.start + 2..span.end - 2];
+            let atlas = if escape::is_atlas(text, &span) {
+                match escape::atlas_body(body, &self.atlases) {
+                    Some(atlas) => Some(atlas),
+                    None => continue,
+                }
+            } else {
+                None
+            };
+            let Some(ch) = self.placeholder(atlas.as_deref().unwrap_or(body)) else {
                 continue;
             };
             out.push_str(&text[copied..span.start]);
@@ -305,7 +319,7 @@ pub(crate) fn prepare(
     assets: &mut Option<ResMut<benilla_assets::WorldAssets>>,
     images: &mut Assets<Image>,
 ) {
-    if !text.contains("|T") {
+    if !text.contains("|T") && !text.contains("|A") {
         return;
     }
     let Some(assets) = assets.as_mut() else {
@@ -331,17 +345,28 @@ pub(crate) fn strip_typed(sender_guid: u64, language: u32, text: &mut String) {
     }
 }
 
-/// Enable the escape on the client's engine and load the textures a measure met before any draw.
+/// Enable the escape on the client's engine, take the VM's atlases when they changed, and load
+/// the textures a measure met before any draw.
 fn feed(
     atlas: Option<Res<super::UiFontAtlas>>,
     assets: Option<ResMut<benilla_assets::WorldAssets>>,
     mut images: ResMut<Assets<Image>>,
+    script: Option<NonSend<benilla_ui::script::UiScript>>,
 ) {
     let (Some(atlas), Some(mut assets)) = (atlas, assets) else {
         return;
     };
     let mut engine = atlas.lock();
     engine.inline.enabled = true;
+    if let Some((generation, atlases)) = script.as_ref().and_then(|script| {
+        benilla_ui::script::pfui_host::inline_texture::atlases_since(
+            script.lua(),
+            engine.inline.atlas_generation,
+        )
+    }) {
+        engine.inline.atlas_generation = generation;
+        engine.inline.atlases = atlases;
+    }
     engine
         .inline
         .resolve(|path| assets.sprite_texture(path, &mut images));
@@ -361,6 +386,30 @@ mod tests {
             units_to_dev: 2.0,
             ..default()
         }
+    }
+
+    #[test]
+    fn an_atlas_escape_draws_as_its_atlass_texture_escape() {
+        let mut registry = enabled();
+        registry.atlases.insert(
+            "gem".into(),
+            benilla_ui::script::pfui_host::inline_texture::AtlasPiece {
+                file: "Interface\\Gems".into(),
+                width: 16.0,
+                height: 16.0,
+                coords: [0.0, 0.5, 0.0, 0.5],
+            },
+        );
+        let atlas = registry.substitute("a|A:Gem:14:14|ab").into_owned();
+        let texture = registry
+            .substitute("a|TInterface\\Gems:14:14:0:0:1:1:0:0.5:0:0.5|tb")
+            .into_owned();
+        assert_eq!(atlas, texture);
+        assert_eq!(atlas.chars().count(), 3);
+        assert_eq!(
+            registry.substitute("a|A:Missing:14|ab"),
+            "a|A:Missing:14|ab"
+        );
     }
 
     #[test]
