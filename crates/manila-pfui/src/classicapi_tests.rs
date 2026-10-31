@@ -652,3 +652,19 @@ fn an_incoming_resurrection_raises_once_per_token_and_only_on_a_change() {
         )
         .unwrap();
 }
+
+#[test]
+fn a_school_lockout_reads_as_a_school_interrupt() {
+    let script = extended();
+    super::school_lockout(script.lua(), 4, 4.0);
+    script
+        .run(
+            r#"
+        local mask, remaining = C_LossOfControl.GetSchoolLockout()
+        assert(mask == 4 and remaining > 3.9, tostring(mask) .. " " .. tostring(remaining))
+        assert(C_LossOfControl.GetSchoolLockout(2) == 0)
+        assert(C_LossOfControl.GetSchoolLockout(4) == 4)
+    "#,
+        )
+        .unwrap();
+}
