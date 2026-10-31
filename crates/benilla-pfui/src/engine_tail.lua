@@ -75,3 +75,15 @@ function C_Container.GetContainerItemInfo(bag, slot)
     itemID = C_Container.GetContainerItemID(bag, slot), isBound = false,
   }
 end
+
+-- The ClassicAPI addon this layer's engine half is written for, v1.18.5: once it has loaded, the
+-- version an addon's load gate reads is that one. Without it the layer stands alone at 1.15.10.
+local versionFrame = CreateFrame("Frame")
+versionFrame:RegisterEvent("ADDON_LOADED")
+versionFrame:SetScript("OnEvent", function()
+  if arg1 == "!!!ClassicAPI" then
+    CLASSIC_API_VERSION = 11805
+    BenillaClassicAPICompatibility.apiVersion = "1.18.5"
+    versionFrame:UnregisterEvent("ADDON_LOADED")
+  end
+end)
