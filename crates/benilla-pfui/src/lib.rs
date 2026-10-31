@@ -21,6 +21,7 @@ pub mod resurrect;
 pub mod spell;
 pub mod swing;
 pub mod swing_range;
+pub mod trade_link;
 mod widgets;
 
 #[cfg(feature = "audit")]
@@ -200,6 +201,10 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "StopAttack",
         "GetClickFrame",
         "CancelSpellByName",
+        "GetTradeSkillListLink",
+        "GetCraftListLink",
+        "IsTradeSkillLinked",
+        "IsCraftLinked",
         "ClassicAPI",
         "GetPhysicalScreenSize",
         "IsModifiedClick",
@@ -486,9 +491,9 @@ const INTRINSICS: &str = r#"<Ui>
   <Model name="Cooldown" inherits="CooldownFrameTemplate" mixin="BenillaCooldownMixin" intrinsic="true"/>
 </Ui>"#;
 
-/// The ClassicAPI addon's files this client does not load yet, as their engine half is missing:
-/// the trade-skill link buttons (`GetTradeSkillListLink`).
-const SKIPPED: &[(&str, &str)] = &[("!!!ClassicAPI", "Util\\TradeSkillLink.lua")];
+/// The ClassicAPI addon's files this client does not load, as their engine half is missing: none
+/// at present. A file a later ClassicAPI adds before its engine half is here goes in this list.
+const SKIPPED: &[(&str, &str)] = &[];
 
 /// Whether `file` of `addon`'s manifest stays unloaded ([`SKIPPED`]).
 pub fn skipped_file(addon: &str, file: &str) -> bool {

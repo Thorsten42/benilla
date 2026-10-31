@@ -20,6 +20,7 @@ pub mod maps;
 mod merchant;
 mod message_history;
 pub mod player_stats;
+pub mod professions;
 pub mod quests;
 pub mod social;
 pub(crate) mod tooltip_subjects;
