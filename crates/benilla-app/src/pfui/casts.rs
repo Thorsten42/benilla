@@ -26,6 +26,8 @@ struct RemoteChannel {
 #[derive(Resource, Default)]
 struct State {
     active: HashMap<u64, Observed>,
+    /// Each caster's cast's unit target, as its start named it (`UnitSpellTargetName`).
+    targets: HashMap<u64, u64>,
     remote_channels: HashMap<u64, RemoteChannel>,
     recent: HashMap<(u64, u32), (Observed, &'static str, Instant)>,
     edges: Vec<(u64, &'static str, Observed)>,
@@ -119,9 +121,14 @@ fn receive(
             caster,
             spell_id,
             cast_time_ms,
+            target,
             ..
         } if caster != 0 => {
             state.remote_channels.remove(&caster);
+            match target.filter(|target| *target != 0) {
+                Some(target) => state.targets.insert(caster, target),
+                None => state.targets.remove(&caster),
+            };
             if cast_time_ms > 0 {
                 if let Some(old) = state.active.get(&caster).cloned() {
                     state.stop(caster, old.info.spell_id, "UNIT_SPELLCAST_STOP");
@@ -403,6 +410,11 @@ fn feed(
             .iter()
             .map(|(guid, record)| (*guid, project(record, &clock))),
     );
+    let State {
+        active, targets, ..
+    } = &mut *state;
+    targets.retain(|caster, _| active.contains_key(caster));
+    casts::set_cast_targets(script.lua(), targets.iter().map(|(c, t)| (*c, *t)));
     for (guid, kind, record) in state.edges.drain(..) {
         casts::event(script.lua(), guid, kind, &project(&record, &clock));
     }
