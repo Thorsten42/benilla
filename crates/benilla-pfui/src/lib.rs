@@ -192,7 +192,6 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "C_LossOfControl",
         "CopyToClipboard",
         "UnitHasIncomingResurrection",
-        "C_MapExplorationInfo",
         "ClassicAPI",
         "GetPhysicalScreenSize",
         "IsModifiedClick",
