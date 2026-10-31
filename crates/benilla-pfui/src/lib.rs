@@ -271,6 +271,34 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         })?,
     )?;
     engine.set(
+        "atlas_registered",
+        lua.create_function(
+            |lua,
+             (name, file, width, height, left, right, top, bottom): (
+                String,
+                String,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+            )| {
+                benilla_ui::script::pfui_host::inline_texture::register_atlas(
+                    lua,
+                    &name,
+                    benilla_ui::script::pfui_host::inline_texture::AtlasPiece {
+                        file,
+                        width,
+                        height,
+                        coords: [left, right, top, bottom],
+                    },
+                );
+                Ok(())
+            },
+        )?,
+    )?;
+    engine.set(
         "item_use_spell",
         lua.create_function(|lua, item: mlua::Value| {
             benilla_ui::script::pfui_host::items::use_spell(lua, item)
