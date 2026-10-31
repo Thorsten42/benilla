@@ -826,6 +826,13 @@ pub(super) fn feed_item_stats(
                     t.item_level,
                     t.bag_family,
                 );
+                if let Some(use_spell) = t.use_spell {
+                    benilla_ui::script::pfui_host::items::set_use_spell(
+                        script.lua(),
+                        id,
+                        use_spell.spell_id,
+                    );
+                }
             }
             script.set_item_template(id, view);
         }
