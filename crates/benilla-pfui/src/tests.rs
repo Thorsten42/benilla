@@ -3575,6 +3575,26 @@ fn one_callback_can_cancel_another_due_callback() {
 }
 
 #[test]
+fn timers_fire_after_the_frames_on_update_walk_and_not_under_the_loading_screen() {
+    let mut script = extended();
+    script
+        .run(
+            r#"
+      order = ''
+      local f = CreateFrame('Frame')
+      f:SetScript('OnUpdate', function() order = order .. 'u' end)
+      C_Timer.After(0, function() order = order .. 't' end)
+    "#,
+        )
+        .unwrap();
+    script.tick_covered(0.1);
+    assert_eq!(script.eval::<String>("return order").unwrap(), "");
+    script.tick(0.1);
+    assert_eq!(script.eval::<String>("return order").unwrap(), "ut");
+    assert!(script.errors().is_empty(), "{:?}", script.errors());
+}
+
+#[test]
 fn mixins_and_colors_support_pfuis_class_colors_and_tooltips() {
     let script = extended();
     script
