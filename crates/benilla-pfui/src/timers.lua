@@ -1,6 +1,8 @@
--- One anonymous frame drives the queue using the engine's monotonic GetTime clock.
--- The callback snapshot defers newly scheduled timers until the following frame.
-local frame = CreateFrame("Frame")
+-- ClassicAPI's queue rides the world tick (`0x66fd50`), which the world frame's render calls in
+-- the draw pass (`CGWorldFrame::OnRender` `0x482ea0`): the host runs the pass this chunk returns
+-- there, after every OnUpdate of the frame's walk, and none under the loading screen. Deadlines
+-- use the engine's monotonic GetTime clock; the callback snapshot defers newly scheduled timers
+-- until the following frame.
 local reportError = ...
 local timers = {}
 local Handle = {}
@@ -11,6 +13,7 @@ function Handle:IsCancelled() return self.cancelled == true end
 local passes, updating = 0, false
 local function update()
   passes = passes + 1
+  if table.getn(timers) == 0 then return end
   updating = true
   local due, pending = {}, {}
   local now = GetTime()
@@ -38,7 +41,6 @@ local function update()
     end
   end
   updating = false
-  if table.getn(timers) == 0 then frame:SetScript("OnUpdate", nil) end
 end
 
 local function schedule(seconds, callback, iterations)
@@ -49,7 +51,6 @@ local function schedule(seconds, callback, iterations)
   local timer = Mixin({period = period, deadline = GetTime() + math.max(seconds, 0),
     callback = callback, iterations = iterations}, Handle)
   table.insert(timers, timer)
-  frame:SetScript("OnUpdate", update)
   return timer
 end
 C_Timer = {}
@@ -67,9 +68,10 @@ function C_Timer.NewTicker(seconds, callback, iterations)
   end
   return schedule(seconds, callback, iterations)
 end
--- The frame after this one: an event handler runs before its own frame's update pass, so that
--- pass is skipped; a callback already inside a pass waits for the next.
+-- The frame after this one: an event handler or an OnUpdate runs before its own frame's pass, so
+-- that pass is skipped; a callback already inside a pass waits for the next.
 function RunNextFrame(callback)
   local timer = schedule(0, function() callback() end, 1)
   timer.pass = passes + (updating and 1 or 2)
 end
+return update
