@@ -6,17 +6,55 @@
 BenillaCooldownMixin = {}
 local M = BenillaCooldownMixin
 
+-- The countdown numbers a ClassicAPI client writes over the sweep while `countdownForCooldowns` is
+-- on (registered at 0, as the client registers it), the frame does not hide them and the cooldown
+-- outlasts its minimum: retail's text for the time left, whole units rounded up, tenths below the
+-- milliseconds threshold and m:ss below the abbreviation threshold, which counts from one minute
+-- to one hour.
+local known, value = pcall(GetCVar, "countdownForCooldowns")
+if not known or value == nil then RegisterCVar("countdownForCooldowns", "0") end
+local mod = math.mod or math.fmod
+local function ceilDiv(n, d) return math.floor(n / d) + (mod(n, d) ~= 0 and 1 or 0) end
+local function countdownText(ms, abbrevThreshold, millisecondsThreshold)
+  if ms / 1000 < millisecondsThreshold then
+    local tenths = ceilDiv(ms, 100)
+    return math.floor(tenths / 10) .. "." .. mod(tenths, 10)
+  end
+  local s = ceilDiv(ms, 1000)
+  if s >= 86400 then return ceilDiv(s, 86400) .. "d" end
+  if s >= 3600 then return ceilDiv(s, 3600) .. "h" end
+  if s >= 60 and s >= math.min(abbrevThreshold, 3600) then return ceilDiv(s, 60) .. "m" end
+  if s >= 60 then return string.format("%d:%02d", math.floor(s / 60), mod(s, 60)) end
+  return tostring(s)
+end
+-- The numbers for `ms` left, none for nil; the font string is made the first time it shows any.
+local function countdown(self, ms)
+  local text = ""
+  if ms and ms > 0 and not self:GetHideCountdownNumbers()
+    and self.duration * 1000 > self:GetMinimumCountdownDuration()
+    and (tonumber(GetCVar("countdownForCooldowns") or 0) or 0) ~= 0 then
+    text = countdownText(ms, self:GetCountdownAbbrevThreshold(),
+      self:GetCountdownMillisecondsThreshold())
+  end
+  if text == (self.benillaCountdownText or "") then return end
+  self.benillaCountdownText = text
+  self:GetCountdownFontString():SetText(text)
+end
+
 -- The sweep's step, in place of the template's OnUpdateModel.
 local function step()
   local self = this
   if self.benillaPaused then return end
   if self.stopping == 0 then
-    local finished = (GetTime() - self.start) / self.duration
+    local elapsed = GetTime() - self.start
+    local finished = elapsed / self.duration
     if finished < 1 then
+      countdown(self, math.floor((self.duration - elapsed) * 1000))
       if self:GetReverse() then finished = 1 - finished end
       self:SetSequenceTime(0, finished * 1000)
       return
     end
+    countdown(self, nil)
     if not self:GetDrawBling() then
       self:Hide()
       return
@@ -76,6 +114,7 @@ function M:SetCooldownFromExpirationTime(expiration, duration, modRate)
 end
 function M:Clear()
   self.benillaTimes = nil
+  countdown(self, nil)
   self:Hide()
 end
 function M:GetCooldownTimes()
@@ -99,7 +138,7 @@ function M:GetCountdownFontString()
   if not self.benillaCountdown then
     self.benillaCountdown = self:CreateFontString(nil, "OVERLAY")
     self.benillaCountdown:SetFont("Fonts\\FRIZQT__.TTF", 16, "OUTLINE")
-    self.benillaCountdown:SetPoint("CENTER", self, "CENTER", 0, 0)
+    self.benillaCountdown:SetPoint("CENTER", self, "CENTER", 0, -1)
   end
   return self.benillaCountdown
 end
