@@ -156,3 +156,35 @@ fn player_duration_packets_remain_authoritative_and_sources_resolve_through_focu
         .run("assert(C_UnitAuras.GetAuraDataBySlot('player',0).sourceUnit=='partypet1')")
         .unwrap();
 }
+
+#[test]
+fn a_player_auras_duration_is_what_was_left_when_its_expiry_was_first_read() {
+    let script = fixture();
+    let mut buff = aura(0, 1126, true, false);
+    // No host to ask here: the getters fall back to the snapshot's expiry.
+    buff.state.expiration_time = 1900.0;
+    auras::set_auras(script.lua(), 3, Some(vec![buff.clone()]));
+    script
+        .run(
+            r#"
+        GetTime = function() return 100 end
+        local _, _, _, _, duration, expiration = C_UnitAuras.UnitAuraBySlot("player", 0)
+        assert(duration == 1800 and expiration == 1900, tostring(duration))
+        GetTime = function() return 400 end
+        local data = C_UnitAuras.GetAuraDataByIndex("player", 1, "HELPFUL")
+        assert(data.duration == 1800 and data.expirationTime == 1900, tostring(data.duration))
+    "#,
+        )
+        .unwrap();
+    // A recast's new expiry starts a new span.
+    buff.state.expiration_time = 2200.0;
+    auras::set_auras(script.lua(), 3, Some(vec![buff]));
+    script
+        .run(
+            r#"
+        local _, _, _, _, duration, expiration = C_UnitAuras.UnitAuraBySlot("player", 0)
+        assert(duration == 1800 and expiration == 2200, tostring(duration))
+    "#,
+        )
+        .unwrap();
+}
