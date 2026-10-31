@@ -101,8 +101,8 @@ function C_PaperDollInfo.GetInventorySlotInfoForInvSlot(invSlot)
 end
 
 -- Loss of control: the player's harmful auras whose spell applies a control aura, by its aura
--- type. A per-frame diff raises LOSS_OF_CONTROL_ADDED for each new effect and one
--- LOSS_OF_CONTROL_UPDATE when the set changed. School lockouts are not seen yet.
+-- type, and a school lockout the server sent (SCHOOL_INTERRUPT). A per-frame diff raises
+-- LOSS_OF_CONTROL_ADDED for each new effect and one LOSS_OF_CONTROL_UPDATE when the set changed.
 local controlAuras = {
   [2] = "POSSESS", [5] = "CONFUSE", [6] = "CHARM", [7] = "FEAR", [12] = "STUN", [25] = "PACIFY",
   [26] = "ROOT", [27] = "SILENCE", [60] = "PACIFYSILENCE", [67] = "DISARM",
@@ -120,8 +120,21 @@ local function controlType(spellID)
   return found or nil
 end
 local active = {}
+local function lockout(now)
+  local l = bridge.school_lockout()
+  if l and l.ends > now then return l.mask, l.ends - now, l end
+  return 0, 0
+end
 local function scan()
   local now, list = GetTime(), {}
+  local mask, remaining, l = lockout(now)
+  if mask ~= 0 then
+    tinsert(list, {
+      locType = "SCHOOL_INTERRUPT", spellID = 0, displayText = INTERRUPTED or "Interrupted",
+      iconTexture = "", startTime = l.starts, timeRemaining = remaining,
+      duration = l.ends - l.starts, lockoutSchool = mask, priority = 0, displayType = 2,
+    })
+  end
   for i = 1, 16 do
     local name, icon, _, _, duration, expiration, _, _, _, spellID =
       C_UnitAuras.UnitAura("player", i, "HARMFUL")
@@ -139,7 +152,7 @@ local function scan()
   end
   return list
 end
-local function key(entry) return entry.locType .. ":" .. entry.spellID end
+local function key(entry) return entry.locType .. ":" .. entry.spellID .. ":" .. entry.lockoutSchool end
 local lossFrame = CreateFrame("Frame")
 lossFrame:SetScript("OnUpdate", function()
   if not UnitExists("player") then return end
@@ -158,6 +171,13 @@ lossFrame:SetScript("OnUpdate", function()
 end)
 C_LossOfControl = C_LossOfControl or {}
 function C_LossOfControl.GetActiveLossOfControlDataCount() return table.getn(active) end
+-- The locked schools (within `filterMask` when given) and the seconds left on them.
+function C_LossOfControl.GetSchoolLockout(filterMask)
+  local mask, remaining = lockout(GetTime())
+  if filterMask then mask = bit.band(mask, filterMask) end
+  if mask == 0 then return 0, 0 end
+  return mask, remaining
+end
 function C_LossOfControl.GetActiveLossOfControlData(index)
   local entry = active[index]
   if not entry then return nil end
