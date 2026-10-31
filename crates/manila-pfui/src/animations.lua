@@ -1,7 +1,8 @@
 -- Animation groups, as a ClassicAPI client gives regions: `region:CreateAnimationGroup()` and its
--- animations, played from one frame's OnUpdate. An `Alpha` animation fades its target; a
--- `Translation`, `Scale` or `Rotation` keeps its values and moves nothing, as 1.12 has no transform
--- to apply them to.
+-- animations, played from one frame's OnUpdate. An `Alpha` fades its target; a `Scale` resizes it
+-- about its points; a `Translation` or `Path` moves its points by the offset. 1.12 has no draw-time
+-- transform, so the target's own size and points carry the motion, and they come back when the
+-- animation ends. A `Rotation` keeps its values and turns nothing.
 local tables = ...
 local getn, tinsert = table.getn, table.insert
 
@@ -62,6 +63,19 @@ function kinds.Scale:GetScale() return self.scaleX or 1, self.scaleY or 1 end
 function kinds.Scale:SetScaleFrom(x, y) self.fromX, self.fromY = x, y end
 function kinds.Scale:SetScaleTo(x, y) self.scaleX, self.scaleY = x, y end
 function kinds.Scale:SetOrigin(point, x, y) self.origin = {point, x, y} end
+function kinds.Path:SetCurve(curve) self.curve = curve end
+function kinds.Path:GetCurve() return self.curve or "NONE" end
+function kinds.Path:CreateControlPoint(name, template, order)
+  local point = {offsetX = 0, offsetY = 0, order = order or (table.getn(self.points or {}) + 1)}
+  function point:SetOffset(x, y) self.offsetX, self.offsetY = x or 0, y or 0 end
+  function point:GetOffset() return self.offsetX, self.offsetY end
+  function point:SetOrder(order) self.order = order end
+  function point:GetOrder() return self.order end
+  self.points = self.points or {}
+  tinsert(self.points, point)
+  return point
+end
+function kinds.Path:GetControlPoints() return unpack(self.points or {}) end
 function kinds.Rotation:SetDegrees(degrees) self.degrees = degrees end
 function kinds.Rotation:GetDegrees() return self.degrees or 0 end
 function kinds.Rotation:SetRadians(radians) self.degrees = radians * 180 / math.pi end
@@ -123,17 +137,71 @@ local function phaseLength(group, order)
   return longest
 end
 
+-- What a moving animation changes on its target, kept to hand back: its size and its points.
+local held = setmetatable({}, {__mode = "k"})
+local function hold(target)
+  if held[target] or not target.GetNumPoints then return held[target] end
+  local points = {}
+  for i = 1, target:GetNumPoints() do points[i] = {target:GetPoint(i)} end
+  held[target] = {width = target:GetWidth(), height = target:GetHeight(), points = points}
+  return held[target]
+end
+local function release(target)
+  local base = held[target]
+  if not base then return end
+  held[target] = nil
+  target:SetWidth(base.width)
+  target:SetHeight(base.height)
+  target:ClearAllPoints()
+  for _, p in ipairs(base.points) do target:SetPoint(p[1], p[2], p[3], p[4], p[5]) end
+end
+local function move(target, dx, dy)
+  local base = held[target]
+  target:ClearAllPoints()
+  for _, p in ipairs(base.points) do
+    target:SetPoint(p[1], p[2], p[3], (p[4] or 0) + dx, (p[5] or 0) + dy)
+  end
+end
+
+-- The point along a path's control points, in their order, from the start at 0, 0.
+local function along(points, eased)
+  local list = {{offsetX = 0, offsetY = 0}}
+  local sorted = {}
+  for _, point in ipairs(points or {}) do tinsert(sorted, point) end
+  table.sort(sorted, function(a, b) return a.order < b.order end)
+  for _, point in ipairs(sorted) do tinsert(list, point) end
+  local legs = table.getn(list) - 1
+  if legs < 1 then return 0, 0 end
+  local at = math.min(eased * legs, legs - 1e-9)
+  local leg = math.floor(at) + 1
+  local f = at - (leg - 1)
+  local a, b = list[leg], list[leg + 1]
+  return a.offsetX + (b.offsetX - a.offsetX) * f, a.offsetY + (b.offsetY - a.offsetY) * f
+end
+
 -- One animation at its progress; `reverse` plays it backwards (a bouncing loop).
 local function apply(animation, progress)
   animation.progress = progress
   local target = animation:GetTarget()
-  if animation.kind ~= "Alpha" or not target or not target.SetAlpha then return end
-  local start = animation.startAlpha or 1
-  local from = animation.fromAlpha or start
-  local to = animation.toAlpha or (start + (animation.change or 0))
+  if not target then return end
   local eased = smoothing[animation.smoothing](progress)
-  local alpha = from + (to - from) * eased
-  target:SetAlpha(math.max(0, math.min(1, alpha)))
+  if animation.kind == "Alpha" and target.SetAlpha then
+    local start = animation.startAlpha or 1
+    local from = animation.fromAlpha or start
+    local to = animation.toAlpha or (start + (animation.change or 0))
+    target:SetAlpha(math.max(0, math.min(1, from + (to - from) * eased)))
+  elseif animation.kind == "Scale" then
+    local base = hold(target)
+    if not base then return end
+    local fx = (animation.fromX or 1) + ((animation.scaleX or 1) - (animation.fromX or 1)) * eased
+    local fy = (animation.fromY or 1) + ((animation.scaleY or 1) - (animation.fromY or 1)) * eased
+    target:SetWidth(base.width * fx)
+    target:SetHeight(base.height * fy)
+  elseif animation.kind == "Translation" then
+    if hold(target) then move(target, (animation.offsetX or 0) * eased, (animation.offsetY or 0) * eased) end
+  elseif animation.kind == "Path" then
+    if hold(target) then move(target, along(animation.points, eased)) end
+  end
 end
 
 local function startOrder(group)
@@ -159,12 +227,14 @@ local function finish(group, stopped)
       animation.active = false
       if stopped then fire(animation, "OnStop") else fire(animation, "OnFinished") end
     end
-    -- An Alpha that does not keep its final value hands the target back its alpha.
+    -- An Alpha that does not keep its final value hands the target back its alpha; a moving
+    -- animation its size and points.
     local target = animation:GetTarget()
     if animation.startAlpha and not group.toFinalAlpha and target and target.SetAlpha then
       target:SetAlpha(animation.startAlpha)
     end
     animation.startAlpha = nil
+    if target then release(target) end
   end
   if stopped then fire(group, "OnStop") else fire(group, "OnFinished", false) end
 end
