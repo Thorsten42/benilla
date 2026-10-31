@@ -11,6 +11,7 @@ pub mod casts;
 pub(crate) mod chat_event;
 mod cursor;
 mod descriptors;
+mod editbox_caret;
 mod engine;
 pub(crate) mod equipment_actions;
 pub mod inline_texture;
@@ -217,6 +218,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     engine::install(lua)?;
     xml::install(lua)?;
     message_history::install(lua)?;
+    editbox_caret::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;
