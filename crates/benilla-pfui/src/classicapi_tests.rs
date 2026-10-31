@@ -531,3 +531,23 @@ fn paper_doll_slots_and_inventory_types_answer_by_number() {
         )
         .unwrap();
 }
+
+#[test]
+fn the_addons_scroll_and_dropdown_atlases_are_built_in() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        for _, name in ipairs({"UI-ClassicScrollBar-EndCap-Top", "UI-ClassicScrollBar-Center",
+            "UI-ClassicScrollBar-EndCap-Bottom", "_UI-ScrollBar-Center",
+            "UI-ScrollBar-ClassicScrollUpButton-Highlight", "common-dropdown-c-button-open",
+            "common-dropdown-c-bg"}) do
+          assert(C_Texture.GetAtlasExists(name), name)
+        end
+        local top = C_Texture.GetAtlasInfo("UI-ClassicScrollBar-EndCap-Top")
+        assert(top.filename == "Interface\\PaperDollInfoFrame\\UI-Character-ScrollBar" and top.width == 31)
+        assert(C_Texture.GetAtlasInfo("UI-ClassicScrollBar-Center").tilesVertically)
+    "#,
+        )
+        .unwrap();
+}
