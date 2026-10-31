@@ -196,13 +196,22 @@ impl Loader<'_> {
             let rel_raw = anchor.attr("relativeTo").filter(|r| !r.is_empty());
             let rel_to = rel_raw.map(|r| framexml::resolve_name(r, parent_name));
             let args = (point.to_string(), rel_to, rel_point.to_string());
+            let offset = children_named(anchor, "Offset").next().cloned();
+            // ClassicAPI's `<Anchor x= y=>` is its own offset.
+            #[cfg(feature = "pfui")]
+            let offset =
+                offset.or_else(|| crate::script::pfui_host::xml::anchor_offset(self.lua(), anchor));
             let d = super::XmlAnchor {
                 wrapper: wrapper.clone(),
                 region,
                 args,
-                offset: children_named(anchor, "Offset").next().cloned(),
+                offset,
                 rel_raw: rel_raw.unwrap_or_default().to_string(),
                 dbg: dbg.to_string(),
+                #[cfg(feature = "pfui")]
+                rel_object: anchor.attr("relativeKey").and_then(|key| {
+                    crate::script::pfui_host::xml::relative_key(self.lua(), wrapper, key)
+                }),
             };
             self.apply_anchor(d);
         }
