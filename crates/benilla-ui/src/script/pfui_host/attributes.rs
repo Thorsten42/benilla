@@ -100,6 +100,15 @@ pub enum ClickAction {
         guid: u64,
         point: [f32; 3],
     },
+    /// A profession link clicked in chat: `opener`'s window shows the linker `guid`'s `spells`
+    /// at its `rank` and `max_rank` in place of the player's book.
+    OpenTradeLink {
+        opener: u32,
+        guid: u64,
+        spells: Vec<u32>,
+        rank: u32,
+        max_rank: u32,
+    },
 }
 
 fn target(lua: &Lua, unit: Option<String>) -> mlua::Result<Option<Option<u64>>> {
