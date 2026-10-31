@@ -289,4 +289,7 @@ function C_Spell.GetSchoolString(mask)
   end
   return "Unknown"
 end
+
+-- Modern's link alone; the global `GetSpellLink` adds the id.
+function C_Spell.GetSpellLink(spell) return (GetSpellLink(spell)) end
 "#;
