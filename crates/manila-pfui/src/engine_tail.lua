@@ -5,10 +5,6 @@ local strfind = string.find
 function IsChatAFK() return UnitIsAFK("player") and true or false end
 function IsChatDND() return UnitIsDND("player") and true or false end
 
--- Memory per addon is not measured here; the totals stay the VM's.
-function UpdateAddOnMemoryUsage() end
-function GetAddOnMemoryUsage(addon) return 0 end
-
 function C_AddOns.GetAddOnName(addon) return (GetAddOnInfo(addon)) end
 
 function C_Item.GetItemIconByID(item)

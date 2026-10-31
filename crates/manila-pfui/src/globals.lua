@@ -152,9 +152,30 @@ function GetCVar(name)
   error(results[2], 2)
 end
 
+-- Addon memory: what the heap grew by while each addon loaded (gcinfo's kilobytes), an addon
+-- loaded inside another's load counted with that one. A ClassicAPI client counts every
+-- allocation an addon's code makes; most of what an addon keeps, it builds as it loads.
+local loadingAt, loadDepth, addonMemory = 0, 0, {}
+function bridge.memoryBefore()
+  if loadDepth == 0 then loadingAt = gcinfo() end
+  loadDepth = loadDepth + 1
+end
+function bridge.afterAddon(name)
+  loadDepth = math.max(0, loadDepth - 1)
+  if loadDepth == 0 and name then
+    addonMemory[name] = (addonMemory[name] or 0) + math.max(0, gcinfo() - loadingAt)
+  end
+end
+function UpdateAddOnMemoryUsage() end
+function GetAddOnMemoryUsage(addon)
+  if type(addon) == 'number' then addon = GetAddOnInfo(addon) end
+  return addonMemory[addon] or 0
+end
+
 -- Run before each addon loads: the stock colour tables exist by then, and FrameXML assigns them
 -- as plain tables after this extension installs.
 function bridge.beforeAddon()
+  bridge.memoryBefore()
   for name, value in pairs(_G) do
     if type(name) == 'string' and type(value) == 'table' and name:find('_FONT_COLOR$') and
       type(value.r) == 'number' and value.GetRGB == nil then
