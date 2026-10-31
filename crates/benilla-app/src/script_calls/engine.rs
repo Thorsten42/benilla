@@ -290,6 +290,8 @@ impl RecordAsks<'_, '_> {
                             items.wait(entry, crate::items::RecordCallback::Buyback);
                         }
                     }
+                    // A ClassicAPI client's getter only asks; the landing signals for it.
+                    ItemCallback::Extension => {}
                 }
             }
             RecordAsk::QuestCreature(entry) => {
