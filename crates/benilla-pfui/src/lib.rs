@@ -17,6 +17,7 @@ pub mod loot;
 mod lua51;
 pub mod maps;
 pub mod player_cache;
+pub mod resurrect;
 pub mod spell;
 pub mod swing;
 pub mod swing_range;
@@ -296,6 +297,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         .call::<()>(tables)?;
     swing_range::install(lua)?;
     combat_log::install(lua)?;
+    resurrect::install(lua)?;
     lua.load(include_str!("cooldown.lua"))
         .set_name("@benilla-pfui/cooldown.lua")
         .exec()?;
