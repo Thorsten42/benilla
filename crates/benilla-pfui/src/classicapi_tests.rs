@@ -373,6 +373,52 @@ fn a_cooldown_frame_is_the_indicator_model_with_the_modern_methods() {
 }
 
 #[test]
+fn a_cooldown_counts_down_in_retails_units_while_the_cvar_is_on() {
+    let script = extended();
+    script
+        .run("UIParent = CreateFrame('Frame', 'UIParent')")
+        .unwrap();
+    load(
+        &script,
+        r#"<Ui><Model name="CooldownFrameTemplate" setAllPoints="true" hidden="true" virtual="true"/></Ui>"#,
+    );
+    script
+        .run(
+            r#"
+        local cd = CreateFrame("Cooldown", nil, UIParent, "CooldownFrameTemplate")
+        local function step() this = cd; cd:GetScript("OnUpdateModel")() end
+        local function text() return cd.benillaCountdownText or "" end
+        GetTime = function() return 102 end
+        assert(GetCVar("countdownForCooldowns") == "0")
+        cd:SetCooldown(100, 10)
+        step()
+        assert(text() == "" and cd.benillaCountdown == nil, text())
+        SetCVar("countdownForCooldowns", "1")
+        step()
+        assert(text() == "8" and cd:GetCountdownFontString():GetText() == "8", text())
+        cd:SetCooldown(100, 225)
+        step()
+        assert(text() == "4m", text())
+        cd:SetCountdownAbbrevThreshold(300)
+        step()
+        assert(text() == "3:43", text())
+        cd:SetCooldown(98.76, 7)
+        cd:SetCountdownMillisecondsThreshold(5)
+        step()
+        assert(text() == "3.8", text())
+        cd:SetHideCountdownNumbers(true)
+        step()
+        assert(text() == "", text())
+        cd:SetHideCountdownNumbers(false)
+        cd:SetCooldown(101, 1.5)
+        step()
+        assert(text() == "", "below the minimum: " .. text())
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
 fn a_cooldowns_flags_steer_its_sweep() {
     let script = extended();
     script
