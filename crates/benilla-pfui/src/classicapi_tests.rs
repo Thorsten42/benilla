@@ -707,3 +707,23 @@ fn a_school_lockout_reads_as_a_school_interrupt() {
         )
         .unwrap();
 }
+
+#[test]
+fn an_addons_memory_is_what_the_heap_grew_while_it_loaded() {
+    let script = extended();
+    {
+        let _scope = benilla_ui::script::pfui_host::addon_scope(script.lua(), "Big").unwrap();
+        script
+            .run("BigData = {} for i = 1, 20000 do BigData[i] = 'entry ' .. i end")
+            .unwrap();
+    }
+    script
+        .run(
+            r#"
+        UpdateAddOnMemoryUsage()
+        assert(GetAddOnMemoryUsage("Big") > 100, GetAddOnMemoryUsage("Big"))
+        assert(GetAddOnMemoryUsage("NeverLoaded") == 0)
+    "#,
+        )
+        .unwrap();
+}
