@@ -151,12 +151,16 @@ impl Addon {
         let mut failures = Vec::new();
         // The `<Include>` / `<Script file=>` provider; `read` is the sandbox.
         let provider = |req: &str| -> Option<Vec<u8>> { self.read(req) };
+        // A ClassicAPI client's per-line conditions and path variables.
+        #[cfg(feature = "pfui")]
+        let locale = crate::pfui::toc::locale(script);
         for file in files {
-            // The ClassicAPI addon's files whose engine half this client lacks stay unloaded.
             #[cfg(feature = "pfui")]
-            if benilla_pfui::skipped_file(&self.name, file) {
+            let Some(file) = crate::pfui::toc::file_line(&self.name, file, &locale) else {
                 continue;
-            }
+            };
+            #[cfg(feature = "pfui")]
+            let file = &file;
             // Resolved once into the source's path space, for `read` and the loader alike.
             let path = benilla_ui::loader::join_ref(&self.prefix(), file);
             let Some(bytes) = self.read(&path) else {
@@ -465,12 +469,12 @@ fn discover_in(root: &Path) -> Vec<Addon> {
                 return None;
             }
             // A folder with no `<Name>.toc` is not an addon; the reference skips it silently too.
-            let text = manifest_in(&dir, &name)?;
+            // A ClassicAPI client's flavor TOC wins, and makes the folder an addon on its own.
             #[cfg(feature = "pfui")]
-            let text = crate::pfui::manifest(&name)
-                .and_then(|file| std::fs::read(dir.join(file)).ok())
-                .map(|bytes| benilla_ui::source::decode(&bytes).into_owned())
-                .unwrap_or(text);
+            let text =
+                crate::pfui::toc::manifest(&dir, &name).or_else(|| manifest_in(&dir, &name))?;
+            #[cfg(not(feature = "pfui"))]
+            let text = manifest_in(&dir, &name)?;
             Some(Addon {
                 name,
                 toc: Toc::parse(&text),
@@ -612,6 +616,10 @@ pub(crate) fn info_from_toc(name: &str, toc: &Toc, chain: bool) -> benilla_ui::s
         saved_enabled: true, // re-stamped from `enabled` at registration
         loaded: false,
         // The version gate's dword: the leading integer, 0 when absent (out of date, not unknown).
+        // A ClassicAPI client reads 11200 from anywhere in a list.
+        #[cfg(feature = "pfui")]
+        interface: crate::pfui::toc::interface(toc),
+        #[cfg(not(feature = "pfui"))]
         interface: toc.interface_version(),
         chain,
     }
@@ -933,6 +941,13 @@ impl benilla_ui::script::AddonLoad for Walk<'_> {
             &addon.name,
             script.addon_is_secure(&addon.name),
         ));
+        // `## LoadSavedVariablesFirst: 1`: the saved variables before the files.
+        #[cfg(feature = "pfui")]
+        let saved_first = crate::pfui::toc::saved_variables_first(&addon.toc);
+        #[cfg(feature = "pfui")]
+        if saved_first {
+            script.load_addon_saved_variables(&addon.name);
+        }
         self.failures.extend(addon.load(script, &mut toc));
         let mut own = Status::default();
         let toc_path = status::addon_toc_path(&addon.name);
@@ -943,6 +958,10 @@ impl benilla_ui::script::AddonLoad for Walk<'_> {
         // `Bindings.xml` (`0x51f400`), after the files whose functions a binding calls, through
         // the addon's own sandboxed reader; absent is normal.
         let bindings_xml = benilla_ui::loader::join_ref(&addon.prefix(), "Bindings.xml");
+        // A ClassicAPI client's flavor bindings file wins.
+        #[cfg(feature = "pfui")]
+        let bindings_xml = crate::pfui::toc::bindings(&addon.prefix(), |p| addon.read(p).is_some())
+            .unwrap_or(bindings_xml);
         if let Some(bytes) = addon.read(&bindings_xml) {
             match benilla_ui::bindings_xml::parse(&benilla_ui::source::decode(&bytes)) {
                 Ok(bindings) => script.register_addon_bindings(&addon.name, &bindings),
@@ -956,7 +975,13 @@ impl benilla_ui::script::AddonLoad for Walk<'_> {
         }
         // The saved variables, account then per-character (`0x51f4b5`, `0x51f53b`): after the
         // files set their defaults, before `ADDON_LOADED`.
-        script.load_addon_saved_variables(&addon.name);
+        #[cfg(feature = "pfui")]
+        let load_saved = !saved_first;
+        #[cfg(not(feature = "pfui"))]
+        let load_saved = true;
+        if load_saved {
+            script.load_addon_saved_variables(&addon.name);
+        }
         script.swap_exec_context(outer);
     }
 
