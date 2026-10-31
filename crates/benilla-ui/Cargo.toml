@@ -14,6 +14,8 @@ workspace = true
 test-support = []
 # Fork extension seam; building the feature alone leaves every ordinary VM unchanged.
 pfui = []
+# Nampower's queue-aware frame attributes, on top of `pfui`.
+nampower = ["pfui"]
 
 [dependencies]
 roxmltree = "0.20"
