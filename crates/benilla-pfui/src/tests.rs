@@ -2459,6 +2459,12 @@ fn opt_in_is_per_vm_and_does_not_advertise_classicapi_parity() {
     script
         .run("assert(CLASSIC_API_VERSION == 11510 and BenillaClassicAPICompatibility.emulated and not BenillaClassicAPICompatibility.fullClassicAPI and type(C_EquipmentSet) == 'table')")
         .unwrap();
+    // Nampower's surface is its own feature on top.
+    #[cfg(feature = "nampower")]
+    script
+        .run("assert(GetNampowerVersion() == 3 and BenillaNampowerCompatibility.emulated)")
+        .unwrap();
+    #[cfg(not(feature = "nampower"))]
     script
         .run("assert(GetNampowerVersion == nil and BenillaNampowerCompatibility == nil)")
         .unwrap();
