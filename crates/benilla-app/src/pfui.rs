@@ -12,10 +12,14 @@ pub(crate) mod input;
 mod item_sets;
 mod lockout;
 mod loot;
+#[cfg(feature = "nampower")]
+mod nampower;
 mod quests;
 mod resurrect;
 mod session_events;
 mod social;
+#[cfg(feature = "nampower")]
+pub(crate) mod spell_queue;
 mod spells;
 mod swing;
 #[cfg(test)]
@@ -173,6 +177,10 @@ impl Plugin for PfuiPlugin {
         combat_log::register(app);
         resurrect::register(app);
         lockout::register(app);
+        #[cfg(feature = "nampower")]
+        spell_queue::register(app);
+        #[cfg(feature = "nampower")]
+        nampower::register(app);
         bags::register(app);
         loot::register(app);
         quests::register(app);
