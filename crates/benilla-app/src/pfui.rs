@@ -9,6 +9,7 @@ pub(crate) mod clicks;
 mod combat_log;
 mod icons;
 pub(crate) mod input;
+mod lockout;
 mod loot;
 mod quests;
 mod resurrect;
@@ -150,6 +151,7 @@ impl Plugin for PfuiPlugin {
         input::register(app);
         combat_log::register(app);
         resurrect::register(app);
+        lockout::register(app);
         bags::register(app);
         loot::register(app);
         quests::register(app);
