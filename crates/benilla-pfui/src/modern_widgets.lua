@@ -13,7 +13,7 @@ end
 local frame, button = adding(tables.frame), adding(tables.button)
 local editbox, slider = adding(tables.editbox), adding(tables.slider)
 local statusbar, texture = adding(tables.statusbar), adding(tables.texture)
-local fontstring = adding(tables.fontstring)
+local fontstring, model = adding(tables.fontstring), adding(tables.model)
 local regions = {frame, texture, fontstring, adding(tables.title), adding(tables.region)}
 
 local state = setmetatable({}, {__mode = "k"})
@@ -187,6 +187,20 @@ statusbar.GetFillStyle = getter("fillStyle", "STANDARD")
 statusbar.SetRotatesTexture = setter("rotatesTexture")
 statusbar.GetRotatesTexture = getter("rotatesTexture", false)
 function statusbar:SetColorFill(r, g, b, a) self:SetStatusBarColor(r, g, b, a) end
+-- The bar's background: a texture under the fill, tinted, made at the first call.
+function statusbar:SetStatusBarBackgroundColor(r, g, b, a)
+  local own = flags(self)
+  if not own.background then
+    own.background = self:CreateTexture(nil, "BACKGROUND")
+    own.background:SetAllPoints(self)
+  end
+  own.background:SetTexture(r or 0, g or 0, b or 0, a or 1)
+end
+
+-- Models: the portrait camera's zoom (0 the whole model, 1 the face), kept for its getter; this
+-- engine's camera does not follow it.
+model.SetPortraitZoom = setter("portraitZoom")
+model.GetPortraitZoom = getter("portraitZoom", 0)
 
 -- Textures: desaturation as 1.12's flag, masks kept and not drawn.
 function texture:SetDesaturation(amount)

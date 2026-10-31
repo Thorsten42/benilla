@@ -21,6 +21,15 @@ pub struct Cast {
 #[derive(Default)]
 struct Extras(HashMap<u64, Cast>);
 
+/// Each caster's current cast's unit target, as its `SMSG_SPELL_START` named it.
+#[derive(Default)]
+struct Targets(HashMap<u64, u64>);
+
+/// Replace the casts' unit targets, beside [`set_casts`].
+pub fn set_cast_targets(lua: &Lua, targets: impl IntoIterator<Item = (u64, u64)>) {
+    lua.set_app_data(Targets(targets.into_iter().collect()));
+}
+
 pub fn player_cast(lua: &Lua) -> Option<Cast> {
     let me = lua.app_data_ref::<Model>()?.unit_guids.player;
     lua.app_data_ref::<Extras>()?.0.get(&me).cloned()
@@ -70,6 +79,25 @@ fn info(lua: &Lua, token: &str, channel: bool) -> mlua::Result<MultiValue> {
 
 pub fn install(lua: &Lua) -> mlua::Result<()> {
     lua.set_app_data(Extras::default());
+    // `UnitSpellTargetName(unit)`: the name of the unit the unit's cast is aimed at; nil without
+    // a cast, without a unit target (self, ground, item) or with nobody to name.
+    lua.globals().set(
+        "UnitSpellTargetName",
+        lua.create_function(|lua, unit: String| {
+            let Some(caster) = super::units::guid(lua, &unit)? else {
+                return Ok(None);
+            };
+            let casting = lua
+                .app_data_ref::<Extras>()
+                .is_some_and(|extras| extras.0.contains_key(&caster));
+            let target = lua
+                .app_data_ref::<Targets>()
+                .and_then(|targets| targets.0.get(&caster).copied());
+            Ok(target
+                .filter(|_| casting)
+                .and_then(|target| super::units::name_of(lua, target)))
+        })?,
+    )?;
     let api: Table = lua.globals().get("C_Spell")?;
     api.set(
         "UnitCastingInfo",
