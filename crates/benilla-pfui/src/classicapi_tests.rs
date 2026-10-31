@@ -789,3 +789,118 @@ fn a_registered_atlas_reaches_the_text_escapes() {
     assert_eq!(gem.file, "Interface\\Test\\sheet");
     assert_eq!((gem.width, gem.coords), (32.0, [0.0, 0.25, 0.5, 1.0]));
 }
+
+#[test]
+fn a_units_selection_type_follows_classicapis_ladder() {
+    let script = extended();
+    // The unit functions stand in for each case; the ladder is what is tested.
+    script
+        .run(
+            r#"
+        local unit
+        UnitExists = function() return unit ~= nil end
+        UnitIsVisible = function() return unit ~= nil end
+        UnitPlayerControlled = function() return unit.controlled end
+        UnitIsDead = function() return unit.dead end
+        UnitReaction = function() return unit.reaction end
+        UnitCanAttack = function(a, b)
+          if a == "player" then return unit.weAttack end
+          return unit.theyAttack
+        end
+        UnitIsPVP = function() return unit.pvp end
+        UnitIsUnit = function() return false end
+        UnitInParty = function() return unit.party end
+        UnitInRaid = function() return nil end
+        local function check(case, expected, extended)
+          unit = case
+          local got = UnitSelectionType("target", extended)
+          assert(got == expected, tostring(got) .. " for " .. tostring(expected))
+        end
+        check(nil, 4) check(nil, 5, true)
+        check({reaction = 1}, 0) check({reaction = 3}, 1) check({reaction = 4}, 2) check({reaction = 6}, 3)
+        check({reaction = 6, dead = 1}, 9, true)
+        check({controlled = 1, weAttack = 1, theyAttack = 1}, 0)
+        check({controlled = 1, theyAttack = 1}, 4)
+        check({controlled = 1, weAttack = 1}, 2)
+        check({controlled = 1, pvp = 1}, 3) check({controlled = 1}, 4) check({controlled = 1}, 5, true)
+        check({controlled = 1, party = 1, pvp = 1}, 7, true)
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
+fn the_reputation_headers_expand_and_collapse_at_once() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        local headers = {[1] = true, [3] = true}
+        local collapsed = {[1] = true}
+        GetNumFactions = function() return 4 end
+        GetFactionInfo = function(i) return "F", "", 0, 0, 0, 0, nil, nil, headers[i], collapsed[i] end
+        ExpandFactionHeader = function(i) collapsed[i] = nil end
+        CollapseFactionHeader = function(i) collapsed[i] = true end
+        ExpandAllFactionHeaders()
+        assert(not collapsed[1] and not collapsed[3])
+        CollapseAllFactionHeaders()
+        assert(collapsed[1] and collapsed[3] and not collapsed[2])
+        local name, kind, difficulty = GetInstanceInfo()
+        assert(kind == "none" and difficulty == 1)
+        GetSpellInfo = function(spell)
+          if spell == 133 then return "Fireball", "Rank 1", nil, 0, false, 0, 1500, 0, 35, 133 end
+        end
+        local link, id = GetSpellLink(133)
+        assert(link == "|cff71d5ff|Hspell:133:0|h[Fireball]|h|r" and id == 133, link)
+        assert(GetSpellLink(0) == nil)
+        local group = CreateFrame("Frame"):CreateAnimationGroup()
+        group:SetIgnoreFramerateThrottle(true)
+        assert(group:IsIgnoringFramerateThrottle())
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_casts_unit_target_is_named_while_the_cast_runs() {
+    use benilla_ui::script::pfui_host::{casts, units};
+    use benilla_ui::script::{UnitGuids, UnitState};
+    let mut script = extended();
+    crate::spell::Catalog(Default::default())
+        .install(script.lua())
+        .unwrap();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 7,
+        ..Default::default()
+    });
+    let healer = UnitState {
+        guid: 9,
+        exists: true,
+        has_object: true,
+        name: Some("Healbot".into()),
+        ..Default::default()
+    };
+    units::set_unit_states(script.lua(), [(9, healer, 0)]);
+    let cast = casts::Cast {
+        spell_id: 2054,
+        name: "Heal".into(),
+        rank: String::new(),
+        icon: None,
+        start_ms: 0.0,
+        end_ms: 3000.0,
+        tradeskill: false,
+        cast_guid: "Cast-7-1".into(),
+        delay_ms: 0,
+        channel: false,
+    };
+    casts::set_casts(script.lua(), [(7, cast)]);
+    casts::set_cast_targets(script.lua(), [(7, 9)]);
+    script
+        .run(r#"assert(UnitSpellTargetName("target") == "Healbot") assert(UnitSpellTargetName("player") == nil)"#)
+        .unwrap();
+    casts::set_casts(script.lua(), []);
+    script
+        .run(r#"assert(UnitSpellTargetName("target") == nil)"#)
+        .unwrap();
+}
