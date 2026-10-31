@@ -9,6 +9,10 @@
 //! `SkillLineAbility.dbc` row of the skill line in row order, six to a base64 character, low bit
 //! first: set when the player knows the row's spell and the row's race and class masks take the
 //! player (3.3.5's encoder ignores the rows' exclusion flags).
+//!
+//! A link clicked in chat (`SetHyperlink("trade:…")`) is read back the same way and opens the
+//! opener's window on the linker's recipes and rank ([`Catalog::read_link`]); `IsTradeSkillLinked`
+//! and `IsCraftLinked` then answer true and the linker's name.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::rc::Rc;
@@ -137,16 +141,91 @@ impl Catalog {
             "GetTradeSkillListLink",
             lua.create_function(move |lua, ()| Ok(links.link(lua, false)))?,
         )?;
-        let links = catalog;
+        let links = catalog.clone();
         globals.set(
             "GetCraftListLink",
             lua.create_function(move |lua, ()| Ok(links.link(lua, true)))?,
         )?;
-        // This client shows only the player's own professions, so no window is linked.
-        for name in ["IsTradeSkillLinked", "IsCraftLinked"] {
-            globals.set(name, lua.create_function(|_, ()| Ok(false))?)?;
+        let reader = catalog;
+        benilla_ui::script::pfui_host::professions::set_link_reader(
+            lua,
+            lua.create_function(move |lua, link: String| {
+                let Some(read) = reader.read_link(&link) else {
+                    return Ok(());
+                };
+                benilla_ui::script::pfui_host::professions::request_link(
+                    lua,
+                    read.opener,
+                    read.guid,
+                    read.spells,
+                    read.rank,
+                    read.max_rank,
+                )
+            })?,
+        )?;
+        // 3.3.5's `isLinked, linkedName`: another player's book, and the name the name cache holds.
+        for (name, craft) in [("IsTradeSkillLinked", false), ("IsCraftLinked", true)] {
+            globals.set(
+                name,
+                lua.create_function(move |lua, ()| {
+                    use benilla_ui::script::pfui_host::{professions, units};
+                    let Some(guid) = professions::linked(lua, craft)
+                        .filter(|guid| *guid != units::player_guid(lua))
+                    else {
+                        return Ok((false, None));
+                    };
+                    let name = lua
+                        .globals()
+                        .get::<mlua::Function>("GetPlayerInfoByGUID")
+                        .and_then(|info| info.call::<mlua::MultiValue>(format!("0x{guid:016X}")))
+                        .ok()
+                        .and_then(|values| values.into_iter().nth(5))
+                        .and_then(|name| match name {
+                            mlua::Value::String(name) => Some(name.to_string_lossy()),
+                            _ => None,
+                        });
+                    Ok((true, name))
+                })?,
+            )?;
         }
         Ok(())
+    }
+
+    /// A clicked link's opener, ranks, linker and the spells its set bits name, as 3.3.5's
+    /// reader takes it (`%d:%d:%I64X:`, a field after a malformed one 0); `None` for no linker,
+    /// an opener without rows, or bits whose length does not match the line's rows.
+    fn read_link(&self, link: &str) -> Option<Read> {
+        let mut fields = link.strip_prefix("trade:")?.split(':');
+        let opener = fields.next()?.parse::<u32>().ok().filter(|id| *id != 0)?;
+        let rank = fields.next().and_then(|f| f.parse::<u32>().ok());
+        let max_rank = rank.and(fields.next()).and_then(|f| f.parse::<u32>().ok());
+        let guid = max_rank
+            .and(fields.next())
+            .and_then(|f| u64::from_str_radix(f, 16).ok())
+            .filter(|guid| *guid != 0)?;
+        let bits = link.rsplit(':').next()?.as_bytes();
+        let (line, _) = self.by_spell.get(&opener)?.first()?;
+        let rows = self.lines.get(line)?;
+        if bits.len() != rows.len().div_ceil(6) {
+            return None;
+        }
+        let mut spells = Vec::new();
+        for (index, row) in rows.iter().enumerate() {
+            let value = BASE64
+                .iter()
+                .position(|c| *c == bits[index / 6])
+                .unwrap_or(0);
+            if value & 1 << (index % 6) != 0 && !spells.contains(&row.spell) {
+                spells.push(row.spell);
+            }
+        }
+        Some(Read {
+            opener,
+            guid,
+            spells,
+            rank: rank.unwrap_or(0),
+            max_rank: max_rank.unwrap_or(0),
+        })
     }
 
     /// The player's race and class ids.
@@ -201,6 +280,16 @@ impl Catalog {
             self.openers[&spell].name
         ))
     }
+}
+
+/// What a clicked link opens.
+#[derive(Debug, PartialEq)]
+struct Read {
+    opener: u32,
+    guid: u64,
+    spells: Vec<u32>,
+    rank: u32,
+    max_rank: u32,
 }
 
 /// The rows' bits, six to a base64 character, low bit first.
@@ -313,6 +402,86 @@ mod tests {
         "#,
             )
             .unwrap();
+    }
+
+    #[test]
+    fn a_clicked_link_opens_the_linkers_book_and_names_the_linker() {
+        use benilla_ui::script::{
+            pfui_host::{attributes::ClickAction, professions, units},
+            ScriptCall, UiScript, UnitGuids,
+        };
+        let mut script = UiScript::new().unwrap();
+        script.keep_calls();
+        crate::install(&script).unwrap();
+        let spells = crate::spell::Catalog(BTreeMap::from([(3908, opener("Tailoring", 0.0))]));
+        spells.install(script.lua()).unwrap();
+        let tailoring: Vec<Row> = [3908, 2387, 2393, 2385, 2386, 2389, 2392]
+            .into_iter()
+            .map(|spell| row(spell, 0, 0))
+            .collect();
+        let catalog = Catalog {
+            lines: BTreeMap::from([(197, tailoring.clone())]),
+            by_spell: tailoring
+                .iter()
+                .map(|row| (row.spell, vec![(197, *row)]))
+                .collect(),
+            ..Default::default()
+        };
+        catalog.install(script.lua(), &spells).unwrap();
+        script.set_unit_guids(&UnitGuids {
+            player: 3,
+            ..Default::default()
+        });
+        // Rows 1, 2 and 7 known: 0b000011 'D', then 0b1 'B'.
+        let read = catalog.read_link("trade:3908:120:150:C0FFEE:DB").unwrap();
+        assert_eq!(
+            read,
+            Read {
+                opener: 3908,
+                guid: 0xC0FFEE,
+                spells: vec![3908, 2387, 2392],
+                rank: 120,
+                max_rank: 150,
+            }
+        );
+        assert_eq!(
+            catalog.read_link("trade:3908:120:150:C0FFEE:D"),
+            None,
+            "short bits"
+        );
+        assert_eq!(
+            catalog.read_link("trade:3908:120:150:0:DB"),
+            None,
+            "no linker"
+        );
+        script
+            .run(
+                r#"
+            ItemRefTooltip = CreateFrame("GameTooltip", "ItemRefTooltip", UIParent)
+            ItemRefTooltip:Show()
+            ItemRefTooltip:SetHyperlink("trade:3908:120:150:C0FFEE:DB")
+            assert(not ItemRefTooltip:IsShown())
+            assert(IsTradeSkillLinked() == false)
+        "#,
+            )
+            .unwrap();
+        assert_eq!(
+            script.take_script_calls(),
+            vec![ScriptCall::PfuiClick(ClickAction::OpenTradeLink {
+                opener: 3908,
+                guid: 0xC0FFEE,
+                spells: vec![3908, 2387, 2392],
+                rank: 120,
+                max_rank: 150,
+            })]
+        );
+        professions::set_linked(script.lua(), false, Some(0xC0FFEE));
+        script
+            .run("local linked = IsTradeSkillLinked() assert(linked == true and IsCraftLinked() == false)")
+            .unwrap();
+        // The player's own link reads as the player's book.
+        professions::set_linked(script.lua(), false, Some(units::player_guid(script.lua())));
+        script.run("assert(IsTradeSkillLinked() == false)").unwrap();
     }
 
     #[test]
