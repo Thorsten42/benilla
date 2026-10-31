@@ -373,6 +373,45 @@ fn a_cooldown_frame_is_the_indicator_model_with_the_modern_methods() {
 }
 
 #[test]
+fn a_cooldowns_flags_steer_its_sweep() {
+    let script = extended();
+    script
+        .run("UIParent = CreateFrame('Frame', 'UIParent')")
+        .unwrap();
+    load(
+        &script,
+        r#"<Ui><Model name="CooldownFrameTemplate" setAllPoints="true" hidden="true" virtual="true"/></Ui>"#,
+    );
+    script
+        .run(
+            r#"
+        local cd = CreateFrame("Cooldown", nil, UIParent, "CooldownFrameTemplate")
+        local at
+        cd.SetSequenceTime = function(self, sequence, ms) at = ms end
+        local function step() this = cd; cd:GetScript("OnUpdateModel")() end
+        GetTime = function() return 102 end
+        cd:SetCooldown(100, 10)
+        step()
+        assert(at and math.abs(at - 200) < 50, tostring(at))
+        cd:SetReverse(true)
+        step()
+        assert(math.abs(at - 800) < 50, tostring(at))
+        cd:SetPaused(true); at = nil
+        step()
+        assert(at == nil)
+        cd:SetPaused(false)
+        cd:SetDrawSwipe(false)
+        assert(cd:GetAlpha() == 0 and not cd:GetDrawSwipe())
+        cd:SetDrawBling(false)
+        cd:SetCooldown(80, 10)
+        step()
+        assert(not cd:IsShown())
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
 fn an_alpha_animation_fades_its_parent_and_reports_the_finish() {
     let mut script = extended();
     script
