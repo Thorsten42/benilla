@@ -396,7 +396,11 @@ fn load_addon(
 ) -> Result<Vec<Failure>, Box<dyn std::error::Error>> {
     let mut failures = Vec::new();
     let _scope = benilla_ui::script::pfui_host::addon_scope(script.lua(), name)?;
-    for file in &toc.files {
+    for file in toc
+        .files
+        .iter()
+        .filter(|file| !crate::skipped_file(name, file))
+    {
         let path = root.join(file.replace('\\', "/"));
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
