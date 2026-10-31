@@ -312,6 +312,9 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     lua.load(include_str!("engine.lua"))
         .set_name("@manila-pfui/engine.lua")
         .call::<()>(engine.clone())?;
+    lua.load(include_str!("atlases.lua"))
+        .set_name("@manila-pfui/atlases.lua")
+        .exec()?;
     icons::install(lua)?;
     loot::install(lua)?;
     maps::Catalog::default().install(lua)?;
