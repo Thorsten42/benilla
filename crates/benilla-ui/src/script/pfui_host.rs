@@ -21,6 +21,7 @@ pub mod social;
 pub(crate) mod tooltip_subjects;
 pub mod totems;
 pub mod units;
+pub(crate) mod xml;
 
 /// The key a frame registers under for an event the 1.12 table lacks: the name as given, once the
 /// extension is installed in an in-game VM. ClassicAPI's events (`PLAYER_SWING`, the modern aura
@@ -208,6 +209,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     addons::install(lua)?;
     bubbles::install(lua)?;
     descriptors::install(lua)?;
+    xml::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;
     player_stats::install(lua)?;
