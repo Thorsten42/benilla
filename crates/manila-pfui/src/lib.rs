@@ -258,6 +258,12 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     )?;
     lua.set_named_registry_value(CLIPBOARD, lua.create_table()?)?;
     engine.set(
+        "school_lockout",
+        lua.create_function(|lua, ()| {
+            lua.named_registry_value::<Option<mlua::Table>>(SCHOOL_LOCKOUT)
+        })?,
+    )?;
+    engine.set(
         "ui_colors",
         lua.load(include_str!("ui_colors.lua"))
             .set_name("@manila-pfui/ui_colors.lua")
@@ -453,6 +459,24 @@ pub fn skipped_file(addon: &str, file: &str) -> bool {
     SKIPPED
         .iter()
         .any(|(a, f)| a.eq_ignore_ascii_case(addon) && f.eq_ignore_ascii_case(&file))
+}
+
+/// The school lockout `C_LossOfControl` reports: `{mask, starts, ends}` on the `GetTime` clock.
+const SCHOOL_LOCKOUT: &str = "manila.pfui.school_lockout";
+
+/// The server locked the player out of the schools in `mask` for `seconds` (an interrupt).
+pub fn school_lockout(lua: &Lua, mask: u32, seconds: f64) {
+    let now = lua
+        .globals()
+        .get::<mlua::Function>("GetTime")
+        .and_then(|f| f.call::<f64>(()))
+        .unwrap_or(0.0);
+    if let Ok(lockout) = lua.create_table() {
+        let _ = lockout.set("mask", mask);
+        let _ = lockout.set("starts", now);
+        let _ = lockout.set("ends", now + seconds);
+        let _ = lua.set_named_registry_value(SCHOOL_LOCKOUT, lockout);
+    }
 }
 
 /// The text `CopyToClipboard` asked for this frame, which the client writes ([`take_clipboard`]).
