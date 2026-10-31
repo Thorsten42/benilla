@@ -541,6 +541,9 @@ pub use zone_text::{PlayerFactionMasksQuery, ZonePvp, ZoneTexts};
 
 use mlua::Lua;
 
+#[cfg(feature = "pfui")]
+pub mod pfui_host;
+
 use crate::layout::Rect;
 use crate::order::ZTarget;
 use crate::widget::{FrameHandle, KindState};
