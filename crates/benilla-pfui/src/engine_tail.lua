@@ -19,10 +19,6 @@ function C_Item.GetItemIconByID(item)
   return icon
 end
 
--- The explored overlays are not tracked yet: no map has a known unexplored piece.
-C_MapExplorationInfo = C_MapExplorationInfo or {}
-function C_MapExplorationInfo.GetUnexploredMapTextures(areaID) return {} end
-
 -- The bag search: an item matches when the text is part of its name, its subclass, its equip
 -- slot's name or the name of an equipment set holding it.
 local search = ""
