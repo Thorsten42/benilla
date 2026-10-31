@@ -488,8 +488,8 @@ fn an_alpha_animation_fades_its_parent_and_reports_the_finish() {
 }
 
 #[test]
-fn the_skipped_classicapi_file_is_the_trade_links() {
-    assert!(super::skipped_file(
+fn no_classicapi_file_is_skipped() {
+    assert!(!super::skipped_file(
         "!!!classicapi",
         "Util/TradeSkillLink.lua"
     ));
