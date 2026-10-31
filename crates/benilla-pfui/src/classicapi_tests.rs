@@ -442,14 +442,14 @@ fn an_alpha_animation_fades_its_parent_and_reports_the_finish() {
 }
 
 #[test]
-fn the_skipped_classicapi_files_are_the_replaced_slash_commands_and_trade_links() {
-    assert!(super::skipped_file(
-        "!!!ClassicAPI",
-        "Util\\SlashCommandsRegistry.lua"
-    ));
+fn the_skipped_classicapi_file_is_the_trade_links() {
     assert!(super::skipped_file(
         "!!!classicapi",
         "Util/TradeSkillLink.lua"
+    ));
+    assert!(!super::skipped_file(
+        "!!!ClassicAPI",
+        "Util\\SlashCommandsRegistry.lua"
     ));
     assert!(!super::skipped_file("!!!ClassicAPI", "Util\\Pools.lua"));
     assert!(!super::skipped_file(
