@@ -60,6 +60,7 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
         ClickAction::Cast { .. }
         | ClickAction::Item { .. }
         | ClickAction::ItemAtPoint { .. }
+        | ClickAction::OpenTradeLink { .. }
         | ClickAction::StartAttack { .. }
         | ClickAction::StopAttack
         | ClickAction::TargetItem { .. }
@@ -67,7 +68,7 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
         | ClickAction::CancelQueue { .. }
         | ClickAction::QueueScript { .. } => {
             // The queue's own actions, a target chain `normalize_targets` resolved first, and the
-            // item and attack steps the call host applies itself.
+            // item, attack and profession-link steps the call host applies itself.
             unreachable!("frame actions are normalized before they apply")
         }
         ClickAction::RunScript { body } => {
