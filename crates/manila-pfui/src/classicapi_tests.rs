@@ -401,3 +401,41 @@ fn an_alpha_animation_fades_its_parent_and_reports_the_finish() {
         .run("assert(finished == 1 and not group:IsPlaying() and frame:GetAlpha() == 1)")
         .unwrap();
 }
+
+#[test]
+fn the_skipped_classicapi_files_are_the_replaced_slash_commands_and_trade_links() {
+    assert!(super::skipped_file(
+        "!!!ClassicAPI",
+        "Util\\SlashCommandsRegistry.lua"
+    ));
+    assert!(super::skipped_file(
+        "!!!classicapi",
+        "Util/TradeSkillLink.lua"
+    ));
+    assert!(!super::skipped_file("!!!ClassicAPI", "Util\\Pools.lua"));
+    assert!(!super::skipped_file(
+        "pfUI",
+        "Util\\SlashCommandsRegistry.lua"
+    ));
+}
+
+#[test]
+fn the_version_is_the_classicapi_addons_once_it_has_loaded() {
+    let mut script = extended();
+    script.run("assert(CLASSIC_API_VERSION == 11510)").unwrap();
+    script.fire_event(
+        "ADDON_LOADED",
+        vec![benilla_ui::script::ScriptValue::Str("SomeAddon".into())],
+    );
+    script.run("assert(CLASSIC_API_VERSION == 11510)").unwrap();
+    script.fire_event(
+        "ADDON_LOADED",
+        vec![benilla_ui::script::ScriptValue::Str("!!!ClassicAPI".into())],
+    );
+    script
+        .run(
+            "assert(CLASSIC_API_VERSION == 11805 and ManilaClassicAPICompatibility.apiVersion == '1.18.5'
+               and ManilaClassicAPICompatibility.fullClassicAPI == false)",
+        )
+        .unwrap();
+}
