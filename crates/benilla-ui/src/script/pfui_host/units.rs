@@ -267,11 +267,10 @@ pub fn legacy_spell_identifier(
         }) else {
             return Ok(None);
         };
-        let model = lua.app_data_ref::<Model>().expect("model");
         let slots = if book.eq_ignore_ascii_case("spell") {
-            &model.spellbook.slots
+            super::player_book(lua).slots
         } else if book.eq_ignore_ascii_case("pet") {
-            &model.pet_book.slots
+            super::pet_book(lua).slots
         } else {
             return Ok(None);
         };
@@ -297,8 +296,8 @@ pub fn legacy_spell_identifier(
         }
         _ => (query, None),
     };
-    let model = lua.app_data_ref::<Model>().expect("model");
-    for slots in [&model.spellbook.slots, &model.pet_book.slots] {
+    let (book, pets) = (super::player_book(lua), super::pet_book(lua));
+    for slots in [&book.slots, &pets.slots] {
         if let Some(slot) = slots
             .iter()
             .filter(|slot| {
@@ -481,11 +480,8 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             else {
                 return Ok((None, None));
             };
-            let model = lua.app_data_ref::<Model>().expect("model");
-            for (book, slots) in [
-                ("spell", &model.spellbook.slots),
-                ("pet", &model.pet_book.slots),
-            ] {
+            let (spells, pets) = (super::player_book(lua), super::pet_book(lua));
+            for (book, slots) in [("spell", &spells.slots), ("pet", &pets.slots)] {
                 if let Some(slot) = slots.iter().position(|slot| slot.spell_id == id) {
                     return Ok((Some(slot + 1), Some(book)));
                 }
@@ -616,11 +612,10 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     lua.globals().set(
         "IsSpellKnown",
         lua.create_function(|lua, (spell, pet): (u32, Option<bool>)| {
-            let model = lua.app_data_ref::<Model>().expect("model");
             let slots = if pet == Some(true) {
-                &model.pet_book.slots
+                super::pet_book(lua).slots
             } else {
-                &model.spellbook.slots
+                super::player_book(lua).slots
             };
             Ok(spell != 0 && slots.iter().any(|slot| slot.spell_id == spell))
         })?,
