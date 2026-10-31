@@ -47,8 +47,9 @@ function CreateColor(r, g, b, a)
   return Mixin({r = r, g = g, b = b, a = a or 1}, ColorMixin)
 end
 C_ColorUtil = {}
+-- An engine function: it reads the color's fields itself, as ClassicAPI's ColorMixin calls it.
 function C_ColorUtil.GenerateTextColorCode(color)
-  return ColorMixin.GenerateHexColor(color)
+  return string.format("%02x%02x%02x%02x", byte(color.a or 1), byte(color.r), byte(color.g), byte(color.b))
 end
 
 CallbackRegistryMixin = {}
@@ -104,6 +105,7 @@ loginFrame:SetScript("OnEvent", function()
   loggedIn = true
   loginFrame:UnregisterEvent("PLAYER_LOGIN")
 end)
+function IsLoggedIn() return loggedIn end
 EventUtil = {}
 local function continueWhen(eventName, ready, callback, matches)
   if ready then callback(); return end

@@ -143,7 +143,13 @@ function GetCVar(name)
     local pixels = bridge.windowPixels()
     if pixels then return pixels end
   end
-  return stockGetCVar(name)
+  -- An unknown name answers nothing, as under the ClassicAPI DLL, where 1.12 raises.
+  local results = {pcall(stockGetCVar, name)}
+  if results[1] then return results[2] end
+  if type(name) == 'string' and string.find(tostring(results[2]), "Couldn't find CVar named", 1, true) then
+    return
+  end
+  error(results[2], 2)
 end
 
 -- Run before each addon loads: the stock colour tables exist by then, and FrameXML assigns them
