@@ -47,15 +47,85 @@ pub fn report_error(lua: &Lua, message: String) {
 /// Extension-owned event payloads use the stock protected dispatcher and legacy argN globals.
 /// Every pfUI raise comes this way. ClassicAPI and Nampower raise these events from their own
 /// per-frame hooks, part of the client's frame, so a raise here is the tick's
-/// ([`super::origin::Origin::Tick`]).
+/// ([`super::origin::Origin::Tick`]). A raise made with no host lent and nothing held, a feed's
+/// that holds the VM alone, waits for [`raise_held`] once the app asked for it
+/// ([`hold_unhosted_raises`]): its handlers read the world through the host, as every stock
+/// handler's do, where the VM's own copies of the player's state are not kept current.
 pub fn fire_pfui_event(lua: &Lua, event: &str, args: Vec<super::ScriptValue>) {
+    if held_for_the_host(lua) {
+        if let Some(mut held) = lua.app_data_mut::<HeldRaises>() {
+            held.raises.push(Held::Event(event.to_string(), args));
+            return;
+        }
+    }
     super::origin::within(super::origin::Origin::Tick, || {
         super::tick::fire_event_into(lua, event, args);
     });
 }
 
-/// The spell `text` names, `Name(Rank N)`, in the player's book and then the pet's, as
-/// `CastSpellByName` resolves it, against the books as they stand at the call.
+/// Run `dispatch` now with a host lent, else hold it for [`raise_held`] as
+/// [`fire_pfui_event`] holds a raise: a dispatch whose handlers read a state it sets around its
+/// raises (the combat log's current event) keeps it around them.
+pub fn run_hosted(lua: &Lua, dispatch: impl FnOnce(&Lua) + Send + 'static) {
+    if held_for_the_host(lua) {
+        if let Some(mut held) = lua.app_data_mut::<HeldRaises>() {
+            held.raises.push(Held::Dispatch(Box::new(dispatch)));
+            return;
+        }
+    }
+    dispatch(lua);
+}
+
+/// Whether a raise made now waits for [`raise_held`]: the app asked for it, no host is lent and
+/// nothing is held, so its handlers would run with no host to read the world through.
+fn held_for_the_host(lua: &Lua) -> bool {
+    lua.app_data_ref::<HeldRaises>()
+        .is_some_and(|held| held.enabled)
+        && super::host::read_host(lua, |_| ()).is_none()
+        && super::host::read_reader(lua, |_| ()).is_none()
+        && !super::host::holding(lua)
+}
+
+/// One held raise: an event, or a dispatch that raises its own ([`run_hosted`]).
+enum Held {
+    Event(String, Vec<super::ScriptValue>),
+    Dispatch(Box<dyn FnOnce(&Lua) + Send>),
+}
+
+/// The extension's raises made with no host lent, in the order made ([`fire_pfui_event`]).
+#[derive(Default)]
+struct HeldRaises {
+    enabled: bool,
+    raises: Vec<Held>,
+}
+
+/// Hold the raises made with no host lent for [`raise_held`]: the app's extension feeds hold the
+/// VM without the host.
+pub fn hold_unhosted_raises(lua: &Lua) {
+    lua.set_app_data(HeldRaises {
+        enabled: true,
+        raises: Vec::new(),
+    });
+}
+
+/// Raise what [`fire_pfui_event`] held, in the order made; the app calls it with the host lent.
+pub fn raise_held(lua: &Lua) {
+    let raises = lua
+        .app_data_mut::<HeldRaises>()
+        .map(|mut held| std::mem::take(&mut held.raises))
+        .unwrap_or_default();
+    for raise in raises {
+        match raise {
+            Held::Event(event, args) => {
+                super::origin::within(super::origin::Origin::Tick, || {
+                    super::tick::fire_event_into(lua, &event, args);
+                });
+            }
+            Held::Dispatch(dispatch) => dispatch(lua),
+        }
+    }
+}
+
 /// The player's spellbook now: the lent host's, else the VM's copy. Upstream's getters read the
 /// book through the host, and the copy is not kept current.
 pub(crate) fn player_book(lua: &Lua) -> super::SpellBookState {
@@ -77,6 +147,8 @@ pub(crate) fn pet_book(lua: &Lua) -> super::PetBookState {
     })
 }
 
+/// The spell `text` names, `Name(Rank N)`, in the player's book and then the pet's, as
+/// `CastSpellByName` resolves it, against the books as they stand at the call.
 pub(crate) fn spell_named(lua: &Lua, text: &str) -> Option<super::NamedSpell> {
     let book = super::live::ask(lua, &super::BookNow);
     let pet = super::live::ask(lua, &super::PetBookNow);
