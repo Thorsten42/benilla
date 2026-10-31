@@ -19,6 +19,7 @@ trace_chrome = ["benilla-app/trace_chrome"]
 bevy_dynamic_linking = ["benilla-app/bevy_dynamic_linking"]
 pfui = ["benilla-app/pfui"]
 pfui-turtle = ["pfui", "benilla-app/pfui-turtle"]
+nampower = ["pfui", "benilla-app/nampower"]
 
 [dependencies]
 # `default-features = false`, or `--no-default-features` here still builds benilla-app with `dev`.
