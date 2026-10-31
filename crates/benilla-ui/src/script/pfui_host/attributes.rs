@@ -77,6 +77,29 @@ pub enum ClickAction {
         input: String,
         named: bool,
     },
+    /// `C_Spell.CastAtUnit` and `CastSpellNoToggle`: the spell at `target`, else as the stock cast
+    /// aims. A ground-target spell lands at the unit's feet when `place_ground`, else its reticle
+    /// stays up; `no_toggle` leaves an active aura, form or auto-repeat of the spell running.
+    CastAt {
+        spell_id: u32,
+        target: Option<u64>,
+        place_ground: bool,
+        no_toggle: bool,
+    },
+    /// `StartAttack`: the attack's start leg alone, at `target`, else the selection; an attack
+    /// already running is left alone.
+    StartAttack {
+        target: Option<u64>,
+        may_pick: bool,
+    },
+    /// `StopAttack`: the attack's stop leg alone.
+    StopAttack,
+    /// `C_Item.UseAtCursor`: the item used, a ground-target use placed at `point` (wire
+    /// coordinates).
+    ItemAtPoint {
+        guid: u64,
+        point: [f32; 3],
+    },
 }
 
 fn target(lua: &Lua, unit: Option<String>) -> mlua::Result<Option<Option<u64>>> {

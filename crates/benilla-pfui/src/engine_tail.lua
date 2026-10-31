@@ -198,3 +198,127 @@ function CopyToClipboard(text, removeMarkup)
   bridge.clipboard(text)
   return string.len(text)
 end
+
+-- The macro slash commands' frame, item and aura helpers (the ClassicAPI addon's
+-- Util\SlashCommandsRegistry.lua). `/click`'s frame: a global frame whose own name is the one asked
+-- for, so a reassigned global never stands in for it.
+function GetClickFrame(name)
+  if type(name) ~= "string" then return nil end
+  local frame = getglobal(name)
+  if type(frame) ~= "table" or type(frame.GetName) ~= "function" then return nil end
+  local ok, own = pcall(frame.GetName, frame)
+  if ok and own == name then return frame end
+  return nil
+end
+
+-- What a link matches by `item`: an item id, an `item:` string or link, else a name, any case.
+local function itemMatcher(item)
+  local id = tonumber(item)
+  if not id and type(item) == "string" then
+    local _, _, linked = strfind(item, "item:(%d+)")
+    id = tonumber(linked)
+  end
+  if id then
+    return function(link)
+      local _, _, have = strfind(link, "item:(%d+)")
+      return tonumber(have) == id
+    end
+  end
+  if type(item) ~= "string" or item == "" then return nil end
+  local wanted = strlower(item)
+  return function(link)
+    local _, _, name = strfind(link, "%[(.-)%]")
+    return name ~= nil and strlower(name) == wanted
+  end
+end
+
+-- Where `item` is: a bag and slot, else an equipment slot. A location names its own slot; a
+-- reference takes the first bag match, then the first equipped one.
+local function findItem(item)
+  if type(item) == "table" then
+    if item.equipmentSlotIndex then return nil, nil, item.equipmentSlotIndex end
+    if item.bagID and item.slotIndex then return item.bagID, item.slotIndex end
+    return nil
+  end
+  local matches = itemMatcher(item)
+  if not matches then return nil end
+  for bag = 0, 4 do
+    for slot = 1, GetContainerNumSlots(bag) do
+      local link = GetContainerItemLink(bag, slot)
+      if link and matches(link) then return bag, slot end
+    end
+  end
+  for slot = 1, 19 do
+    local link = GetInventoryItemLink("player", slot)
+    if link and matches(link) then return nil, nil, slot end
+  end
+  return nil
+end
+
+-- `C_Item.EquipItemByName(item [, dstSlot])`: into `dstSlot` (1-19), from a bag or another
+-- equipment slot; without one, the slot the item's type picks, from a bag only. Whatever the
+-- cursor held goes back first.
+function C_Item.EquipItemByName(item, dstSlot)
+  ClearCursor()
+  local bag, slot, equipped = findItem(item)
+  dstSlot = tonumber(dstSlot)
+  if dstSlot then
+    if dstSlot < 1 or dstSlot > 19 or equipped == dstSlot then return end
+    if equipped then
+      PickupInventoryItem(equipped)
+    elseif bag then
+      PickupContainerItem(bag, slot)
+    else
+      return
+    end
+    EquipCursorItem(dstSlot)
+  elseif bag then
+    PickupContainerItem(bag, slot)
+    AutoEquipCursorItem()
+  end
+end
+
+-- An item id for `item`, a carried item's name included.
+local function itemID(item)
+  if type(item) == "table" then return C_Item.GetItemID(item) end
+  local bag, slot, equipped = findItem(item)
+  local link = equipped and GetInventoryItemLink("player", equipped)
+    or bag and GetContainerItemLink(bag, slot)
+  local _, _, id = strfind(link or tostring(item or ""), "item:(%d+)")
+  return tonumber(id) or tonumber(item)
+end
+
+-- Whether the item goes in an equipment slot: any inventory type, bags and ammo included. An
+-- uncached item is not.
+function C_Item.IsEquippableItem(item)
+  local id = itemID(item)
+  local inventoryType = id and C_Item.GetItemInventoryTypeByID(id)
+  return inventoryType ~= nil and inventoryType ~= 0
+end
+if not IsEquippableItem then
+  function IsEquippableItem(item) return C_Item.IsEquippableItem(item) and 1 or nil end
+end
+
+-- The item's on-use spell, `(name, spellID)`, or nothing.
+function C_Item.GetItemSpell(item)
+  local spellID = bridge.item_use_spell(item)
+  if not spellID then return nil end
+  return (GetSpellInfo(spellID)), spellID
+end
+if not GetItemSpell then GetItemSpell = C_Item.GetItemSpell end
+
+-- `/cancelaura`: the player's helpful aura of that name, a rank suffix ignored, cancelled through
+-- its spell.
+function CancelSpellByName(name)
+  if type(name) ~= "string" then return end
+  local wanted = strlower((string.gsub(name, "%s*%(.-%)%s*$", "")))
+  if wanted == "" then return end
+  for i = 1, 32 do
+    local auraName, _, _, _, _, _, _, _, _, spellID = C_UnitAuras.UnitAura("player", i, "HELPFUL")
+    if not auraName then return end
+    if strlower(auraName) == wanted and spellID then
+      C_Spell.CancelSpellByID(spellID)
+      return
+    end
+  end
+end
