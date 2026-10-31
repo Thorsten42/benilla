@@ -224,6 +224,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         "GetItemNameByID",
         "GetItemQuality",
         "GetItemQualityByID",
+        "GetItemInventoryType",
         "GetItemInventoryTypeByID",
         "GetItemMaxStackSizeByID",
         "GetItemSellPriceByID",
@@ -240,7 +241,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 let value = match name {
                     "GetItemName" | "GetItemNameByID" => return string(lua, Some(&item.name)),
                     "GetItemQuality" | "GetItemQualityByID" => item.quality,
-                    "GetItemInventoryTypeByID" => item.inventory_type,
+                    "GetItemInventoryType" | "GetItemInventoryTypeByID" => item.inventory_type,
                     "GetItemMaxStackSizeByID" => item.stackable,
                     "GetItemSellPriceByID" => item.sell_price,
                     "GetCurrentItemLevel" => match id.and_then(|id| metadata(lua, id)) {

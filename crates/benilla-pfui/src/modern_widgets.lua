@@ -273,3 +273,32 @@ for _, methods in ipairs({tables.button, tables.editbox, tables.slider}) do
     end
   end
 end
+
+-- A ScrollingMessageFrame's scroll offset: lines away from the newest message, at most one less
+-- than the messages it holds. Scrolling stops once the oldest message shows, as ScrollUp does.
+local smf = tables.scrollingmessageframe
+local function scrollAmount(name, value)
+  if type(value) ~= "number" then error("Usage: " .. name .. "(number)", 3) end
+  return math.floor(value)
+end
+function smf:GetScrollOffset() return self:GetCurrentScroll() end
+function smf:GetMaxScrollRange() return math.max(0, self:GetNumMessages() - 1) end
+function smf:ScrollByAmount(amount)
+  amount = scrollAmount("ScrollByAmount", amount)
+  if amount > 0 then
+    for _ = 1, amount do
+      if self:AtTop() then break end
+      self:ScrollUp()
+    end
+  elseif amount < 0 then
+    for _ = 1, -amount do
+      if self:AtBottom() then break end
+      self:ScrollDown()
+    end
+  end
+end
+function smf:SetScrollOffset(offset)
+  offset = math.max(0, math.min(scrollAmount("SetScrollOffset", offset), self:GetMaxScrollRange()))
+  self:ScrollToBottom()
+  self:ScrollByAmount(offset)
+end
