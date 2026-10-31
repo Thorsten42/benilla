@@ -6,6 +6,7 @@ use bevy::prelude::*;
 mod bags;
 mod casts;
 pub(crate) mod clicks;
+mod combat_log;
 mod icons;
 pub(crate) mod input;
 mod loot;
@@ -146,6 +147,7 @@ impl Plugin for PfuiPlugin {
         );
         casts::register(app);
         input::register(app);
+        combat_log::register(app);
         bags::register(app);
         loot::register(app);
         quests::register(app);
