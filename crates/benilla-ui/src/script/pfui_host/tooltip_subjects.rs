@@ -337,6 +337,14 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             lua.create_function(move |lua, args: MultiValue| {
                 let this: Table =
                     mlua::FromLua::from_lua(args.front().cloned().unwrap_or(Value::Nil), lua)?;
+                // A ClassicAPI client opens a profession link in its window instead of drawing it.
+                if verb == "SetHyperlink" {
+                    if let Some(link) = text(&args, 1).filter(|link| link.starts_with("trade:")) {
+                        super::professions::open_link(lua, &link)?;
+                        this.get::<Function>("Hide")?.call::<()>(this.clone())?;
+                        return Ok(MultiValue::new());
+                    }
+                }
                 let handle = frame_handle_of(lua, &this)?;
                 let item = subject(lua, verb, &args)?;
                 lua.app_data_mut::<Subjects>()
