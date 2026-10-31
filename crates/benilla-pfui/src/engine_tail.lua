@@ -9,9 +9,6 @@ function IsChatDND() return UnitIsDND("player") and true or false end
 function UpdateAddOnMemoryUsage() end
 function GetAddOnMemoryUsage(addon) return 0 end
 
--- Nobody's resurrection casts are tracked yet, so no unit has one incoming.
-function UnitHasIncomingResurrection(unit) return false end
-
 function C_AddOns.GetAddOnName(addon) return (GetAddOnInfo(addon)) end
 
 function C_Item.GetItemIconByID(item)
