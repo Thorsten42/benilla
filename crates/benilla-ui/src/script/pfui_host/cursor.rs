@@ -18,8 +18,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 // spell has left the book.
                 CursorPayload::Spell(spell) => (
                     "spell",
-                    model
-                        .spellbook
+                    super::player_book(lua)
                         .slots
                         .iter()
                         .position(|slot| slot.spell_id == spell.spell_id)
