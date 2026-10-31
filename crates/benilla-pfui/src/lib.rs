@@ -279,6 +279,9 @@ pub fn install_class_names<'a>(
 mod tests;
 
 #[cfg(test)]
+mod classicapi_tests;
+
+#[cfg(test)]
 mod aura_tests;
 
 #[cfg(test)]

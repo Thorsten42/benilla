@@ -882,6 +882,10 @@ pub(super) fn create_frame(
     // raises as a missing template, where `CreateTexture` ignores one.
     let name: Option<String> = name.as_ref().and_then(|v| optional_string(lua, v));
     let template: Option<String> = inherits.as_ref().and_then(|v| optional_string(lua, v));
+    // A ClassicAPI client reads an empty template as none (the pools pass `""`).
+    #[cfg(feature = "pfui")]
+    let template =
+        template.filter(|t| !(t.trim().is_empty() && crate::script::pfui_host::xml::active(lua)));
 
     // A table parent is the object in its `[0]` (`0x706162`): none raises `Couldn't find 'this'
     // in parent object` (`0x87303c`), and an object that is no frame (a region, a Font object)
@@ -938,6 +942,12 @@ pub(super) fn create_frame(
             .framexml_templates
             .borrow()
             .contains(t);
+        // A ClassicAPI list, `"A, B"`, every name of it registered.
+        #[cfg(feature = "pfui")]
+        let known = known
+            || (crate::script::pfui_host::xml::active(lua)
+                && t.contains(',')
+                && crate::script::pfui_host::xml::all_templates_known(lua, t));
         if !known {
             return Err(mlua::Error::runtime(format!(
                 "CreateFrame(): Couldn't find inherited node \"{t}\""
@@ -945,6 +955,15 @@ pub(super) fn create_frame(
         }
     }
 
+    // A ClassicAPI intrinsic type (`"DropdownButton"`) is its base type, its template first.
+    #[cfg(feature = "pfui")]
+    let (kind, template) = match crate::script::pfui_host::xml::intrinsic(lua, &kind) {
+        Some((base, intrinsic)) => {
+            let list = template.map_or(intrinsic.clone(), |t| format!("{intrinsic}, {t}"));
+            (base, Some(list))
+        }
+        None => (kind, template),
+    };
     // The node build fails for a type no factory knows (`0x70628b` → `0x7062a0`, `0x872fa8`).
     let frame_kind = registered_frame_kind(lua, &kind)
         .ok_or_else(|| mlua::Error::runtime(format!("CreateFrame: Unknown frame type '{kind}'")))?;
