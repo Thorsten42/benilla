@@ -435,11 +435,12 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             let Some(item) = cached(lua, id(lua, input)?, true) else {
                 return Ok(false);
             };
+            let book = super::player_book(lua);
             let model = lua.app_data_ref::<Model>().expect("model");
             Ok(crate::script::item_stats::item_usable(
                 &item,
                 &model.player_req,
-                |id| model.spellbook.slots.iter().any(|s| s.spell_id == id),
+                |id| book.slots.iter().any(|s| s.spell_id == id),
             ))
         })?,
     )?;
