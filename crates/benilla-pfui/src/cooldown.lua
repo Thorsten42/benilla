@@ -1,8 +1,33 @@
 -- A ClassicAPI `Cooldown` frame here is 1.12's indicator model (CooldownFrameTemplate), its sweep
--- driven as 1.12's CooldownFrame_SetTimer drives it. The draw flags, colors and textures are
--- kept for their getters; the model draws its own sweep and flash.
+-- driven by the model's sequence time as 1.12's CooldownFrame_SetTimer drives it. Reverse runs
+-- the sweep backwards (it starts clear and darkens), a cleared draw-bling flag hides the frame at
+-- the end instead of the flash, a cleared draw-swipe flag keeps the timing and draws nothing, and
+-- a pause holds the sweep. Colors and textures are kept for their getters.
 BenillaCooldownMixin = {}
 local M = BenillaCooldownMixin
+
+-- The sweep's step, in place of the template's OnUpdateModel.
+local function step()
+  local self = this
+  if self.benillaPaused then return end
+  if self.stopping == 0 then
+    local finished = (GetTime() - self.start) / self.duration
+    if finished < 1 then
+      if self:GetReverse() then finished = 1 - finished end
+      self:SetSequenceTime(0, finished * 1000)
+      return
+    end
+    if not self:GetDrawBling() then
+      self:Hide()
+      return
+    end
+    self.stopping = 1
+    self:SetSequence(1)
+    self:SetSequenceTime(1, 0)
+  else
+    self:AdvanceTime()
+  end
+end
 
 local function flag(name, default)
   M["Set" .. name] = function(self, value) self["benilla" .. name] = value end
@@ -15,6 +40,11 @@ end
 flag("Reverse", false)
 flag("DrawEdge", false)
 flag("DrawSwipe", true)
+local setDrawSwipe = M.SetDrawSwipe
+function M:SetDrawSwipe(draw)
+  setDrawSwipe(self, draw)
+  self:SetAlpha(draw == false and 0 or 1)
+end
 flag("DrawBling", true)
 flag("HideCountdownNumbers", false)
 flag("CountdownAbbrevThreshold", 120)
@@ -30,6 +60,10 @@ function M:SetCooldown(start, duration, modRate)
   if start and duration and start > 0 and duration > 0 then
     self.benillaTimes = {start, duration, modRate or 1}
     self.start, self.duration, self.stopping = start, duration, 0
+    if not self.benillaStepping then
+      self.benillaStepping = true
+      self:SetScript("OnUpdateModel", step)
+    end
     self:SetSequence(0)
     self:Show()
   else
