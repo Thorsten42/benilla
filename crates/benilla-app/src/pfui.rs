@@ -16,6 +16,7 @@ mod spells;
 mod swing;
 #[cfg(test)]
 pub(crate) mod test_support;
+pub(crate) mod toc;
 mod totems;
 mod units;
 
@@ -216,17 +217,6 @@ fn feed_clock(script: Option<NonSend<UiScript>>, clock: Res<crate::net::ServerTi
             (format!("pfUI clock: {error}")).to_string(),
         );
     }
-}
-
-/// The full flavor manifest is selected explicitly, as the ClassicAPI DLL's redirect does; the
-/// extension publishes the version that manifest's load gate requires.
-pub(crate) fn manifest(name: &str) -> Option<&'static str> {
-    name.eq_ignore_ascii_case("pfUI")
-        .then_some(if cfg!(feature = "pfui-turtle") {
-            "pfUI_Turtle.toc"
-        } else {
-            "pfUI_ClassicAPI.toc"
-        })
 }
 
 fn feed_inventory(
