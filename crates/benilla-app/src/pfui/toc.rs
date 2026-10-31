@@ -130,7 +130,7 @@ mod tests {
             Some("Localization\\deDE.lua")
         );
         assert_eq!(
-            file_line("!!!ClassicAPI", "Util\\SlashCommandsRegistry.lua", "enUS"),
+            file_line("!!!ClassicAPI", "Util\\TradeSkillLink.lua", "enUS"),
             None
         );
     }
