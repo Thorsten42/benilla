@@ -1334,6 +1334,12 @@ pub(crate) mod schedule_tests {
     /// [`crate::ui_script::UiFeed`], keyed by a suffix of the system's full name, with the
     /// reason.
     const OUTSIDE_THE_FEED_PHASE: &[(&str, &str)] = &[
+        #[cfg(feature = "pfui")]
+        (
+            "::pfui::raise_held_events",
+            "in the lanes' set after their drain: the pfUI feeds' raises made with the VM \
+             alone, run with the host lent after the frame's stock events and ahead of the tick",
+        ),
         (
             "::ui_chat::frames::tee_shown_lines",
             "in the lanes' set after their drain (`lanes::UiLanes`, after `UiFeed` and before the \
