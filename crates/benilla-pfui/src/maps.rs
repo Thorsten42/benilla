@@ -31,6 +31,8 @@ pub struct Overlay {
 pub struct Catalog {
     pub zones: BTreeMap<u32, Vec<Overlay>>,
     parents: BTreeMap<u32, u32>,
+    /// Each area's `AreaTable.dbc` exploreFlag, its bit in the player's explored zones.
+    explore_bits: BTreeMap<u32, u32>,
 }
 
 fn dimensions(bytes: &[u8]) -> Option<[u32; 2]> {
@@ -184,6 +186,9 @@ impl Catalog {
         let mut catalog = Self::default();
         for row in areas.records() {
             catalog.parents.insert(number(row, 0)?, number(row, 2)?);
+            catalog
+                .explore_bits
+                .insert(number(row, 0)?, number(row, 3)?);
         }
         let mut mapping = BTreeMap::new();
         for row in maps.records() {
@@ -233,49 +238,113 @@ impl Catalog {
         Ok(catalog)
     }
 
+    /// The zone `area` names (it, or the nearest parent with overlays), as `GetMapOverlays` and the
+    /// exploration getters resolve it, the world map's viewed zone without one.
+    fn zone_of(&self, lua: &Lua, area: Option<u32>) -> Option<u32> {
+        let mut area = area.or_else(|| benilla_ui::script::pfui_host::maps::viewed_area(lua))?;
+        for _ in 0..self.parents.len() {
+            if self.zones.contains_key(&area) {
+                return Some(area);
+            }
+            area = self
+                .parents
+                .get(&area)
+                .copied()
+                .filter(|parent| *parent != 0 && *parent != area)?;
+        }
+        self.zones.contains_key(&area).then_some(area)
+    }
+
+    /// Whether the player explored one of the overlay's areas, the rule `GetMapOverlayInfo` uses.
+    fn explored(&self, overlay: &Overlay, zones: &[u32]) -> bool {
+        overlay.areas.iter().any(|area| {
+            self.explore_bits.get(area).is_some_and(|&bit| {
+                zones
+                    .get((bit / 32) as usize)
+                    .is_some_and(|w| w & (1 << (bit % 32)) != 0)
+            })
+        })
+    }
+
+    /// The zone's overlays, `which` of them by exploration (`None` is all), as tables.
+    fn overlays(lua: &Lua, area: Option<u32>, which: Option<bool>) -> mlua::Result<Option<Table>> {
+        let zones = which
+            .map(|_| benilla_ui::script::pfui_host::maps::explored_zones(lua))
+            .unwrap_or_default();
+        let catalog = lua.app_data_ref::<Catalog>().expect("map catalog");
+        let Some(area) = catalog.zone_of(lua, area) else {
+            return Ok(None);
+        };
+        let list = lua.create_table()?;
+        for overlay in &catalog.zones[&area] {
+            if which.is_none_or(|explored| catalog.explored(overlay, &zones) == explored) {
+                list.raw_set(list.raw_len() + 1, overlay.table(lua)?)?;
+            }
+        }
+        Ok(Some(list))
+    }
+
     pub fn install(&self, lua: &Lua) -> mlua::Result<()> {
         lua.set_app_data(self.clone());
         let api = lua.create_table()?;
         api.set(
             "GetMapOverlays",
+            lua.create_function(|lua, area: Option<u32>| Self::overlays(lua, area, None))?,
+        )?;
+        lua.globals().set("C_Map", api)?;
+        let exploration = lua.create_table()?;
+        exploration.set(
+            "GetExploredMapTextures",
             lua.create_function(|lua, area: Option<u32>| {
-                let Some(mut area) =
-                    area.or_else(|| benilla_ui::script::pfui_host::maps::viewed_area(lua))
-                else {
-                    return Ok(None);
-                };
-                let catalog = lua.app_data_ref::<Catalog>().expect("map catalog");
-                for _ in 0..catalog.parents.len() {
-                    if catalog.zones.contains_key(&area) {
-                        break;
-                    }
-                    let Some(parent) = catalog
-                        .parents
-                        .get(&area)
-                        .copied()
-                        .filter(|parent| *parent != 0 && *parent != area)
-                    else {
-                        return Ok(None);
-                    };
-                    area = parent;
-                }
-                let Some(overlays) = catalog.zones.get(&area) else {
-                    return Ok(None);
-                };
-                let list = lua.create_table()?;
-                for (index, overlay) in overlays.iter().enumerate() {
-                    list.set(index + 1, overlay.table(lua)?)?;
-                }
-                Ok(Some(list))
+                Self::overlays(lua, area, Some(true))?.map_or_else(|| lua.create_table(), Ok)
             })?,
         )?;
-        lua.globals().set("C_Map", api)
+        exploration.set(
+            "GetUnexploredMapTextures",
+            lua.create_function(|lua, area: Option<u32>| {
+                Self::overlays(lua, area, Some(false))?.map_or_else(|| lua.create_table(), Ok)
+            })?,
+        )?;
+        lua.globals().set("C_MapExplorationInfo", exploration)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exploration_splits_a_zones_overlays_by_the_explored_bits() {
+        let mut script = benilla_ui::script::UiScript::new().unwrap();
+        script.keep_calls();
+        crate::install(&script).unwrap();
+        let mut catalog = Catalog::default();
+        let overlay = |name: &str, area: u32| Overlay {
+            name: name.into(),
+            areas: vec![area],
+            ..Default::default()
+        };
+        catalog
+            .zones
+            .insert(12, vec![overlay("GOLDSHIRE", 87), overlay("NORTHSHIRE", 9)]);
+        catalog.explore_bits.insert(87, 33);
+        catalog.explore_bits.insert(9, 2);
+        catalog.install(script.lua()).unwrap();
+        // Bit 33 is word 1's bit 1: Goldshire explored, Northshire not.
+        script.set_world_map_explored(vec![0, 1 << 1]);
+        script
+            .run(
+                r#"
+            local explored = C_MapExplorationInfo.GetExploredMapTextures(12)
+            local unexplored = C_MapExplorationInfo.GetUnexploredMapTextures(12)
+            assert(table.getn(explored) == 1 and explored[1].textureName == "GOLDSHIRE")
+            assert(table.getn(unexplored) == 1 and unexplored[1].textureName == "NORTHSHIRE")
+            assert(table.getn(C_Map.GetMapOverlays(12)) == 2)
+            assert(table.getn(C_MapExplorationInfo.GetUnexploredMapTextures(999)) == 0)
+        "#,
+            )
+            .unwrap();
+    }
     #[test]
     fn tile_headers_resolve_padding_slivers_foreign_tails_and_both_hd_layouts() {
         let mut overlay = Overlay {
