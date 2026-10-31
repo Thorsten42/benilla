@@ -1223,9 +1223,13 @@ impl CallHost for ScriptCallHost<'_, '_> {
     fn apply(&mut self, script: &mut UiScript, call: ScriptCall) -> Option<CallTail> {
         #[cfg(debug_assertions)]
         self.census_probe();
-        // pfUI's frame actions name their unit by a target chain, resolved as the call applies.
-        #[cfg(feature = "pfui")]
+        // Nampower's queue takes a cast its lane cannot start yet, and watches the attempt.
+        #[cfg(feature = "nampower")]
+        let call = crate::pfui::spell_queue::intercept(script, call, &self.appliers.cast())?;
+        #[cfg(all(feature = "pfui", not(feature = "nampower")))]
         let call = crate::pfui::clicks::normalize_targets(call, &self.appliers.cast())?;
+        #[cfg(feature = "nampower")]
+        let attempt = crate::pfui::spell_queue::before(script, &call, &self.appliers.cast());
         let appliers = &mut self.appliers;
         // The gate's answer for this call, made where the Lua verb ran: its casts start only if
         // tag 2 passed there. The ladder reads it while this call applies.
@@ -1657,6 +1661,10 @@ impl CallHost for ScriptCallHost<'_, '_> {
         #[cfg(feature = "pfui")]
         crate::pfui::clicks::commit_owed_ground(script, &mut self.appliers.cast());
         self.run_casts(script, &mut at);
+        // Nampower reads the attempt once a press held at the attack pick has gone out, and
+        // before the call's reports are signalled.
+        #[cfg(feature = "nampower")]
+        crate::pfui::spell_queue::after(script, attempt, &self.appliers.cast());
         let appliers = &mut self.appliers;
         // Whatever casts next is the caller's: the engine's own, which asks no gate, or the call
         // whose signal point this call applied at.
@@ -5461,4 +5469,8 @@ mod tests {
             unhosted.join("\n  ")
         );
     }
+
+    // Nampower's cast events around a deferred attack pick, on this module's frame.
+    #[cfg(feature = "nampower")]
+    include!("pfui/spell_queue_deferred_tests.rs");
 }
