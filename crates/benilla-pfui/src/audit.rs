@@ -37,6 +37,10 @@ pub struct Report {
     pub stock_ui_attempted: bool,
     pub bootstrap_attempted: bool,
     pub bootstrap_errors: Vec<Failure>,
+    /// The addons loaded between the stock UI and the audited one (`inspect_with`), such as the
+    /// ClassicAPI DLL's own Lua addon, and their load errors as `<folder>/<file>`.
+    pub preloads: Vec<String>,
+    pub preload_errors: Vec<Failure>,
     pub session_errors: Vec<String>,
     /// An audit never proves gameplay, rendering, or working inventory operations.
     pub gameplay_verified: bool,
@@ -53,6 +57,17 @@ pub fn inspect_flavor(
     root: &Path,
     data: Option<&Path>,
     turtle: bool,
+) -> Result<Report, Box<dyn std::error::Error>> {
+    inspect_with(root, data, turtle, &[])
+}
+
+/// As [`inspect_flavor`], with `preload` addon folders loaded after the stock UI and before the
+/// audited addon, each from its flavor manifest ([`addon_manifest`]).
+pub fn inspect_with(
+    root: &Path,
+    data: Option<&Path>,
+    turtle: bool,
+    preload: &[PathBuf],
 ) -> Result<Report, Box<dyn std::error::Error>> {
     let root = root.canonicalize()?;
     let manifest = if turtle {
@@ -79,6 +94,8 @@ pub fn inspect_flavor(
     let stock = UiScript::new()?;
     let mut compat = UiScript::new()?;
     compat.set_screen_size(1024.0, 768.0);
+    // No client applies the calls the UI makes; the VM keeps them, as a test VM does.
+    compat.keep_calls();
     crate::install(&compat)?;
     let mut stock_syntax_errors = Vec::new();
     let mut compat_syntax_errors = Vec::new();
@@ -137,6 +154,8 @@ pub fn inspect_flavor(
         stock_ui_attempted: data.is_some(),
         bootstrap_attempted: false,
         bootstrap_errors: Vec::new(),
+        preloads: Vec::new(),
+        preload_errors: Vec::new(),
         session_errors: Vec::new(),
         gameplay_verified: false,
     };
@@ -169,6 +188,27 @@ pub fn inspect_flavor(
         load_stock(&compat, &chain, &mut report.stock_ui_errors)?;
         // Only a clean stock boot is a valid environment for assigning errors to the addon.
         if report.stock_ui_errors.is_empty() {
+            for folder in preload {
+                let folder = folder.canonicalize()?;
+                let name = folder
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .ok_or("an addon folder needs a name")?
+                    .to_string();
+                let manifest = addon_manifest(&folder, &name, turtle)?;
+                let toc = Toc::parse(&benilla_ui::source::decode(&std::fs::read(
+                    folder.join(&manifest),
+                )?));
+                // A preload keeps going past an error, so one run lists all of them.
+                for failure in load_addon(&compat, &folder, &name, &toc, false)? {
+                    report.preload_errors.push(Failure {
+                        file: format!("{name}/{}", failure.file),
+                        error: failure.error,
+                    });
+                }
+                compat.fire_event("ADDON_LOADED", vec![ScriptValue::Str(name.clone())]);
+                report.preloads.push(format!("{name}/{manifest}"));
+            }
             report.bootstrap_attempted = true;
             bootstrap(&mut compat, &root, &toc, &mut report)?;
         }
@@ -268,7 +308,23 @@ fn load_stock(
         ("cameraSmoothStyle", "1"),
         ("cameraSmoothTrackingStyle", "1"),
         ("gxResolution", "1024x768"),
+        ("useUiScale", "0"),
+        ("uiScale", "1"),
+        ("statusBarText", "0"),
+        ("MusicVolume", "0.4"),
+        ("EnableMusic", "1"),
     ]);
+    // A player identity for the files that read it at load (Turtle's shop and transmog UI). Unit
+    // reads go through the client's host, which an audit has none of.
+    script.run(
+        "local class, race, sex = UnitClass, UnitRace, UnitSex
+         UnitClass = function(u) local a, b = class(u)
+           if a == nil and u == 'player' then return 'Warrior', 'WARRIOR' end return a, b end
+         UnitRace = function(u) local a, b = race(u)
+           if a == nil and u == 'player' then return 'Human', 'Human' end return a, b end
+         UnitSex = function(u) local s = sex(u)
+           if s == nil and u == 'player' then return 2 end return s end",
+    )?;
     let toc = Toc::parse(&benilla_ui::source::decode(
         &chain.read("Interface/FrameXML/FrameXML.toc")?,
     ));
@@ -316,25 +372,53 @@ fn load_stock(
     Ok(())
 }
 
-fn bootstrap(
-    script: &mut UiScript,
+/// The manifest the ClassicAPI DLL picks for an addon folder: its flavor TOC when it has one.
+pub fn addon_manifest(
+    folder: &Path,
+    name: &str,
+    turtle: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let flavor = if turtle { "_Turtle" } else { "_ClassicAPI" };
+    [format!("{name}{flavor}.toc"), format!("{name}.toc")]
+        .into_iter()
+        .find(|manifest| folder.join(manifest).is_file())
+        .ok_or_else(|| format!("{name}: no TOC").into())
+}
+
+/// Load one addon's manifest files in order, under its addon scope. With `stop`, the first Lua
+/// error ends the load, as later files of the same addon build on it.
+fn load_addon(
+    script: &UiScript,
     root: &Path,
+    name: &str,
     toc: &Toc,
-    report: &mut Report,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let _scope = benilla_ui::script::pfui_host::addon_scope(script.lua(), "pfUI")?;
+    stop: bool,
+) -> Result<Vec<Failure>, Box<dyn std::error::Error>> {
+    let mut failures = Vec::new();
+    let _scope = benilla_ui::script::pfui_host::addon_scope(script.lua(), name)?;
     for file in &toc.files {
         let path = root.join(file.replace('\\', "/"));
-        let bytes = std::fs::read(&path)?;
-        if file.to_ascii_lowercase().ends_with(".lua") {
-            if let Err(error) =
-                script.run_chunk_named(&bytes, &benilla_ui::script::addon_chunk_name("pfUI", file))
-            {
-                report.bootstrap_errors.push(Failure {
+        let bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                failures.push(Failure {
                     file: file.clone(),
                     error: error.to_string(),
                 });
-                break;
+                continue;
+            }
+        };
+        if file.to_ascii_lowercase().ends_with(".lua") {
+            if let Err(error) =
+                script.run_chunk_named(&bytes, &benilla_ui::script::addon_chunk_name(name, file))
+            {
+                failures.push(Failure {
+                    file: file.clone(),
+                    error: error.to_string(),
+                });
+                if stop {
+                    break;
+                }
             }
         } else {
             let document = benilla_ui::framexml::parse(&benilla_ui::source::decode(&bytes))?;
@@ -346,20 +430,29 @@ fn bootstrap(
                         .flatten()
                 });
             for error in loaded.errors {
-                report.bootstrap_errors.push(Failure {
+                failures.push(Failure {
                     file: file.clone(),
                     error,
                 });
             }
             for name in loaded.missing_files {
-                report.bootstrap_errors.push(Failure {
+                failures.push(Failure {
                     file: file.clone(),
                     error: format!("missing {name}"),
                 });
             }
         }
     }
-    drop(_scope);
+    Ok(failures)
+}
+
+fn bootstrap(
+    script: &mut UiScript,
+    root: &Path,
+    toc: &Toc,
+    report: &mut Report,
+) -> Result<(), Box<dyn std::error::Error>> {
+    report.bootstrap_errors = load_addon(script, root, "pfUI", toc, true)?;
     // Do not fire session events after a bad load.
     if report.bootstrap_errors.is_empty() {
         script.fire_event("ADDON_LOADED", vec![ScriptValue::Str("pfUI".into())]);
