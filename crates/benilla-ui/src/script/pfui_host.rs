@@ -15,6 +15,7 @@ mod engine;
 pub(crate) mod equipment_actions;
 pub mod inline_texture;
 pub mod items;
+pub mod macro_verbs;
 pub mod maps;
 mod merchant;
 mod message_history;
@@ -229,6 +230,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     quests::install(lua)?;
     super::macros::pfui::install(lua)?;
     super::reputation::pfui::install(lua)?;
+    macro_verbs::install(lua)?;
     Ok(())
 }
 

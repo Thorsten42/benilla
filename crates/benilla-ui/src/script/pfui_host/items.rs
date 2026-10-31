@@ -18,7 +18,7 @@ mod state_events;
 
 #[path = "item_actions.rs"]
 mod actions;
-pub(super) use actions::request_use;
+pub(super) use actions::{instance, request_use};
 
 /// The host calls this once after the stock inventory feeds have delivered their events.
 pub fn dispatch_inventory_events(lua: &Lua) {
@@ -68,6 +68,8 @@ pub fn take_bag_failures(lua: &Lua) -> Vec<u64> {
 #[derive(Default)]
 pub(super) struct Extras {
     metadata: HashMap<u32, (u32, u32)>,
+    /// Each template's first on-use spell (`GetItemSpell`).
+    use_spells: HashMap<u32, u32>,
     pub(super) instances: HashMap<(i64, u32), Instance>,
     moves: Vec<ContainerMove>,
     failures: Vec<u64>,
@@ -96,6 +98,37 @@ pub fn set_instances(lua: &Lua, slots: impl IntoIterator<Item = ((i64, u32), Ins
         extras.instances.extend(slots);
     }
     new_items::update(lua);
+}
+
+/// Publish an item template's first on-use (trigger 0) spell, which `GetItemSpell` answers.
+pub fn set_use_spell(lua: &Lua, id: u32, spell_id: u32) {
+    if let Some(mut extras) = lua.app_data_mut::<Extras>() {
+        extras.use_spells.insert(id, spell_id);
+    }
+}
+
+/// The on-use spell of `item`: an item id, an `item:` string or link, or the name of an item the
+/// player carries; `None` for an item without one or not cached.
+pub fn use_spell(lua: &Lua, item: Value) -> mlua::Result<Option<u32>> {
+    let name = match &item {
+        Value::String(text) => Some(text.to_string_lossy().to_lowercase()),
+        _ => None,
+    };
+    let extras = lua.app_data_ref::<Extras>().expect("pfUI item state");
+    let id = id(lua, item)?.or_else(|| {
+        extras
+            .instances
+            .values()
+            .find(|instance| {
+                instance
+                    .name
+                    .as_ref()
+                    .zip(name.as_ref())
+                    .is_some_and(|(have, wanted)| have.to_lowercase() == *wanted)
+            })
+            .map(|instance| instance.item_id)
+    });
+    Ok(id.and_then(|id| extras.use_spells.get(&id).copied()))
 }
 
 fn metadata(lua: &Lua, id: u32) -> Option<(u32, u32)> {
