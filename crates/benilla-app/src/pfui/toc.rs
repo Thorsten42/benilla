@@ -130,8 +130,8 @@ mod tests {
             Some("Localization\\deDE.lua")
         );
         assert_eq!(
-            file_line("!!!ClassicAPI", "Util\\TradeSkillLink.lua", "enUS"),
-            None
+            file_line("!!!ClassicAPI", "Util\\TradeSkillLink.lua", "enUS").as_deref(),
+            Some("Util\\TradeSkillLink.lua")
         );
     }
 
