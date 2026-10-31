@@ -322,3 +322,58 @@ function CancelSpellByName(name)
     end
   end
 end
+
+-- `UnitSelectionType(unit [, useExtendedColors])`: the rung of the selection colour's ladder, as
+-- ClassicAPI reads it. A unit no player controls takes its reaction to the player (0 hostile,
+-- 1 unfriendly, 2 neutral, 3 friendly), 9 when dead with the extended ladder. A player-controlled
+-- one: 0 when each can attack the other, 4 (5 extended) when only it can attack the player, 2 when
+-- only the player can attack it, else 3 when PvP-flagged and 4 (5) when not; the extended ladder
+-- puts a party or raid member (not the player) on 6, or 7 when PvP-flagged. A unit the client
+-- holds no object for reads as an unflagged player, as its no-object branch does.
+local reactionTypes = { [1] = 0, [2] = 0, [3] = 1, [4] = 2, [5] = 3, [6] = 3, [7] = 3, [8] = 3 }
+function UnitSelectionType(unit, extended)
+  local player = extended and 5 or 4
+  if not UnitExists(unit) or not UnitIsVisible(unit) then return player end
+  if not UnitPlayerControlled(unit) then
+    if extended and UnitIsDead(unit) then return 9 end
+    return reactionTypes[UnitReaction(unit, "player") or 4] or 2
+  end
+  if UnitCanAttack(unit, "player") then
+    return UnitCanAttack("player", unit) and 0 or player
+  end
+  if UnitCanAttack("player", unit) then return 2 end
+  local pvp = UnitIsPVP(unit) and true or false
+  if extended and not UnitIsUnit(unit, "player") and (UnitInParty(unit) or UnitInRaid(unit)) then
+    return pvp and 7 or 6
+  end
+  return pvp and 3 or player
+end
+
+-- `GetSpellLink(spell [, bookType])`: the spell's link, with the trailing sub-data field modern
+-- links carry, and its id.
+function GetSpellLink(spell, book)
+  local name, _, _, _, _, _, _, _, _, id = GetSpellInfo(spell, book)
+  if not name or not id then return nil end
+  return "|cff71d5ff|Hspell:" .. id .. ":0|h[" .. name .. "]|h|r", id
+end
+
+-- The reputation list's headers, every one at once.
+local function factionHeaders(expand)
+  for index = GetNumFactions(), 1, -1 do
+    local _, _, _, _, _, _, _, _, isHeader, isCollapsed = GetFactionInfo(index)
+    if isHeader and (isCollapsed and expand or not isCollapsed and not expand) then
+      if expand then ExpandFactionHeader(index) else CollapseFactionHeader(index) end
+    end
+  end
+end
+function ExpandAllFactionHeaders() factionHeaders(true) end
+function CollapseAllFactionHeaders() factionHeaders(false) end
+
+-- `GetInstanceInfo()`: the zone and its instance type; no difficulties before TBC.
+local instanceCaps = { party = 5, raid = 40, pvp = 40, arena = 5 }
+function GetInstanceInfo()
+  local inInstance, kind = IsInInstance()
+  kind = inInstance and kind or "none"
+  local cap = instanceCaps[kind] or 0
+  return GetRealZoneText(), kind, 1, "Normal", cap, 0, false, 0, cap
+end
