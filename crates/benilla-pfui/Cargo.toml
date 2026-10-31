@@ -10,6 +10,8 @@ workspace = true
 
 [features]
 default = []
+# Nampower's spell queue, CVars, Lua API and events on top of the ClassicAPI layer.
+nampower = ["benilla-ui/nampower"]
 audit = ["dep:benilla-formats", "dep:roxmltree", "dep:serde"]
 
 [dependencies]
