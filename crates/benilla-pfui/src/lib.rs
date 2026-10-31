@@ -419,6 +419,22 @@ const INTRINSICS: &str = r#"<Ui>
   <Model name="Cooldown" inherits="CooldownFrameTemplate" mixin="BenillaCooldownMixin" intrinsic="true"/>
 </Ui>"#;
 
+/// The ClassicAPI addon's files this client does not load yet, as their engine half is missing:
+/// the macro-condition slash commands (which would replace `/cast`, `/use`, `/target` and 45
+/// more), and the trade-skill link buttons (`C_TradeSkillUI`).
+const SKIPPED: &[(&str, &str)] = &[
+    ("!!!ClassicAPI", "Util\\SlashCommandsRegistry.lua"),
+    ("!!!ClassicAPI", "Util\\TradeSkillLink.lua"),
+];
+
+/// Whether `file` of `addon`'s manifest stays unloaded ([`SKIPPED`]).
+pub fn skipped_file(addon: &str, file: &str) -> bool {
+    let file = file.replace('/', "\\");
+    SKIPPED
+        .iter()
+        .any(|(a, f)| a.eq_ignore_ascii_case(addon) && f.eq_ignore_ascii_case(&file))
+}
+
 /// The class names by token, as `install_class_names` received them.
 const CLASS_NAMES: &str = "benilla.pfui.class_names";
 
