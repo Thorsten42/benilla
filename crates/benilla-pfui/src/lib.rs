@@ -18,6 +18,7 @@ pub mod maps;
 pub mod player_cache;
 pub mod spell;
 pub mod swing;
+pub mod swing_range;
 mod widgets;
 
 #[cfg(feature = "audit")]
@@ -186,6 +187,9 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "CombatLogGetCurrentEventInfo",
         "IsPlayerSpell",
         "IsChatAFK",
+        "C_SwingTimer",
+        "C_LossOfControl",
+        "CopyToClipboard",
         "UnitHasIncomingResurrection",
         "C_MapExplorationInfo",
         "ClassicAPI",
@@ -245,6 +249,14 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         })?,
     )?;
     engine.set(
+        "clipboard",
+        lua.create_function(|lua, text: String| {
+            lua.named_registry_value::<mlua::Table>(CLIPBOARD)?
+                .set(1, text)
+        })?,
+    )?;
+    lua.set_named_registry_value(CLIPBOARD, lua.create_table()?)?;
+    engine.set(
         "ui_colors",
         lua.load(include_str!("ui_colors.lua"))
             .set_name("@benilla-pfui/ui_colors.lua")
@@ -269,6 +281,10 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         ("fontstring", "__benilla_fontstring_methods"),
         ("title", "__benilla_title_methods"),
         ("region", "__benilla_region_methods"),
+        (
+            "scrollingmessageframe",
+            "__benilla_scrollingmessageframe_methods",
+        ),
     ] {
         tables.set(key, lua.named_registry_value::<mlua::Table>(registry)?)?;
     }
@@ -278,6 +294,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     lua.load(include_str!("animations.lua"))
         .set_name("@benilla-pfui/animations.lua")
         .call::<()>(tables)?;
+    swing_range::install(lua)?;
     lua.load(include_str!("combatlog.lua"))
         .set_name("@benilla-pfui/combatlog.lua")
         .exec()?;
@@ -433,6 +450,20 @@ pub fn skipped_file(addon: &str, file: &str) -> bool {
     SKIPPED
         .iter()
         .any(|(a, f)| a.eq_ignore_ascii_case(addon) && f.eq_ignore_ascii_case(&file))
+}
+
+/// The text `CopyToClipboard` asked for this frame, which the client writes ([`take_clipboard`]).
+const CLIPBOARD: &str = "benilla.pfui.clipboard";
+
+/// The text a script asked `CopyToClipboard` to copy since the last call, the last one winning.
+pub fn take_clipboard(script: &UiScript) -> Option<String> {
+    let lua = script.lua();
+    let pending = lua.named_registry_value::<mlua::Table>(CLIPBOARD).ok()?;
+    let text: Option<String> = pending.get(1).ok().flatten();
+    if text.is_some() {
+        let _ = pending.set(1, Value::Nil);
+    }
+    text
 }
 
 /// The class names by token, as `install_class_names` received them.
