@@ -7,6 +7,7 @@ mod bags;
 mod casts;
 pub(crate) mod clicks;
 mod icons;
+pub(crate) mod input;
 mod loot;
 mod quests;
 mod session_events;
@@ -143,6 +144,7 @@ impl Plugin for PfuiPlugin {
                 .before(crate::ui_unit::UnitFeed),
         );
         casts::register(app);
+        input::register(app);
         bags::register(app);
         loot::register(app);
         quests::register(app);
