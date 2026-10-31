@@ -8,6 +8,7 @@
 mod attributes;
 pub mod bags;
 pub mod clock;
+pub mod combat_log;
 pub mod creature;
 pub mod display;
 mod encoding;
@@ -295,9 +296,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         .set_name("@benilla-pfui/animations.lua")
         .call::<()>(tables)?;
     swing_range::install(lua)?;
-    lua.load(include_str!("combatlog.lua"))
-        .set_name("@benilla-pfui/combatlog.lua")
-        .exec()?;
+    combat_log::install(lua)?;
     lua.load(include_str!("cooldown.lua"))
         .set_name("@benilla-pfui/cooldown.lua")
         .exec()?;
