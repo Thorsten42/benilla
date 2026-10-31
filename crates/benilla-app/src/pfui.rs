@@ -11,6 +11,7 @@ mod icons;
 pub(crate) mod input;
 mod loot;
 mod quests;
+mod resurrect;
 mod session_events;
 mod social;
 mod spells;
@@ -148,6 +149,7 @@ impl Plugin for PfuiPlugin {
         casts::register(app);
         input::register(app);
         combat_log::register(app);
+        resurrect::register(app);
         bags::register(app);
         loot::register(app);
         quests::register(app);
