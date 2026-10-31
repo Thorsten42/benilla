@@ -318,6 +318,9 @@ function Group:IsPlaying() return self.playing and not self.paused end
 function Group:IsPaused() return self.paused end
 function Group:IsDone() return not self.playing end
 function Group:IsPendingFinish() return false end
+-- Every group here steps each frame the frame draws; the flag is kept for its getter.
+function Group:SetIgnoreFramerateThrottle(ignore) self.ignoreThrottle = ignore and true or false end
+function Group:IsIgnoringFramerateThrottle() return self.ignoreThrottle == true end
 function Group:IsReverse() return self.reverse end
 function Group:SetPlaying(on) if on then self:Play() else self:Stop() end end
 function Group:SetLooping(kind) self.looping = string.upper(kind or "NONE") end
