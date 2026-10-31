@@ -773,3 +773,19 @@ fn an_addons_memory_is_what_the_heap_grew_while_it_loaded() {
         )
         .unwrap();
 }
+
+#[test]
+fn a_registered_atlas_reaches_the_text_escapes() {
+    let script = extended();
+    let (_, before) =
+        benilla_ui::script::pfui_host::inline_texture::atlases_since(script.lua(), 0).unwrap();
+    assert!(before.contains_key("ui-classicscrollbar-center"));
+    script
+        .run(r#"C_Texture.RegisterAtlas("Test-Gem", "Interface\\Test\\sheet", 32, 16, 0, 0.25, 0.5, 1)"#)
+        .unwrap();
+    let (_, atlases) =
+        benilla_ui::script::pfui_host::inline_texture::atlases_since(script.lua(), 0).unwrap();
+    let gem = &atlases["test-gem"];
+    assert_eq!(gem.file, "Interface\\Test\\sheet");
+    assert_eq!((gem.width, gem.coords), (32.0, [0.0, 0.25, 0.5, 1.0]));
+}
