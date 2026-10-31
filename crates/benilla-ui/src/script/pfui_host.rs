@@ -56,6 +56,27 @@ pub fn fire_pfui_event(lua: &Lua, event: &str, args: Vec<super::ScriptValue>) {
 
 /// The spell `text` names, `Name(Rank N)`, in the player's book and then the pet's, as
 /// `CastSpellByName` resolves it, against the books as they stand at the call.
+/// The player's spellbook now: the lent host's, else the VM's copy. Upstream's getters read the
+/// book through the host, and the copy is not kept current.
+pub(crate) fn player_book(lua: &Lua) -> super::SpellBookState {
+    super::live::ask(lua, &super::BookNow).unwrap_or_else(|| {
+        lua.app_data_ref::<super::Model>()
+            .expect("model")
+            .spellbook
+            .clone()
+    })
+}
+
+/// The pet's spellbook now, as [`player_book`] reads the player's.
+pub(crate) fn pet_book(lua: &Lua) -> super::PetBookState {
+    super::live::ask(lua, &super::PetBookNow).unwrap_or_else(|| {
+        lua.app_data_ref::<super::Model>()
+            .expect("model")
+            .pet_book
+            .clone()
+    })
+}
+
 pub(crate) fn spell_named(lua: &Lua, text: &str) -> Option<super::NamedSpell> {
     let book = super::live::ask(lua, &super::BookNow);
     let pet = super::live::ask(lua, &super::PetBookNow);
