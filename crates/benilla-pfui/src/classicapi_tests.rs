@@ -439,3 +439,95 @@ fn the_version_is_the_classicapi_addons_once_it_has_loaded() {
         )
         .unwrap();
 }
+
+#[test]
+fn scale_and_path_animations_move_their_target_and_give_it_back() {
+    let mut script = extended();
+    script
+        .run(
+            r#"
+        parent = CreateFrame("Frame")
+        frame = CreateFrame("Frame", nil, parent)
+        frame:SetWidth(10); frame:SetHeight(20)
+        frame:SetPoint("CENTER", parent, "CENTER", 0, 0)
+        group = frame:CreateAnimationGroup()
+        local zoom = group:CreateAnimation("Scale")
+        zoom:SetScale(2, 2); zoom:SetDuration(1)
+        local path = group:CreateAnimation("Path")
+        local p1 = path:CreateControlPoint(); p1:SetOffset(10, 0)
+        local p2 = path:CreateControlPoint(); p2:SetOffset(10, 10)
+        path:SetDuration(1)
+        group:Play()
+    "#,
+        )
+        .unwrap();
+    script.tick(0.5);
+    script
+        .run(
+            r#"
+        assert(math.abs(frame:GetWidth() - 15) < 0.01 and math.abs(frame:GetHeight() - 30) < 0.01,
+          frame:GetWidth() .. "x" .. frame:GetHeight())
+        local _, _, _, x, y = frame:GetPoint(1)
+        assert(math.abs(x - 10) < 0.01 and math.abs(y) < 0.01, x .. "," .. y)
+    "#,
+        )
+        .unwrap();
+    script.tick(0.6);
+    script
+        .run(
+            r#"
+        assert(not group:IsPlaying())
+        assert(math.abs(frame:GetWidth() - 10) < 0.01 and math.abs(frame:GetHeight() - 20) < 0.01)
+        local _, _, _, x, y = frame:GetPoint(1)
+        assert(math.abs(x) < 0.01 and math.abs(y) < 0.01)
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
+fn swing_ranges_answer_and_raise_for_the_enabled_types() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        changes = {}
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("PLAYER_SWING_RANGE_UPDATE")
+        f:SetScript("OnEvent", function() table.insert(changes, arg1 .. ":" .. tostring(arg2) .. ":" .. tostring(arg3)) end)
+        C_SwingTimer.EnableRangeCheck(Enum.PlayerSwingType.MainHand, true)
+        assert(C_SwingTimer.IsTargetWithinSwingRange(0) == nil)
+    "#,
+        )
+        .unwrap();
+    super::swing_range::set(script.lua(), [Some(false), None, Some(true)]);
+    super::swing_range::set(script.lua(), [Some(true), None, Some(false)]);
+    script
+        .run(
+            r#"
+        assert(C_SwingTimer.IsTargetWithinSwingRange(0) == true)
+        assert(C_SwingTimer.IsTargetWithinSwingRange(1) == nil)
+        assert(C_SwingTimer.IsTargetWithinSwingRange(2) == false)
+        -- Only the enabled main hand raises: unknown to out of range, then in range.
+        assert(table.concat(changes, ",") == "0:nil:1,0:1:1", table.concat(changes, ","))
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
+fn paper_doll_slots_and_inventory_types_answer_by_number() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        GetInventorySlotInfo = function(name) if name == "RangedSlot" then return 18, "ranged.blp" end end
+        local id, tex, relic, name = C_PaperDollInfo.GetInventorySlotInfoForInvSlot(18)
+        assert(id == 18 and tex == "ranged.blp" and relic == true and name == "RangedSlot")
+        assert(C_PaperDollInfo.GetInventorySlotInfoForInvSlot(40) == nil)
+        assert(not pcall(C_PaperDollInfo.GetInventorySlotInfoForInvSlot, "x"))
+        assert(type(C_Item.GetItemInventoryType) == "function")
+    "#,
+        )
+        .unwrap();
+}
