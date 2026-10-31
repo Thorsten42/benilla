@@ -18,6 +18,47 @@ pub struct Aura {
 #[derive(Default)]
 struct Extras {
     by_guid: HashMap<u64, Vec<Aura>>,
+    /// Each player aura's last expiry by `(slot, spell)`, with the full duration it had when that
+    /// expiry was first read.
+    player_spans: HashMap<(u8, u32), (f64, f64)>,
+}
+
+/// A player aura's timing as the getters answer it. The stock player list carries none: the
+/// expiry is the duration packet's stamp, read through the lent host as `GetPlayerBuffTimeLeft`
+/// reads it ([`crate::script::PlayerBuffExpiry`]), and the packet carries only the time left, so
+/// the full duration is what was left when a new expiry was first read (the application's packet,
+/// unless the first read came later). An observed cast's duration stays.
+fn player_timing(lua: &Lua, mut aura: Aura) -> Aura {
+    let expiry =
+        crate::script::live::ask(lua, &crate::script::PlayerBuffExpiry { slot: aura.slot })
+            .unwrap_or(aura.state.expiration_time);
+    if expiry <= 0.0 {
+        return aura;
+    }
+    let now = lua
+        .globals()
+        .get::<mlua::Function>("GetTime")
+        .and_then(|time| time.call::<f64>(()))
+        .unwrap_or(0.0);
+    let key = (aura.slot, aura.state.spell_id);
+    let duration = {
+        let Some(mut extras) = lua.app_data_mut::<Extras>() else {
+            return aura;
+        };
+        match extras.player_spans.get(&key) {
+            Some(&(seen, duration)) if (seen - expiry).abs() < 0.01 => duration,
+            _ => {
+                let duration = (expiry - now).max(0.0);
+                extras.player_spans.insert(key, (expiry, duration));
+                duration
+            }
+        }
+    };
+    aura.state.expiration_time = expiry;
+    if aura.state.duration <= 0.0 {
+        aura.state.duration = duration;
+    }
+    aura
 }
 
 /// The stock aura feed owns roster fallback even after a member or pet leaves object range.
@@ -196,6 +237,7 @@ pub(crate) fn list(lua: &Lua, token: &str, filter: Option<&str>) -> Vec<Aura> {
         return Vec::new();
     };
     let model = lua.app_data_ref::<Model>().expect("model");
+    let player = guid == model.unit_guids.player;
     let tokens: Vec<_> = filter
         .unwrap_or("HELPFUL")
         .split(['|', ' '])
@@ -239,17 +281,33 @@ pub(crate) fn list(lua: &Lua, token: &str, filter: Option<&str>) -> Vec<Aura> {
             aura.slot,
         )
     });
+    drop((model, extras));
+    if player {
+        result = result
+            .into_iter()
+            .map(|aura| player_timing(lua, aura))
+            .collect();
+    }
     result
 }
 
 fn slot(lua: &Lua, token: &str, slot: i64) -> Option<Aura> {
     let guid = unit_guid(lua, token)?;
-    lua.app_data_ref::<Extras>()?
+    let aura = lua
+        .app_data_ref::<Extras>()?
         .by_guid
         .get(&guid)?
         .iter()
         .find(|aura| i64::from(aura.slot) == slot)
-        .cloned()
+        .cloned()?;
+    let player = lua
+        .app_data_ref::<Model>()
+        .is_some_and(|model| model.unit_guids.player == guid);
+    Some(if player {
+        player_timing(lua, aura)
+    } else {
+        aura
+    })
 }
 
 fn source(lua: &Lua, aura: &Aura) -> Option<String> {
