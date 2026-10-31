@@ -166,6 +166,34 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "CreateSimpleTextureMarkup",
         "GetCoinTextureString",
         "CLASS_SORT_ORDER",
+        "securecall",
+        "securecallfunction",
+        "secureexecuterange",
+        "issecure",
+        "IsPublicBuild",
+        "strsplit",
+        "strsplittable",
+        "GetTickTime",
+        "GetMouseFoci",
+        "FillLocalizedClassList",
+        "AddSourceLocationExclude",
+        "IsLoggedIn",
+        "C_EventUtils",
+        "C_UIColor",
+        "C_CVar",
+        "C_Texture",
+        "ManilaCooldownMixin",
+        "CombatLogGetCurrentEventInfo",
+        "IsPlayerSpell",
+        "IsChatAFK",
+        "UnitHasIncomingResurrection",
+        "C_MapExplorationInfo",
+        "ClassicAPI",
+        "GetPhysicalScreenSize",
+        "IsModifiedClick",
+        "GetModifiedClick",
+        "SetModifiedClick",
+        "LE_ITEM_QUALITY_POOR",
     ] {
         if !lua.globals().get::<Value>(name)?.is_nil() {
             return Err(mlua::Error::runtime(format!(
@@ -201,6 +229,72 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         })?)?;
     widgets::install(lua)?;
     benilla_ui::script::pfui_host::install(lua)?;
+    let engine = lua.create_table()?;
+    engine.set(
+        "class_names",
+        lua.create_function(|lua, ()| {
+            lua.named_registry_value::<Option<mlua::Table>>(CLASS_NAMES)?
+                .map_or_else(|| lua.create_table(), Ok)
+        })?,
+    )?;
+    engine.set(
+        "fire",
+        lua.create_function(|lua, event: String| {
+            benilla_ui::script::pfui_host::fire_pfui_event(lua, &event, Vec::new());
+            Ok(())
+        })?,
+    )?;
+    engine.set(
+        "ui_colors",
+        lua.load(include_str!("ui_colors.lua"))
+            .set_name("@manila-pfui/ui_colors.lua")
+            .eval::<mlua::Table>()?,
+    )?;
+    engine.set(
+        "display",
+        lua.named_registry_value::<mlua::Table>("manila.pfui.globals_bridge")?,
+    )?;
+    engine.set(
+        "textures",
+        lua.named_registry_value::<mlua::Table>("__benilla_texture_methods")?,
+    )?;
+    let tables = lua.create_table()?;
+    for (key, registry) in [
+        ("frame", "__benilla_frame_methods"),
+        ("button", "__benilla_button_methods"),
+        ("editbox", "__benilla_editbox_methods"),
+        ("slider", "__benilla_slider_methods"),
+        ("statusbar", "__benilla_statusbar_methods"),
+        ("texture", "__benilla_texture_methods"),
+        ("fontstring", "__benilla_fontstring_methods"),
+        ("title", "__benilla_title_methods"),
+        ("region", "__benilla_region_methods"),
+    ] {
+        tables.set(key, lua.named_registry_value::<mlua::Table>(registry)?)?;
+    }
+    lua.load(include_str!("modern_widgets.lua"))
+        .set_name("@manila-pfui/modern_widgets.lua")
+        .call::<()>(tables.clone())?;
+    lua.load(include_str!("animations.lua"))
+        .set_name("@manila-pfui/animations.lua")
+        .call::<()>(tables)?;
+    lua.load(include_str!("combatlog.lua"))
+        .set_name("@manila-pfui/combatlog.lua")
+        .exec()?;
+    lua.load(include_str!("cooldown.lua"))
+        .set_name("@manila-pfui/cooldown.lua")
+        .exec()?;
+    let intrinsics = benilla_ui::framexml::parse(INTRINSICS)
+        .map_err(|e| mlua::Error::runtime(format!("manila-pfui intrinsics: {e:?}")))?;
+    let report = benilla_ui::loader::load_into(lua, &intrinsics, "", &|_| None);
+    if let Some(error) = report.errors.first() {
+        return Err(mlua::Error::runtime(format!(
+            "manila-pfui intrinsics: {error}"
+        )));
+    }
+    lua.load(include_str!("engine.lua"))
+        .set_name("@manila-pfui/engine.lua")
+        .call::<()>(engine.clone())?;
     icons::install(lua)?;
     loot::install(lua)?;
     maps::Catalog::default().install(lua)?;
@@ -234,7 +328,47 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     lua.load(include_str!("equipment_actions.lua"))
         .set_name("@manila-pfui/equipment_actions.lua")
         .call::<()>(lua.named_registry_value::<mlua::Table>("manila.pfui.equipment_bridge")?)?;
+    lua.load(include_str!("engine_tail.lua"))
+        .set_name("@manila-pfui/engine_tail.lua")
+        .call::<()>(engine)?;
+    mirror(lua)?;
     lua.set_named_registry_value(INSTALLED, true)
+}
+
+/// The `ClassicAPI` table: every engine function under its own name, a namespace as a subtable,
+/// as the DLL binds each one twice. FrameXML and addons load later, so a global they replace
+/// still reads here as the engine's.
+fn mirror(lua: &Lua) -> mlua::Result<()> {
+    let mirror = lua.create_table()?;
+    for pair in lua.globals().pairs::<Value, Value>() {
+        let (name, value) = pair?;
+        let Value::String(key) = &name else {
+            continue;
+        };
+        match value {
+            Value::Function(_) => mirror.raw_set(name, value)?,
+            Value::Table(namespace) if key.to_string_lossy().starts_with("C_") => {
+                let copy = lua.create_table()?;
+                for entry in namespace.pairs::<Value, Value>() {
+                    let (field, value) = entry?;
+                    copy.raw_set(field, value)?;
+                }
+                mirror.raw_set(name, copy)?;
+            }
+            _ => {}
+        }
+    }
+    for library in ["string", "table", "math", "coroutine"] {
+        if let Value::Table(namespace) = lua.globals().get::<Value>(library)? {
+            let copy = lua.create_table()?;
+            for entry in namespace.pairs::<Value, Value>() {
+                let (field, value) = entry?;
+                copy.raw_set(field, value)?;
+            }
+            mirror.raw_set(library, copy)?;
+        }
+    }
+    lua.globals().set("ClassicAPI", mirror)
 }
 
 /// Execute an addon file with its modern `(addonName, privateTable)` arguments. The caller owns
@@ -269,11 +403,24 @@ pub fn install_class_names<'a>(
         return Err(mlua::Error::runtime("class-name table already installed"));
     }
     let table = lua.create_table()?;
+    let copy = lua.create_table()?;
     for (token, name) in names {
         table.set(token, name)?;
+        copy.set(token, name)?;
     }
+    // FillLocalizedClassList's own copy: the ClassicAPI addon rebuilds the global through it.
+    lua.set_named_registry_value(CLASS_NAMES, copy)?;
     lua.globals().set("LOCALIZED_CLASS_NAMES_MALE", table)
 }
+
+/// The frame types a ClassicAPI client adds that this layer builds from 1.12 ones: `Cooldown` is
+/// the indicator model with the modern methods.
+const INTRINSICS: &str = r#"<Ui>
+  <Model name="Cooldown" inherits="CooldownFrameTemplate" mixin="ManilaCooldownMixin" intrinsic="true"/>
+</Ui>"#;
+
+/// The class names by token, as `install_class_names` received them.
+const CLASS_NAMES: &str = "manila.pfui.class_names";
 
 #[cfg(test)]
 mod tests;
