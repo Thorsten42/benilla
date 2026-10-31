@@ -22,6 +22,7 @@ bevy_dynamic_linking = ["bevy/dynamic_linking"]
 # Optional fork extension; stock builds retain the 1.12 API and addon loading ABI.
 pfui = ["dep:manila-pfui"]
 pfui-turtle = ["pfui"]
+nampower = ["pfui", "manila-pfui/nampower", "benilla-ui/nampower"]
 
 [dependencies]
 anyhow.workspace = true
