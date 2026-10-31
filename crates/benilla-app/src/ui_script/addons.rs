@@ -152,6 +152,11 @@ impl Addon {
         // The `<Include>` / `<Script file=>` provider; `read` is the sandbox.
         let provider = |req: &str| -> Option<Vec<u8>> { self.read(req) };
         for file in files {
+            // The ClassicAPI addon's files whose engine half this client lacks stay unloaded.
+            #[cfg(feature = "pfui")]
+            if benilla_pfui::skipped_file(&self.name, file) {
+                continue;
+            }
             // Resolved once into the source's path space, for `read` and the loader alike.
             let path = benilla_ui::loader::join_ref(&self.prefix(), file);
             let Some(bytes) = self.read(&path) else {
