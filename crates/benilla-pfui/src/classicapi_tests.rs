@@ -627,3 +627,28 @@ fn the_combat_log_raises_its_events_with_the_values_and_filters_the_second() {
         )
         .unwrap();
 }
+
+#[test]
+fn an_incoming_resurrection_raises_once_per_token_and_only_on_a_change() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        seen = {}
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("INCOMING_RESURRECT_CHANGED")
+        f:SetScript("OnEvent", function() table.insert(seen, arg1) end)
+        assert(UnitHasIncomingResurrection("nosuchunit") == false)
+    "#,
+        )
+        .unwrap();
+    let lua = script.lua();
+    super::resurrect::set(lua, 7, true, &["target", "party1"]);
+    super::resurrect::set(lua, 7, true, &["target", "party1"]);
+    super::resurrect::set(lua, 7, false, &["target"]);
+    script
+        .run(
+            r#"assert(table.concat(seen, ",") == "target,party1,target", table.concat(seen, ","))"#,
+        )
+        .unwrap();
+}
