@@ -238,12 +238,14 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     lua.load(include_str!("helpers.lua"))
         .set_name("@benilla-pfui/helpers.lua")
         .exec()?;
-    lua.load(include_str!("timers.lua"))
+    let timer_pass = lua
+        .load(include_str!("timers.lua"))
         .set_name("@benilla-pfui/timers.lua")
-        .call::<()>(lua.create_function(|lua, message: String| {
+        .call::<mlua::Function>(lua.create_function(|lua, message: String| {
             benilla_ui::script::pfui_host::report_error(lua, message);
             Ok(())
         })?)?;
+    lua.set_named_registry_value(benilla_ui::script::pfui_host::TIMER_PASS, timer_pass)?;
     widgets::install(lua)?;
     benilla_ui::script::pfui_host::install(lua)?;
     let engine = lua.create_table()?;

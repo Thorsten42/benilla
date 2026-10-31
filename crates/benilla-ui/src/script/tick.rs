@@ -388,6 +388,9 @@ impl super::UiScript {
         }
         // The draw pass opens with the overlap bits of the strata whose levels went dirty.
         super::object::toplevel::refresh_overlap_bits(&mut self.model_mut());
+        // The pass renders the world frame, and with it a ClassicAPI client's timers.
+        #[cfg(feature = "pfui")]
+        super::pfui_host::run_timers(&self.lua);
         self.paint_model_panes();
         self.paint_movies();
         // `WOW_UI_HANDLERS=<secs>`: last, so its report covers everything this tick fired.
