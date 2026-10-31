@@ -332,6 +332,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         ("statusbar", "__benilla_statusbar_methods"),
         ("texture", "__benilla_texture_methods"),
         ("fontstring", "__benilla_fontstring_methods"),
+        ("model", "__benilla_model_methods"),
         ("title", "__benilla_title_methods"),
         ("region", "__benilla_region_methods"),
         (
