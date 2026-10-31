@@ -16,6 +16,8 @@ pub mod icons;
 pub mod loot;
 mod lua51;
 pub mod maps;
+#[cfg(feature = "nampower")]
+pub mod nampower;
 pub mod player_cache;
 pub mod resurrect;
 pub mod spell;
@@ -380,6 +382,8 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         .set_name("@manila-pfui/social.lua")
         .call::<()>(lua.named_registry_value::<mlua::Table>("manila.pfui.social_bridge")?)?;
     attributes::install(lua)?;
+    #[cfg(feature = "nampower")]
+    nampower::install(lua)?;
     lua.set_named_registry_value("manila.pfui.addon_privates", lua.create_table()?)?;
     lua.load("function UnitClassBase(unit) local _, token = UnitClass(unit); return token end")
         .set_name("@manila-pfui/units.lua")
