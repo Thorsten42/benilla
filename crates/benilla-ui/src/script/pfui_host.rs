@@ -44,6 +44,22 @@ pub fn report_error(lua: &Lua, message: String) {
         .record_error(message.clone());
 }
 
+/// The registry key of the `C_Timer` queue's pass, which the extension's timers set.
+pub const TIMER_PASS: &str = "benilla.pfui.timer_pass";
+
+/// ClassicAPI's `C_Timer` queue. Its timers ride the world tick `0x66fd50`, which the world frame's
+/// render calls (`CGWorldFrame::OnRender` `0x482ea0`, at `0x483297`) in the draw pass: a frame's
+/// timers fire after every `OnUpdate` of its walk, so a deferred scan sees what those updates made,
+/// and none fire under the loading screen, where no draw pass runs.
+pub(super) fn run_timers(lua: &Lua) {
+    let Ok(Some(pass)) = lua.named_registry_value::<Option<Function>>(TIMER_PASS) else {
+        return;
+    };
+    if let Err(e) = pass.call::<()>(()) {
+        report_error(lua, e.to_string());
+    }
+}
+
 /// Extension-owned event payloads use the stock protected dispatcher and legacy argN globals.
 /// Every pfUI raise comes this way. ClassicAPI and Nampower raise these events from their own
 /// per-frame hooks, part of the client's frame, so a raise here is the tick's
