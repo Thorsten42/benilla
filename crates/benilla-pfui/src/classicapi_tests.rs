@@ -17,6 +17,51 @@ fn load(script: &UiScript, xml: &str) {
 }
 
 #[test]
+fn a_regions_relative_key_finds_a_frame_nested_in_the_same_load() {
+    let script = extended();
+    load(
+        &script,
+        r#"<Ui>
+          <Frame name="KeyedOuter">
+            <Size x="100" y="20"/>
+            <Frames>
+              <Frame parentKey="Arrow">
+                <Size x="16" y="16"/>
+                <Anchors><Anchor point="RIGHT" x="-2"/></Anchors>
+              </Frame>
+            </Frames>
+            <Layers>
+              <Layer level="OVERLAY">
+                <FontString name="KeyedText" parentKey="Text" inherits="GameFontWhite">
+                  <Anchors>
+                    <Anchor point="LEFT" x="2"/>
+                    <Anchor point="RIGHT" relativeKey="$parent.Arrow" relativePoint="LEFT" x="-4"/>
+                  </Anchors>
+                </FontString>
+              </Layer>
+            </Layers>
+          </Frame>
+        </Ui>"#,
+    );
+    script
+        .run(
+            r#"
+        local text = KeyedOuter.Text
+        assert(text:GetNumPoints() == 2)
+        for i = 1, 2 do
+          local point, relative, relativePoint = text:GetPoint(i)
+          if point == "RIGHT" then
+            assert(relative == KeyedOuter.Arrow and relativePoint == "LEFT")
+          else
+            assert(point == "LEFT" and relative == KeyedOuter and relativePoint == "LEFT")
+          end
+        end
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
 fn strsplit_splits_on_any_separator_character_and_caps_the_pieces() {
     let script = extended();
     script
