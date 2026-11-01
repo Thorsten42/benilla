@@ -794,6 +794,14 @@ fn frame_meta_for(lua: &Lua, kind: Option<FrameKind>) -> mlua::Result<Table> {
         let own: Table = lua.named_registry_value(reg)?;
         let link = lua.create_table()?;
         link.set("__index", below)?;
+        // ClassicAPI calls `__index`, a function in the reference (`0x7020b0`).
+        #[cfg(feature = "pfui")]
+        link.set(
+            "__call",
+            lua.create_function(|_, (methods, _, key): (Table, Value, Value)| {
+                methods.get::<Value>(key)
+            })?,
+        )?;
         own.set_metatable(Some(link))?;
         below = own;
     }
