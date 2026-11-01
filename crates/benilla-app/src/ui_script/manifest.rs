@@ -163,6 +163,10 @@ pub(crate) fn load_default_ui(script: &UiScript) -> Vec<String> {
 /// carried in the client binary, which benilla does not ship, and a modified interface file is
 /// loaded rather than refused.
 pub(super) fn load_core(script: &UiScript) -> Vec<String> {
+    #[cfg(feature = "pfui")]
+    if let Err(error) = crate::pfui::prepare(script) {
+        return vec![error];
+    }
     let Some(core) = reference_ui::core() else {
         let e = format!(
             "{}: not found — the stock interface is not built",
