@@ -803,6 +803,8 @@ pub(super) fn feed_item_stats(
                 .into_iter()
                 .filter(|&id| items.template(id, 0, Ask::Read).is_some()),
         );
+        #[cfg(feature = "pfui")]
+        crate::pfui::resolve_item_misses(script, pending, &items);
         if pending.is_empty() {
             return;
         }
@@ -816,6 +818,15 @@ pub(super) fn feed_item_stats(
         let built = views.build(&items, script, ready);
         for (id, view) in built {
             pending.remove(&id);
+            #[cfg(feature = "pfui")]
+            if let Some(t) = items.template(id, 0, Ask::Read) {
+                benilla_ui::script::pfui_host::items::set_metadata(
+                    script.lua(),
+                    id,
+                    t.item_level,
+                    t.bag_family,
+                );
+            }
             script.set_item_template(id, view);
         }
         // The quest log's item callbacks (`0x4e0830`) on the records the push carried, once each.
