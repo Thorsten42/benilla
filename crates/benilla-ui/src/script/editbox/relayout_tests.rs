@@ -219,6 +219,37 @@ fn the_text_region_is_pinned_top_left_as_wide_as_the_box_and_as_tall_as_its_text
     );
 }
 
+/// The label follows the box's own justify (pfUI's right-aligned number boxes), whenever it is set.
+#[test]
+fn the_text_draws_by_the_boxs_horizontal_justify() {
+    use crate::script::JustifyH;
+    for (token, want) in [
+        ("LEFT", JustifyH::Left),
+        ("CENTER", JustifyH::Center),
+        ("RIGHT", JustifyH::Right),
+    ] {
+        let mut s = script();
+        inset_box(&mut s);
+        s.run(&format!(r#"E:SetText("hello") E:SetJustifyH("{token}")"#))
+            .unwrap();
+        frame(&mut s);
+        frame(&mut s);
+        let drawn = s
+            .extract()
+            .into_iter()
+            .find_map(|q| match q.content {
+                QuadContent::Text {
+                    text: Some(t),
+                    justify_h,
+                    ..
+                } if t == "hello" => Some(justify_h),
+                _ => None,
+            })
+            .expect("the text draws");
+        assert_eq!(drawn, want, "{token}");
+    }
+}
+
 /// The height's move fires the box's `OnSizeChanged(width, height)`, and a flush that keeps it
 /// fires nothing.
 #[test]

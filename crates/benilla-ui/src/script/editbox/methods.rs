@@ -374,7 +374,8 @@ fn install_font_block(lua: &Lua, m: &Table) -> mlua::Result<()> {
                     .ok_or_else(|| {
                         binding_abi::usage(lua, &this, &format!("{name}(\"justify\")"))
                     })?;
-                with_editbox(lua, &this, |eb| eb.set_justify_axis(mask, bits))
+                with_editbox(lua, &this, |eb| eb.set_justify_axis(mask, bits))?;
+                super::refresh_text_region(lua, &this)
             })?,
         )?;
     }

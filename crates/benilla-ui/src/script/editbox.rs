@@ -455,9 +455,9 @@ pub(crate) fn editbox_text_region_wrapper(lua: &Lua, frame: &Table) -> Option<Ta
 pub(crate) fn adopt_text_region(lua: &Lua, frame: &Table, region: &Table) -> mlua::Result<()> {
     let h = frame_handle_of(lua, frame)?;
     let rh = super::region::region_handle_of(lua, region)?;
-    let Some(multi_line) = with_eb(lua, h, |eb| {
+    let Some((multi_line, justify)) = with_eb(lua, h, |eb| {
         eb.text_region = Some(rh);
-        eb.multi_line
+        (eb.multi_line, eb.justify)
     }) else {
         return Ok(()); // not an EditBox
     };
@@ -466,7 +466,7 @@ pub(crate) fn adopt_text_region(lua: &Lua, frame: &Table, region: &Table) -> mlu
     // Always `Some` text: an empty box still emits its Text quad for the host's caret.
     let data = model.region_data.entry(rh).or_default();
     data.text.get_or_insert_with(String::new);
-    apply_text_region_justify(data, multi_line);
+    apply_text_region_justify(data, multi_line, justify);
     Ok(())
 }
 
@@ -517,8 +517,8 @@ pub(super) fn ensure_text_region(lua: &Lua, h: FrameHandle) -> Option<RegionHand
 
 /// [`ensure_text_region`] on a borrowed model.
 pub(super) fn ensure_text_region_in(model: &mut Model, h: FrameHandle) -> Option<RegionHandle> {
-    let (existing, multi_line) = match model.arena.frame(h).map(|f| &f.kind_state) {
-        Some(KindState::EditBox(eb)) => (eb.text_region, eb.multi_line),
+    let (existing, multi_line, justify) = match model.arena.frame(h).map(|f| &f.kind_state) {
+        Some(KindState::EditBox(eb)) => (eb.text_region, eb.multi_line, eb.justify),
         _ => return None,
     };
     // The ctor built the region (`0x779bee`, the first of a CSimpleEditBox's five regions); its
@@ -536,7 +536,7 @@ pub(super) fn ensure_text_region_in(model: &mut Model, h: FrameHandle) -> Option
             text: Some(String::new()),
             ..RegionData::default()
         };
-        apply_text_region_justify(&mut data, multi_line);
+        apply_text_region_justify(&mut data, multi_line, justify);
         slot.insert(data);
         model.touch_layout_region(rh);
     }
@@ -555,18 +555,27 @@ pub(super) fn refresh_text_region(lua: &Lua, this: &Table) -> mlua::Result<()> {
     let Some(KindState::EditBox(eb)) = model.arena.frame(h).map(|f| &f.kind_state) else {
         return Ok(());
     };
-    let (Some(rh), multi_line) = (eb.text_region, eb.multi_line) else {
+    let (Some(rh), multi_line, justify) = (eb.text_region, eb.multi_line, eb.justify) else {
         return Ok(());
     };
-    apply_text_region_justify(model.region_data.entry(rh).or_default(), multi_line);
+    apply_text_region_justify(
+        model.region_data.entry(rh).or_default(),
+        multi_line,
+        justify,
+    );
     relayout::seat_text_region(&mut model, h);
     Ok(())
 }
 
-/// Left-justified whatever the font string declares (the draw `0x77da80` anchors left at the
-/// insets), from the top in a multiLine box and vertically centered otherwise.
-fn apply_text_region_justify(data: &mut RegionData, multi_line: bool) {
-    data.justify.set_h(crate::script::JustifyH::Left);
+/// The box's own horizontal justify, which the label follows from the box's font (`0x779c27`, and
+/// `SetMultiLine` cuts off only the vertical bits, `0x77a4b3`), and from the top in a multiLine box
+/// and vertically centered otherwise.
+fn apply_text_region_justify(data: &mut RegionData, multi_line: bool, justify: u32) {
+    data.justify.0 = crate::justify::set_axis(
+        data.justify.0,
+        crate::justify::H_MASK,
+        justify & crate::justify::H_MASK,
+    );
     data.justify.set_v(if multi_line {
         crate::script::JustifyV::Top
     } else {
