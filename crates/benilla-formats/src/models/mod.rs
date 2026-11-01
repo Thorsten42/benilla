@@ -69,6 +69,7 @@ fn remap_submesh(
             // The per-batch fields start at their defaults; the M2 and WMO paths set their own.
             skin_slot: None,
             geoset_id: 0,
+            priority_plane: 0,
             char_slot: None,
             icon_slot: false,
             blend,

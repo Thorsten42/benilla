@@ -282,6 +282,9 @@ pub struct RenderSubmesh {
     pub skin_slot: Option<u8>,
     /// The `skinSectionId` (`group*100 + variant`) the character compositor shows geosets by.
     pub geoset_id: u16,
+    /// The texture unit's signed priority plane (`+0x02`, `0x707c76`), which the transparent order
+    /// compares ahead of the batch-centre depth.
+    pub priority_plane: i16,
     pub char_slot: Option<CharSkinSlot>,
     pub blend: ModelBlend,
     /// Address mode from the texture record (`0x1` repeat U, `0x2` repeat V, else clamp): a cutout
@@ -427,6 +430,7 @@ impl Default for RenderSubmesh {
             texture: None,
             skin_slot: None,
             geoset_id: 0,
+            priority_plane: 0,
             char_slot: None,
             blend: ModelBlend::Opaque,
             wrap_x: true,
