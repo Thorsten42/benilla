@@ -83,6 +83,7 @@ fn the_shape_ignores_edge_on_correct_and_degenerate_batches() {
         texture: None,
         skin_slot: None,
         geoset_id: 0,
+        priority_plane: 0,
         char_slot: None,
         blend: ModelBlend::Opaque,
         wrap_x: true,

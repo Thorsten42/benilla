@@ -768,6 +768,7 @@ fn warm_quad(colors: bool, skinned: bool, uv1: bool) -> RenderSubmesh {
         texture: None,
         skin_slot: None,
         geoset_id: 0,
+        priority_plane: 0,
         char_slot: None,
         blend: ModelBlend::Opaque,
         wrap_x: true,
