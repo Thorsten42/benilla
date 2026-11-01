@@ -19,12 +19,16 @@ trace_chrome = ["bevy/trace_chrome"]
 # Links Bevy as a shared library so an incremental rebuild relinks faster. The binary then starts
 # only through `cargo run`, which puts the toolchain's libstd on the loader path.
 bevy_dynamic_linking = ["bevy/dynamic_linking"]
+# Optional fork extension; stock builds retain the 1.12 API and addon loading ABI.
+pfui = ["dep:benilla-pfui"]
+pfui-turtle = ["pfui"]
 
 [dependencies]
 anyhow.workspace = true
 # The EditBox clipboard, on the main thread as NSPasteboard requires; bevy_egui's 3.x.
 arboard = "3"
 benilla-ui = { path = "../benilla-ui" }
+benilla-pfui = { path = "../benilla-pfui", optional = true }
 bevy.workspace = true
 wgpu.workspace = true
 bevy_egui = { version = "0.39", optional = true }
