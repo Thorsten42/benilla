@@ -12,6 +12,8 @@ pub struct SkinSection {
     pub id: u16,
     pub triangle_start: u16,
     pub triangle_count: u16,
+    /// The depth key's centre (`+0x14`, `0x707d7a`).
+    pub center: [f32; 3],
 }
 
 /// One skin draw batch (section + material + texture-combo references).
@@ -104,6 +106,7 @@ impl M2Model {
                 id: s.u16_at(0).ok_or(Error::Truncated)?, // skinSectionId @ +0x00
                 triangle_start: s.u16_at(8).ok_or(Error::Truncated)?,
                 triangle_count: s.u16_at(10).ok_or(Error::Truncated)?,
+                center: [0x14, 0x18, 0x1c].map(|at| s.u32_at(at).map_or(0.0, f32::from_bits)),
             });
         }
         // M2TextureUnit, a batch: 24 bytes.
