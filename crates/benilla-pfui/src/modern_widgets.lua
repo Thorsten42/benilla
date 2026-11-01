@@ -16,6 +16,14 @@ local statusbar, texture = adding(tables.statusbar), adding(tables.texture)
 local fontstring, model = adding(tables.fontstring), adding(tables.model)
 local regions = {frame, texture, fontstring, adding(tables.title), adding(tables.region)}
 
+-- ClassicAPI calls a frame's __index, which the reference has as a function and this client as
+-- the method table, so a table at the end of a chain answers a call. The rest get it from
+-- frame_meta_for, whose links replace any metatable set here.
+local callable = {__call = function(methods, _, key) return methods[key] end}
+for _, name in ipairs({"frame", "texture", "fontstring", "title", "region"}) do
+  setmetatable(tables[name], callable)
+end
+
 local state = setmetatable({}, {__mode = "k"})
 local function flags(object)
   local own = state[object]
@@ -73,6 +81,36 @@ function region:AdjustPointsOffset(dx, dy)
   local list = points(self)
   self:ClearAllPoints()
   for _, p in ipairs(list) do self:SetPoint(p[1], p[2], p[3], (p[4] or 0) + dx, (p[5] or 0) + dy) end
+end
+function region:ClearPointsOffset()
+  local list = points(self)
+  self:ClearAllPoints()
+  for _, p in ipairs(list) do self:SetPoint(p[1], p[2], p[3], 0, 0) end
+end
+-- What a pool resets on a frame it reuses. Scripts stay: a pool also resets a new frame, and the
+-- menu template's OnUpdate must outlive that.
+function region:SetToDefaults()
+  self:ClearAllPoints()
+  self:SetWidth(0)
+  self:SetHeight(0)
+  self:SetAlpha(1)
+  if self.SetScale then self:SetScale(1) end
+  if self.EnableMouse then
+    self:EnableMouse(false)
+    self:EnableMouseWheel(false)
+    self:EnableKeyboard(false)
+    self:SetFrameStrata("MEDIUM")
+  end
+  if self.SetButtonState then
+    self:Enable()
+    self:UnlockHighlight()
+    self:SetButtonState("NORMAL")
+  end
+  if self.SetTexCoord then
+    self:SetTexCoord(0, 1, 0, 1)
+    self:SetVertexColor(1, 1, 1, 1)
+  end
+  state[self] = nil
 end
 function region:GetDebugName()
   return self:GetName() or tostring(self)
@@ -174,6 +212,8 @@ function fontstring:IsTruncated()
   local width = self:GetWidth()
   return width ~= nil and width > 0 and self:GetStringWidth() > width + 0.5
 end
+fontstring.SetMaxLines = setter("maxLines")
+fontstring.GetMaxLines = getter("maxLines", 0)
 function fontstring:SetTextToFit(text)
   self:SetText(text)
   self:SetWidth(self:GetStringWidth())
