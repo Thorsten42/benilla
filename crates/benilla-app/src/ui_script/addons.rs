@@ -142,6 +142,12 @@ impl Addon {
         files: &[String],
         toc: &mut Status,
     ) -> Vec<String> {
+        #[cfg(feature = "pfui")]
+        let _pfui_scope = match benilla_ui::script::pfui_host::addon_scope(script.lua(), &self.name)
+        {
+            Ok(scope) => scope,
+            Err(error) => return vec![error.to_string()],
+        };
         let mut failures = Vec::new();
         // The `<Include>` / `<Script file=>` provider; `read` is the sandbox.
         let provider = |req: &str| -> Option<Vec<u8>> { self.read(req) };
@@ -455,6 +461,11 @@ fn discover_in(root: &Path) -> Vec<Addon> {
             }
             // A folder with no `<Name>.toc` is not an addon; the reference skips it silently too.
             let text = manifest_in(&dir, &name)?;
+            #[cfg(feature = "pfui")]
+            let text = crate::pfui::manifest(&name)
+                .and_then(|file| std::fs::read(dir.join(file)).ok())
+                .map(|bytes| benilla_ui::source::decode(&bytes).into_owned())
+                .unwrap_or(text);
             Some(Addon {
                 name,
                 toc: Toc::parse(&text),
