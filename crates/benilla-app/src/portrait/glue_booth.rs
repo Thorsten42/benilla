@@ -876,15 +876,17 @@ fn glue_ffx(
     }
 }
 
-/// Each batch's place in the transparent order, 1-based: the priority plane ascending, then the
-/// centre's depth with the far first, then the authored order.
+/// Each batch's place in the transparent order, 1-based: the centre's depth with the far first,
+/// then the priority plane ascending, then the authored order. A model frame creates its model
+/// with flags 5 (`0x76ccf5`), so no depth fill gives its batches one instance key (`0x707dbf`) and
+/// the batch depth `+0x14` leads the plane `+0x28` (`0x70ae10`).
 fn batch_draw_ranks(keys: &[(i16, f32)]) -> Vec<u16> {
     let mut order: Vec<usize> = (0..keys.len()).collect();
     order.sort_by(|&a, &b| {
-        keys[a]
-            .0
-            .cmp(&keys[b].0)
-            .then(keys[b].1.total_cmp(&keys[a].1))
+        keys[b]
+            .1
+            .total_cmp(&keys[a].1)
+            .then(keys[a].0.cmp(&keys[b].0))
             .then(a.cmp(&b))
     });
     let mut ranks = vec![0u16; keys.len()];
@@ -1153,8 +1155,8 @@ pub(super) fn sync_glue_scene(
         let built = forms.slices(scene_handle);
         let (stat_forms, skin_forms) = (built.stat, built.skin.unwrap_or(&[]));
         let scene_root = scene.root;
-        // The batches share the scene root's sort distance, so what separates them is the priority
-        // plane (`0x707c76`), then the batch centre's depth, the far first (`+0x18`).
+        // The batches share the scene root's sort distance, so what separates them is the batch
+        // centre's depth, the far first, then the priority plane ([`batch_draw_ranks`]).
         let eye = model.cameras.first().map(|c| c.still.eye);
         let centre_depth: Vec<f32> = model
             .submeshes
@@ -2388,13 +2390,18 @@ mod tests {
     use benilla_formats::M2Light;
 
     #[test]
-    fn a_batch_draws_by_its_plane_then_far_before_near() {
+    fn a_batch_draws_far_before_near_then_by_its_plane() {
         // UI_MainMenu: the near tower follows the far painting that comes later in the file, and
-        // the fire on a higher plane follows both whatever its depth.
+        // the wisps behind them go under both, whatever their higher plane.
         let painting = (0, 30.0);
         let tower = (0, 10.0);
-        let fire = (4, 40.0);
-        assert_eq!(batch_draw_ranks(&[tower, painting, fire]), [2, 1, 3]);
+        let wisps = (4, 40.0);
+        assert_eq!(batch_draw_ranks(&[tower, painting, wisps]), [3, 2, 1]);
+        assert_eq!(
+            batch_draw_ranks(&[(4, 5.0), (0, 5.0)]),
+            [2, 1],
+            "at one depth the lower plane goes first"
+        );
         assert_eq!(
             batch_draw_ranks(&[(0, 5.0), (0, 5.0)]),
             [1, 2],
