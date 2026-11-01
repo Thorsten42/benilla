@@ -639,6 +639,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "benilla-pfui"
+version = "0.3.1"
+dependencies = [
+ "base64",
+ "benilla-dbc",
+ "benilla-formats",
+ "benilla-mlua",
+ "benilla-ui",
+ "ciborium",
+ "miniz_oxide",
+ "roxmltree",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "benilla-protocol"
 version = "0.3.1"
 dependencies = [
