@@ -85,6 +85,34 @@ fn identity_cvars_and_events_are_per_vm_and_settings_survive_reload() {
     UiScript::new().unwrap().run("assert(GetNampowerVersion==nil and GetCastInfo==nil and BenillaNampowerCompatibility==nil)").unwrap();
 }
 
+/// Every setting NampowerSettings' menu reads at version 3.0 answers, as Nampower 4.6.1 registers
+/// it: `GetCVar` raises on a name no one registered, which broke the menu's toggles.
+#[test]
+fn every_setting_the_settings_menu_reads_answers_its_default() {
+    let script = fixture();
+    script
+        .run(
+            r#"
+      local defaults = {
+        NP_InterruptChannelsOutsideQueueWindow='0', NP_OptimizeBufferUsingPacketTimings='0',
+        NP_PreventRightClickTargetChange='0', NP_PreventRightClickPvPAttack='0',
+        NP_DoubleCastToEndChannelEarly='0', NP_SpamProtectionEnabled='1',
+        NP_EnableUnitEventsPet='1', NP_EnableUnitEventsParty='1', NP_EnableUnitEventsRaid='1',
+        NP_EnableUnitEventsMouseover='1', NP_EnableUnitEventsGuid='1',
+        NP_EnableUnitEventsGuidFiltering='0', NP_EnableSpellEnergizeEvents='0',
+        NP_PreventMountingWhenBuffCapped='1', NP_MaxBufferIncreaseMs='30',
+        NP_ChannelLatencyReductionPercentage='75', NP_NameplateDistance='20',
+      }
+      for name, value in pairs(defaults) do
+        assert(GetCVar(name) == value and GetCVarDefault(name) == value, name)
+      end
+      SetCVar('NP_EnableUnitEventsGuid', '0'); assert(GetCVar('NP_EnableUnitEventsGuid') == '0')
+      SetCVar('NP_NameplateDistance', 41); assert(GetCVar('NP_NameplateDistance') == '41')
+    "#,
+        )
+        .unwrap();
+}
+
 #[test]
 fn cancellation_reaches_extension_queues_without_an_active_stock_cast() {
     use benilla_ui::script::{pfui_host::attributes::ClickAction, ScriptCall};
