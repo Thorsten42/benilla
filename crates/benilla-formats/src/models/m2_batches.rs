@@ -598,6 +598,13 @@ pub fn parse_m2_render_submeshes(
                 })
             });
             sub.priority_plane = batch.shader_id as i16;
+            sub.depth_center = section.center;
+            sub.first_texture = model
+                .raw_data
+                .texture_lookup_table
+                .get(batch.texture_combo_index as usize)
+                .copied()
+                .unwrap_or(0);
             sub.env_map = env_map;
             sub.stage1 = stage1.clone();
             if uv_stage1 {

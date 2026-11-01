@@ -853,17 +853,22 @@ fn glue_ffx(
     }
 }
 
+/// One batch's keys in the transparent order: the centre's depth, the priority plane, the texture
+/// record.
+type BatchSortKey = (f32, i16, u16);
+
 /// Each batch's place in the transparent order, 1-based: the centre's depth with the far first,
-/// then the priority plane ascending, then the authored order. A model frame creates its model
-/// with flags 5 (`0x76ccf5`), so no depth fill gives its batches one instance key (`0x707dbf`) and
-/// the batch depth `+0x14` leads the plane `+0x28` (`0x70ae10`).
-fn batch_draw_ranks(keys: &[(i16, f32)]) -> Vec<u16> {
+/// then the priority plane ascending, then the texture ascending, then the authored order. A model
+/// frame creates its model with flags 5 (`0x76ccf5`), so no depth fill gives its batches one
+/// instance key (`0x707dbf`) and the batch depth `+0x14` leads the plane `+0x28` (`0x70ae10`).
+fn batch_draw_ranks(keys: &[BatchSortKey]) -> Vec<u16> {
     let mut order: Vec<usize> = (0..keys.len()).collect();
     order.sort_by(|&a, &b| {
         keys[b]
-            .1
-            .total_cmp(&keys[a].1)
-            .then(keys[a].0.cmp(&keys[b].0))
+            .0
+            .total_cmp(&keys[a].0)
+            .then(keys[a].1.cmp(&keys[b].1))
+            .then(keys[a].2.cmp(&keys[b].2))
             .then(a.cmp(&b))
     });
     let mut ranks = vec![0u16; keys.len()];
@@ -1122,26 +1127,15 @@ pub(super) fn sync_glue_scene(
         // The batches share the scene root's sort distance, so what separates them is the batch
         // centre's depth, the far first, then the priority plane ([`batch_draw_ranks`]).
         let eye = model.cameras.first().map(|c| c.still.eye);
-        let centre_depth: Vec<f32> = model
+        let keys: Vec<BatchSortKey> = model
             .submeshes
             .iter()
             .map(|s| {
-                let positions = &s.geometry.positions;
-                let (Some(eye), false) = (eye, positions.is_empty()) else {
-                    return 0.0;
-                };
-                let sum: Vec3 = positions
-                    .iter()
-                    .map(|&p| benilla_assets::coords::wow_to_bevy(p))
-                    .sum();
-                eye.distance(sum / positions.len() as f32)
+                let g = &s.geometry;
+                let centre = benilla_assets::coords::wow_to_bevy(g.depth_center);
+                let depth = eye.map_or(0.0, |eye| eye.distance(centre));
+                (depth, g.priority_plane, g.first_texture)
             })
-            .collect();
-        let keys: Vec<(i16, f32)> = model
-            .submeshes
-            .iter()
-            .zip(&centre_depth)
-            .map(|(s, &depth)| (s.geometry.priority_plane, depth))
             .collect();
         let draw_rank = batch_draw_ranks(&keys);
         let scene_parts: Vec<BoothPart> = model
@@ -2323,19 +2317,24 @@ mod tests {
     fn a_batch_draws_far_before_near_then_by_its_plane() {
         // UI_MainMenu: the near tower follows the far painting that comes later in the file, and
         // the wisps behind them go under both, whatever their higher plane.
-        let painting = (0, 30.0);
-        let tower = (0, 10.0);
-        let wisps = (4, 40.0);
+        let painting = (30.0, 0, 0);
+        let tower = (10.0, 0, 0);
+        let wisps = (40.0, 4, 0);
         assert_eq!(batch_draw_ranks(&[tower, painting, wisps]), [3, 2, 1]);
         assert_eq!(
-            batch_draw_ranks(&[(4, 5.0), (0, 5.0)]),
+            batch_draw_ranks(&[(5.0, 4, 0), (5.0, 0, 0)]),
             [2, 1],
             "at one depth the lower plane goes first"
         );
         assert_eq!(
-            batch_draw_ranks(&[(0, 5.0), (0, 5.0)]),
+            batch_draw_ranks(&[(5.0, 0, 14), (5.0, 0, 11)]),
+            [2, 1],
+            "the pulsing red card follows the base card it shares a place with"
+        );
+        assert_eq!(
+            batch_draw_ranks(&[(5.0, 0, 1), (5.0, 0, 1)]),
             [1, 2],
-            "a tie keeps the file's order"
+            "a full tie keeps the file's order"
         );
     }
 
