@@ -1653,6 +1653,9 @@ impl CallHost for ScriptCallHost<'_, '_> {
         if let Some(owed) = self.appliers.cast().ladder.take_unit_attack() {
             self.unit_attack_tail(script, &mut at, owed);
         }
+        // An extension's ground action commits its point once its cast's cursor is up.
+        #[cfg(feature = "pfui")]
+        crate::pfui::clicks::commit_owed_ground(script, &mut self.appliers.cast());
         self.run_casts(script, &mut at);
         let appliers = &mut self.appliers;
         // Whatever casts next is the caller's: the engine's own, which asks no gate, or the call
