@@ -563,6 +563,81 @@ fn hyperlink_compare_draws_the_worn_counterpart_and_reanchoring_keeps_the_text()
         local unowned = CreateFrame("GameTooltip", "UnownedTip", UIParent, "TestTooltipTemplate")
         unowned:SetAnchorType("ANCHOR_RIGHT", 1, 1)
         assert(unowned:GetNumPoints() == 0)
+        assert(unowned:GetOwner() == nil)
+        assert(tip:GetOwner() == owner)
+        tip:Show()
+        tip:Hide()
+        assert(tip:GetOwner() == nil, "a hide drops the owner")
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_widgets_index_answers_a_call_as_the_references_function_does() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        UIParent = CreateFrame("Frame", "UIParent")
+        local function check(object, method)
+          local found = getmetatable(object).__index(object, method)
+          assert(found ~= nil and found == object[method], method)
+          assert(getmetatable(object).__index(object, "NoSuchMethod") == nil)
+        end
+        local plain = CreateFrame("Frame", nil, UIParent)
+        check(plain, "Show")
+        local button = CreateFrame("Button", nil, UIParent)
+        check(button, "Enable")
+        check(button, "Show")
+        check(CreateFrame("CheckButton", nil, UIParent), "Show")
+        check(plain:CreateTexture(), "SetTexCoord")
+        check(plain:CreateFontString(), "SetText")
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_pool_reset_returns_a_frame_to_defaults_and_keeps_its_scripts() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        UIParent = CreateFrame("Frame", "UIParent")
+        local f = CreateFrame("Button", "PooledButton", UIParent)
+        local update = function() end
+        f:SetScript("OnUpdate", update)
+        f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 5, 7)
+        f:SetWidth(20); f:SetHeight(30); f:SetAlpha(.5); f:SetScale(2)
+        f:EnableMouse(true); f:Disable(); f:LockHighlight(); f:SetButtonState("PUSHED", 1)
+        f:SetPropagateMouseMotion(true)
+
+        f:ClearPointsOffset()
+        local _, _, _, x, y = f:GetPoint(1)
+        assert(f:GetNumPoints() == 1 and x == 0 and y == 0)
+
+        f:SetToDefaults()
+        assert(f:GetNumPoints() == 0 and f:GetWidth() == 0 and f:GetHeight() == 0)
+        assert(f:GetAlpha() == 1 and f:GetScale() == 1)
+        assert(not f:IsMouseEnabled() and f:IsEnabled() and f:GetButtonState() == "NORMAL")
+        assert(not f:GetPropagateMouseMotion())
+        assert(f:GetScript("OnUpdate") == update)
+
+        local t = f:CreateTexture(nil, "ARTWORK")
+        t:SetPoint("CENTER", f); t:SetWidth(4); t:SetAlpha(.25)
+        t:SetToDefaults()
+        assert(t:GetNumPoints() == 0 and t:GetAlpha() == 1)
+        local fs = f:CreateFontString(nil, "ARTWORK")
+        fs:SetPoint("CENTER", f)
+        fs:SetMaxLines(1)
+        assert(fs:GetMaxLines() == 1)
+        fs:SetToDefaults()
+        assert(fs:GetNumPoints() == 0 and fs:GetMaxLines() == 0)
+
+        local pool = { Release = function(self, a, b) return self, a, b end }
+        local this, a, b = securecallmethod(pool, "Release", 1, nil)
+        assert(this == pool and a == 1 and b == nil)
     "#,
         )
         .unwrap();

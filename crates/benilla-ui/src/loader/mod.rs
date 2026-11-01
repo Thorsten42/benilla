@@ -105,6 +105,8 @@ pub fn load_into_under(
         status_root,
         report: LoadReport::default(),
         warned: HashSet::new(),
+        #[cfg(feature = "pfui")]
+        late_relative_keys: Vec::new(),
     };
     loader.report.warnings.extend(doc.warnings.iter().cloned());
     loader.load_doc(doc);
@@ -132,6 +134,8 @@ pub fn apply_template(lua: &mlua::Lua, wrapper: &Table, kind: &str, template: &s
         status_root: "",
         report: LoadReport::default(),
         warned: HashSet::new(),
+        #[cfg(feature = "pfui")]
+        late_relative_keys: Vec::new(),
     };
 
     let (own_name, parent_name) = loader.frame_names(wrapper);
@@ -261,6 +265,9 @@ struct Loader<'a> {
     pub(super) report: LoadReport,
     /// Warn-once keys.
     pub(super) warned: HashSet<String>,
+    /// ClassicAPI anchors whose `relativeKey` named nothing yet, with the key.
+    #[cfg(feature = "pfui")]
+    pub(super) late_relative_keys: Vec<(XmlAnchor, String)>,
 }
 
 /// The nodes an element's `LoadXML` reads, in the order it reads them: the reference merges no
@@ -302,6 +309,7 @@ impl<'l> IntoIterator for &'l Levels<'_> {
 }
 
 /// One `<Anchor>` as read, before its target is looked up ([`Loader::apply_anchor`]).
+#[derive(Clone)]
 pub(super) struct XmlAnchor {
     pub(super) wrapper: Table,
     /// A region wrapper (`call_region`) rather than a frame's (`call`).
@@ -984,6 +992,9 @@ impl Loader<'_> {
                 }
             }
         }
+
+        #[cfg(feature = "pfui")]
+        self.apply_late_relative_keys();
 
         // 4 · this frame's OnLoad, now that its subtree is complete (bottom-up).
         if let Some(func) = onload {
