@@ -335,6 +335,8 @@ pub(crate) mod schedule_tests {
             start: crate::client_state::ClientState::Login,
         });
         more(&mut app);
+        #[cfg(feature = "pfui")]
+        app.add_plugins(crate::pfui::PfuiPlugin);
         app.finish();
         app
     }
@@ -974,7 +976,12 @@ pub(crate) mod schedule_tests {
     /// Raising the ceiling is a claim that a new undeclared order is acceptable: make it with the
     /// reason read off the dump, or declare the order (`.after`, a set, a `chain`). A resource
     /// that commutes by construction belongs in [`Classes`].
+    #[cfg(not(feature = "pfui"))]
     const UPDATE_ACTIONABLE_CEILING: usize = 1_467;
+    // The optional feeds order stock producers before their consumers, so the pfUI build has its
+    // own ratchet.
+    #[cfg(feature = "pfui")]
+    const UPDATE_ACTIONABLE_CEILING: usize = 1_469;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {

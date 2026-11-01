@@ -523,6 +523,7 @@ dependencies = [
  "indexmap",
  "kira",
  "libc",
+ "manila-pfui",
  "md-5",
  "mint",
  "naga",
