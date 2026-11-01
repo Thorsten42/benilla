@@ -853,6 +853,24 @@ fn glue_ffx(
     }
 }
 
+/// Each batch's place in the transparent order, 1-based: the priority plane ascending, then the
+/// centre's depth with the far first, then the authored order.
+fn batch_draw_ranks(keys: &[(i16, f32)]) -> Vec<u16> {
+    let mut order: Vec<usize> = (0..keys.len()).collect();
+    order.sort_by(|&a, &b| {
+        keys[a]
+            .0
+            .cmp(&keys[b].0)
+            .then(keys[b].1.total_cmp(&keys[a].1))
+            .then(a.cmp(&b))
+    });
+    let mut ranks = vec![0u16; keys.len()];
+    for (rank, &batch) in order.iter().enumerate() {
+        ranks[batch] = u16::try_from(rank + 1).unwrap_or(u16::MAX);
+    }
+    ranks
+}
+
 /// Drive the background scene ([`CreateScene`]): load and spawn the pane's file, size the target
 /// to the window, seat the character, and hold the booth camera on the pane's camera of the
 /// scene's table, or with none on the orthographic leg.
@@ -1099,14 +1117,37 @@ pub(super) fn sync_glue_scene(
         let built = forms.slices(scene_handle);
         let (stat_forms, skin_forms) = (built.stat, built.skin.unwrap_or(&[]));
         let scene_root = scene.root;
+        // The batches share the scene root's sort distance, so what separates them is the priority
+        // plane (`0x707c76`), then the batch centre's depth, the far first (`+0x18`).
+        let eye = model.cameras.first().map(|c| c.still.eye);
+        let centre_depth: Vec<f32> = model
+            .submeshes
+            .iter()
+            .map(|s| {
+                let positions = &s.geometry.positions;
+                let (Some(eye), false) = (eye, positions.is_empty()) else {
+                    return 0.0;
+                };
+                let sum: Vec3 = positions
+                    .iter()
+                    .map(|&p| benilla_assets::coords::wow_to_bevy(p))
+                    .sum();
+                eye.distance(sum / positions.len() as f32)
+            })
+            .collect();
+        let keys: Vec<(i16, f32)> = model
+            .submeshes
+            .iter()
+            .zip(&centre_depth)
+            .map(|(s, &depth)| (s.geometry.priority_plane, depth))
+            .collect();
+        let draw_rank = batch_draw_ranks(&keys);
         let scene_parts: Vec<BoothPart> = model
             .submeshes
             .iter()
             .enumerate()
             .map(|(pi, s)| {
-                // The authored batch order (index + 1) is all that separates batches sharing the
-                // scene root's sort distance.
-                let order = u16::try_from(pi + 1).unwrap_or(u16::MAX);
+                let order = draw_rank[pi];
                 // The scene's own material, never another scene's of the same file: its UV and
                 // tint rows run on this scene's clock and go with it.
                 let material = mats.off_world_for(s, s.texture.clone(), order, &light, scene_root);
@@ -2275,6 +2316,21 @@ mod tests {
     use super::*;
     use benilla_assets::ModelLight;
     use benilla_formats::M2Light;
+
+    #[test]
+    fn a_batch_draws_by_its_plane_then_far_before_near() {
+        // UI_MainMenu: the near tower follows the far painting that comes later in the file, and
+        // the fire on a higher plane follows both whatever its depth.
+        let painting = (0, 30.0);
+        let tower = (0, 10.0);
+        let fire = (4, 40.0);
+        assert_eq!(batch_draw_ranks(&[tower, painting, fire]), [2, 1, 3]);
+        assert_eq!(
+            batch_draw_ranks(&[(0, 5.0), (0, 5.0)]),
+            [1, 2],
+            "a tie keeps the file's order"
+        );
+    }
 
     /// `GlueParent`'s rect on a window of `aspect` (`GlueParent.lua:78-84`): the whole screen up to
     /// 16:9, a centred 16:9 box past it; as window fractions from the top-left.
