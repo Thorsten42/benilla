@@ -114,7 +114,11 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
         ClickAction::Spell {
             spell_id,
             target: Some(guid),
-        } => cast_at_unit(cast, spell_id, guid, true),
+        } => {
+            if let Some(point) = cast_at_unit(cast, spell_id, guid, true) {
+                commit_or_follow(script, cast, spell_id, point);
+            }
+        }
         ClickAction::CastAt {
             spell_id,
             target,
@@ -125,7 +129,11 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
                 return;
             }
             match target {
-                Some(guid) => cast_at_unit(cast, spell_id, guid, place_ground),
+                Some(guid) => {
+                    if let Some(point) = cast_at_unit(cast, spell_id, guid, place_ground) {
+                        commit_or_follow(script, cast, spell_id, point);
+                    }
+                }
                 None => crate::ui_spellbook::cast_spell(cast, spell_id, false),
             }
         }
@@ -135,7 +143,7 @@ pub(crate) fn apply(script: &mut UiScript, action: ClickAction, cast: &mut Scrip
             if cast.ladder.ground.spell() != Some(spell_id) {
                 crate::ui_spellbook::cast_spell(cast, spell_id, false);
             }
-            commit_ground(cast, spell_id, point);
+            commit_or_follow(script, cast, spell_id, point);
         }
         ClickAction::Macro {
             input,
@@ -205,13 +213,16 @@ fn toggled_on(cast: &ScriptCast, spell_id: u32) -> bool {
         .is_some()
 }
 
-/// The spell at the unit `guid`; a ground-target spell lands at its feet when `place_ground`, else
-/// its reticle stays up for the player.
-fn cast_at_unit(cast: &mut ScriptCast, spell_id: u32, guid: u64, place_ground: bool) {
+/// The spell at the unit `guid`; a ground-target spell lands at its feet when `place_ground` (the
+/// point returned, for the caller to commit), else its reticle stays up for the player.
+fn cast_at_unit(
+    cast: &mut ScriptCast,
+    spell_id: u32,
+    guid: u64,
+    place_ground: bool,
+) -> Option<[f32; 3]> {
     let ScriptCast { targeting, ladder } = cast;
-    let Some(ctx) = targeting.pfui_context(guid) else {
-        return;
-    };
+    let ctx = targeting.pfui_context(guid)?;
     // The same aura/form toggle predicates used by the stock spellbook's cast entry.
     if let (Some(spells), Some(store)) = (ladder.spells.as_ref(), ctx.rel.self_store) {
         if let Some(def) = spells.catalog.get(spell_id) {
@@ -227,23 +238,57 @@ fn cast_at_unit(cast: &mut ScriptCast, spell_id: u32, guid: u64, place_ground: b
                     .commands
                     .0
                     .send(crate::net::ClientCommand::CancelAura { spell_id });
-                return;
+                return None;
             }
             if form_toggle == Some(false) {
-                return;
+                return None;
             }
         }
     }
+    let ground = ladder
+        .spells
+        .as_ref()
+        .and_then(|spells| spells.catalog.get(spell_id))
+        .is_some_and(|def| crate::spell::cast_target::cast_target_mask(def) & 0x60 != 0);
+    let point = (place_ground && ground)
+        .then_some(ctx.range.target_pos)
+        .flatten()
+        .map(benilla_assets::coords::bevy_to_wow);
     // No attack auto-pick: it could move selection and override the clicked GUID.
     ladder.send(spell_id, &ctx, CastCommit::Spell);
-    if place_ground
-        && ladder.ground.spell() == Some(spell_id)
-        && ladder.ground.wants(TargetingWants::Location)
+    point
+}
+
+/// The point a ground action owes its spell's cursor: a call parks its cast at the push
+/// (`0x6e54f0`), and the cursor comes up only as the call host resumes the cast past the action.
+struct OwedGround {
+    spell_id: u32,
+    point: [f32; 3],
+}
+
+/// Commit `point` now when the spell's cursor is up, else once the call's casts have run
+/// ([`commit_owed_ground`]).
+fn commit_or_follow(script: &UiScript, cast: &mut ScriptCast, spell_id: u32, point: [f32; 3]) {
+    if cast.ladder.ground.spell() == Some(spell_id)
+        && cast.ladder.ground.wants(TargetingWants::Location)
     {
-        if let Some(position) = ctx.range.target_pos {
-            let at = benilla_assets::coords::bevy_to_wow(position);
-            commit_ground_ladder(ladder, spell_id, at);
-        }
+        commit_ground(cast, spell_id, point);
+    } else {
+        script.lua().set_app_data(OwedGround { spell_id, point });
+    }
+}
+
+/// The owed point committed once its spell's cursor is up, as the call that cast it returns; it
+/// is kept while its cast is still on the way there, and dropped once the cast went elsewhere.
+pub(crate) fn commit_owed_ground(script: &UiScript, cast: &mut ScriptCast) {
+    let lua = script.lua();
+    let Some(owed) = lua.remove_app_data::<OwedGround>() else {
+        return;
+    };
+    if cast.ladder.ground.spell() == Some(owed.spell_id) {
+        commit_ground(cast, owed.spell_id, owed.point);
+    } else if cast.ladder.pending.current() == Some(owed.spell_id) {
+        lua.set_app_data(owed);
     }
 }
 
