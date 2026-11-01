@@ -1199,6 +1199,9 @@ impl CallHost for ScriptCallHost<'_, '_> {
     fn apply(&mut self, script: &mut UiScript, call: ScriptCall) -> Option<CallTail> {
         #[cfg(debug_assertions)]
         self.census_probe();
+        // pfUI's frame actions name their unit by a target chain, resolved as the call applies.
+        #[cfg(feature = "pfui")]
+        let call = crate::pfui::clicks::normalize_targets(call, &self.appliers.cast())?;
         let appliers = &mut self.appliers;
         // The gate's answer for this call, made where the Lua verb ran: its casts start only if
         // tag 2 passed there. The ladder reads it while this call applies.
@@ -1505,7 +1508,21 @@ impl CallHost for ScriptCallHost<'_, '_> {
                 let owed = self.appliers.drop_item().drop_on(script, &token);
                 self.feed_pet(script, &mut at, owed);
             }
+            // pfUI's frame actions: an item use at a unit, and the spell, macro and target steps.
+            #[cfg(feature = "pfui")]
+            ScriptCall::PfuiClick(
+                benilla_ui::script::pfui_host::attributes::ClickAction::Item { guid, target },
+            ) => {
+                if let Some(open) = appliers.item_use().pfui_use_item(script, guid, target) {
+                    tail = appliers.loot().open_item(script, open);
+                }
+            }
+            #[cfg(feature = "pfui")]
+            ScriptCall::PfuiClick(action) => {
+                crate::pfui::clicks::apply(script, action, &mut appliers.cast());
+            }
             // Cargo may unify the UI extension into a client that did not enable its plugin.
+            #[cfg(not(feature = "pfui"))]
             #[allow(unreachable_patterns)]
             _ => {}
         }

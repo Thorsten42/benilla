@@ -80,6 +80,8 @@ mod no_install;
 mod npc_text;
 /// Ships in part (the FPS journal and the clocks it reads); the rest is `dev`.
 mod perf;
+#[cfg(feature = "pfui")]
+mod pfui;
 mod pipe_warm;
 mod player;
 mod player_commands;
@@ -269,6 +271,11 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
         extended: extend.is_some(),
         ..build
     };
+    #[cfg(feature = "pfui")]
+    let build = BuildId {
+        extended: true,
+        ..build
+    };
 
     // A dev build's install, state folder and probe identity resolve from the launcher's folder,
     // so a crate on top of benilla keeps them in its own and not in cargo's checkout of benilla.
@@ -453,6 +460,9 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
         connect: !capturing,
         start: run_mode::start_state(),
     });
+
+    #[cfg(feature = "pfui")]
+    app.add_plugins(pfui::PfuiPlugin);
 
     // benilla-assets' loaders go into the live `AssetServer`, so they register after `AssetPlugin`.
     benilla_assets::register_asset_loaders(&mut app);

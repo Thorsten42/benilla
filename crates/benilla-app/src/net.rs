@@ -32,6 +32,8 @@ pub(crate) use objects::continue_refusal_walk;
 pub(crate) use objects::wire;
 pub(crate) use objects::Listed;
 pub(crate) use objects::{release_unheld, ReleasePending};
+#[cfg(feature = "pfui")]
+mod pfui;
 mod reputations;
 mod session;
 #[cfg(test)]
