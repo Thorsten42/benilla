@@ -7,6 +7,11 @@ function methods:SetOwner(owner, ...)
   owners[self] = owner
   return setOwner(self, owner, ...)
 end
+-- The owner while it still owns the tooltip: a hide drops it in the engine.
+function methods:GetOwner()
+  local owner = owners[self]
+  if owner and self:IsOwned(owner) then return owner end
+end
 local points = {
   ANCHOR_RIGHT = { 'BOTTOMLEFT', 'TOPRIGHT' }, ANCHOR_LEFT = { 'BOTTOMRIGHT', 'TOPLEFT' },
   ANCHOR_TOPRIGHT = { 'BOTTOMRIGHT', 'TOPRIGHT' }, ANCHOR_TOPLEFT = { 'BOTTOMLEFT', 'TOPLEFT' },
