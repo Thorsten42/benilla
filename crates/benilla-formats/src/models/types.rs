@@ -285,6 +285,11 @@ pub struct RenderSubmesh {
     /// The texture unit's signed priority plane (`+0x02`, `0x707c76`), which the transparent order
     /// compares ahead of the batch-centre depth.
     pub priority_plane: i16,
+    /// The submesh's depth key centre (`+0x14`, `0x707d7a`), in model space.
+    pub depth_center: [f32; 3],
+    /// The texture record stage 0 reads, 0 without one: the record order stands in for the handles
+    /// the transparent order compares last (`0x70aa30`), as a model loads its textures in order.
+    pub first_texture: u16,
     pub char_slot: Option<CharSkinSlot>,
     pub blend: ModelBlend,
     /// Address mode from the texture record (`0x1` repeat U, `0x2` repeat V, else clamp): a cutout
@@ -431,6 +436,8 @@ impl Default for RenderSubmesh {
             skin_slot: None,
             geoset_id: 0,
             priority_plane: 0,
+            depth_center: [0.0; 3],
+            first_texture: 0,
             char_slot: None,
             blend: ModelBlend::Opaque,
             wrap_x: true,
