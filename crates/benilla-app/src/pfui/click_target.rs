@@ -1,6 +1,6 @@
 //! A frame's explicit GUID uses the stock binder, relations and range inputs without selection.
 
-use super::{owner_store, CastContext, CastTargeting};
+use super::{owner_store, ArmCandidate, CastContext, CastTargeting};
 
 impl CastTargeting<'_, '_> {
     /// A frame action's explicit `target` chain reads the selection at this ordered call.
@@ -25,6 +25,8 @@ impl CastTargeting<'_, '_> {
             return None;
         }
         let mut ctx = self.context();
+        // The guid passed as `TryCast`'s, which the arm reads again past its signal.
+        ctx.candidate = ArmCandidate::Guid(guid);
         ctx.selection_guid = Some(guid);
         // The object manager holds it (found above), whatever the real selection holds now.
         ctx.selection_held = true;
