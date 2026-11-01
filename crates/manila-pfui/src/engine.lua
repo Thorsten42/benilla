@@ -30,6 +30,15 @@ function securecallfunction(func, ...)
   return protected(func, arg)
 end
 
+function securecallmethod(tbl, name, ...)
+  if type(tbl) ~= "table" or type(name) ~= "string" then
+    error("Usage: securecallmethod(table, method, ...)", 2)
+  end
+  local args = { n = arg.n + 1, tbl }
+  for i = 1, arg.n do args[i + 1] = arg[i] end
+  return protected(tbl[name], args)
+end
+
 function secureexecuterange(tbl, func, ...)
   if type(tbl) ~= "table" or type(func) ~= "function" then
     error("Usage: secureexecuterange(table, func, ...)", 2)
