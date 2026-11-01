@@ -62,7 +62,8 @@ end
 local forbidden = {}
 for _, name in ipairs({ 'getfenv', 'getmetatable', 'hooksecurefunc', 'ipairs',
   'issecurevalue', 'issecurevariable', 'next', 'pairs', 'pcall', 'pcallwithenv',
-  'rawget', 'rawset', 'scrub', 'securecall', 'securecallfunction', 'secureexecuterange',
+  'rawget', 'rawset', 'scrub', 'securecall', 'securecallfunction', 'securecallmethod',
+  'secureexecuterange',
   'select', 'setfenv', 'setmetatable', 'type', 'unpack', 'wipe', 'xpcall' }) do
   forbidden[name] = true
 end

@@ -213,7 +213,29 @@ impl Loader<'_> {
                     crate::script::pfui_host::xml::relative_key(self.lua(), wrapper, key)
                 }),
             };
+            // A key naming a nested frame has no object yet: `<Layers>` load before `<Frames>`.
+            #[cfg(feature = "pfui")]
+            if let Some(key) = anchor
+                .attr("relativeKey")
+                .filter(|_| d.rel_object.is_none())
+            {
+                self.late_relative_keys.push((d.clone(), key.to_string()));
+            }
             self.apply_anchor(d);
+        }
+    }
+
+    /// Anchors again every `relativeKey` that now resolves, the rest waiting for an outer frame.
+    #[cfg(feature = "pfui")]
+    pub(super) fn apply_late_relative_keys(&mut self) {
+        for (mut d, key) in std::mem::take(&mut self.late_relative_keys) {
+            d.rel_object =
+                crate::script::pfui_host::xml::relative_key(self.lua(), &d.wrapper, &key);
+            if d.rel_object.is_some() {
+                self.apply_anchor(d);
+            } else {
+                self.late_relative_keys.push((d, key));
+            }
         }
     }
 }
