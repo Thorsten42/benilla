@@ -4325,6 +4325,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "manila-pfui"
+version = "0.3.0"
+dependencies = [
+ "base64",
+ "benilla-dbc",
+ "benilla-formats",
+ "benilla-mlua",
+ "benilla-ui",
+ "ciborium",
+ "miniz_oxide",
+ "roxmltree",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "matchers"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
