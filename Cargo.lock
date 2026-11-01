@@ -504,6 +504,7 @@ dependencies = [
  "benilla-assets",
  "benilla-formats",
  "benilla-movie",
+ "benilla-pfui",
  "benilla-protocol",
  "benilla-srp",
  "benilla-ui",
