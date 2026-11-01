@@ -9,6 +9,8 @@
 //! reads as each getter runs ([`AuraLive`]): nothing of a unit's list is pushed, and the token it
 //! names resolves at the call too.
 
+#[cfg(feature = "pfui")]
+pub(crate) mod pfui;
 #[cfg(test)]
 mod units;
 
@@ -285,7 +287,7 @@ fn vision_hides(catalog: Option<&SpellCatalog>, spell_id: u32, vision: Option<u8
     vision.is_none_or(|v| v & bit == 0)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pfui"))]
 /// The list [`AuraInput`]s make.
 fn aura_list(catalog: Option<&SpellCatalog>, inputs: &[AuraInput]) -> Vec<AuraState> {
     inputs
@@ -398,7 +400,7 @@ fn record_slots<'a>(
 
 /// [`store_slots`] as a list's inputs, each with its `raidFilter` verdict and, against the
 /// active player's `vision`, the bindings' vision verdict.
-#[cfg(test)]
+#[cfg(any(test, feature = "pfui"))]
 fn other_unit_inputs<'a>(
     store: &'a ObjectStore,
     catalog: Option<&'a SpellCatalog>,
@@ -745,11 +747,14 @@ pub(crate) fn enter_world(script: &mut UiScript, entry: &mut AuraEntry) {
     let now = entry.time.as_ref().map_or(0.0, |t| t.elapsed_secs_f64());
     let tracking = rebuild(&mut cache.auras, store, catalog, now);
     script.set_tracking(tracking);
-    script.set_player_auras(player_list(
+    let list = player_list(
         &cache.auras,
         catalog,
         entry.spells.as_ref().map(|s| &s.durations),
-    ));
+    );
+    #[cfg(feature = "pfui")]
+    pfui::player(script, &cache.auras, &list, catalog);
+    script.set_player_auras(list);
     // The cache rebuild's own event, no arguments (`0x4e437f`): the stock buff bar and
     // `MiniMapTrackingFrame` register it.
     script.fire_event("PLAYER_AURAS_CHANGED", vec![]);
@@ -861,6 +866,8 @@ impl PlayerAuraWatch<'_, '_> {
             catalog,
             self.spells.as_ref().map(|s| &s.durations),
         );
+        #[cfg(feature = "pfui")]
+        pfui::player(script, &cache.auras, &list, catalog);
         script.set_player_auras(list);
         script.set_tracking(tracking);
         script.fire_event("PLAYER_AURAS_CHANGED", vec![]);
