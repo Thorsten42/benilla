@@ -597,6 +597,7 @@ pub fn parse_m2_render_submeshes(
                         && !separable.get(b).copied().unwrap_or(false)
                 })
             });
+            sub.priority_plane = batch.shader_id as i16;
             sub.env_map = env_map;
             sub.stage1 = stage1.clone();
             if uv_stage1 {
