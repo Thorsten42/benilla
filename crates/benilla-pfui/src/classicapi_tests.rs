@@ -62,6 +62,31 @@ fn a_regions_relative_key_finds_a_frame_nested_in_the_same_load() {
 }
 
 #[test]
+fn an_anchored_size_reads_in_the_units_of_its_edges_at_any_scale() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        local near = function(a, b) return math.abs(a - b) < 0.01 end
+        local f = CreateFrame("Frame")
+        f:SetScale(0.5)
+        f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 10, -10)
+        f:SetPoint("BOTTOMRIGHT", UIParent, "TOPLEFT", 110, -60)
+        assert(near(f:GetWidth(), f:GetRight() - f:GetLeft()), f:GetWidth())
+        assert(near(f:GetHeight(), f:GetTop() - f:GetBottom()), f:GetHeight())
+        assert(f:GetWidth(true) == 0 and f:GetHeight(true) == 0)
+        local t = f:CreateTexture()
+        t:SetAllPoints()
+        assert(near(t:GetHeight(), t:GetTop() - t:GetBottom()), t:GetHeight())
+        assert(t:GetHeight(true) == 0)
+        f:SetHeight(40)
+        assert(near(f:GetHeight(true), 40) and near(f:GetHeight(), 40))
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
 fn strsplit_splits_on_any_separator_character_and_caps_the_pieces() {
     let script = extended();
     script
