@@ -92,6 +92,9 @@ impl ScriptSelect<'_, '_> {
                 }
                 None => info!("TargetLastEnemy: nothing hostile has been targeted yet; no-op"),
             },
+            // Cargo may unify the UI extension into a client that did not enable its plugin.
+            #[allow(unreachable_patterns)]
+            _ => {}
         })
     }
 
