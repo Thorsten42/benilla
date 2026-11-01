@@ -26,6 +26,25 @@ local defaults = {
   np_quickcasttargetingspells = "0",
   np_quickcastondoublecast = "0",
   np_retryserverrejectedspells = "1",
+  -- The rest of Nampower 4.6.1's settings, which NampowerSettings' menu reads and writes: kept as
+  -- the player sets them, with no behaviour behind them here.
+  np_interruptchannelsoutsidequeuewindow = "0",
+  np_optimizebufferusingpackettimings = "0",
+  np_preventrightclicktargetchange = "0",
+  np_preventrightclickpvpattack = "0",
+  np_doublecasttoendchannelearly = "0",
+  np_spamprotectionenabled = "1",
+  np_enableuniteventspet = "1",
+  np_enableuniteventsparty = "1",
+  np_enableuniteventsraid = "1",
+  np_enableuniteventsmouseover = "1",
+  np_enableuniteventsguid = "1",
+  np_enableuniteventsguidfiltering = "0",
+  np_enablespellenergizeevents = "0",
+  np_preventmountingwhenbuffcapped = "1",
+  np_maxbufferincreasems = "30",
+  np_channellatencyreductionpercentage = "75",
+  np_nameplatedistance = "20",
 }
 local function settings()
   BenillaPfuiDB = BenillaPfuiDB or {}
