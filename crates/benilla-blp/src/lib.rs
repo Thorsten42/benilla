@@ -252,15 +252,15 @@ impl Header<'_> {
         level: usize,
         need: usize,
     ) -> Result<Option<&'b [u8]>> {
-        let Some(stored) = self.level_data(bytes, level)? else {
-            return Ok(None);
-        };
-        if stored.len() >= need {
-            return Ok(Some(stored));
-        }
         let off = self.offsets[level] as usize;
-        let end = (off + need).min(bytes.len());
-        Ok(Some(&bytes[off..end]))
+        if level > 0 && (self.sizes[level] == 0 || off == 0) {
+            return Ok(None);
+        }
+        // The header's size is never read, so a broken one (an HD pack's 1x1 recorded at the
+        // file's end with a size of `-0x2b454`) leaves the level to the zero fill.
+        let start = off.min(bytes.len());
+        let end = off.saturating_add(need).min(bytes.len());
+        Ok(Some(&bytes[start..end]))
     }
 
     /// The DXTC form by `alpha_type`. Any other value (a stale `2` on alpha-less particle atlases)
@@ -608,6 +608,25 @@ mod tests {
             native.mips[0].bytes.len(),
             BlpTexels::Rgba8Unorm.level_bytes(2, 2)
         );
+    }
+
+    /// A level whose recorded size runs past the file, its offset at the file's end (OctoWoW HD's
+    /// main-menu textures record their 1x1 so), still reads from its offset: the whole chain
+    /// decodes, that level zero-filled, where a bound on the header's size failed the texture.
+    #[test]
+    fn a_level_size_past_the_file_reads_from_its_offset() {
+        let mut b = dxt_blp(0, 8);
+        let len = b.len() as u32;
+        b[20 + 3 * 4..24 + 3 * 4].copy_from_slice(&len.to_le_bytes());
+        b[84 + 3 * 4..88 + 3 * 4].copy_from_slice(&(len.wrapping_neg()).to_le_bytes());
+        let native = decode_native(&b).expect("a broken size past the file still decodes");
+        assert_eq!(native.mips.len(), 4);
+        assert_eq!(
+            native.mips[3].bytes,
+            vec![0u8; 8],
+            "past the file, the zero fill"
+        );
+        assert_eq!(decode(&b).expect("and decodes to RGBA").mips.len(), 4);
     }
 
     /// The reference reads `bpp·max(4,w)·max(4,h)/8` bytes from the level's offset
