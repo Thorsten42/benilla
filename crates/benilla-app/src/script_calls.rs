@@ -1505,6 +1505,9 @@ impl CallHost for ScriptCallHost<'_, '_> {
                 let owed = self.appliers.drop_item().drop_on(script, &token);
                 self.feed_pet(script, &mut at, owed);
             }
+            // Cargo may unify the UI extension into a client that did not enable its plugin.
+            #[allow(unreachable_patterns)]
+            _ => {}
         }
         self.run_casts(script, &mut at);
         // A profession opener the call cast toggles its window inside the cast (`0x6e4c22`,
