@@ -336,6 +336,9 @@ pub(crate) mod schedule_tests {
         });
         more(&mut app);
         app.finish();
+        app.world_mut()
+            .resource_mut::<crate::cvars::Cvars>()
+            .keep_off_disk();
         app
     }
 
