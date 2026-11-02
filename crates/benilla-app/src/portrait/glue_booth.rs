@@ -2302,14 +2302,12 @@ fn stage_frame(model: &M2Model, bone: u16) -> (Quat, f32) {
     let mut idx = bone;
     // Cycle-guarded by the joint count, as the pivot walk is.
     for _ in 0..=model.skeleton.joints.len() {
-        if let Some(g) = anims.global_bones.iter().find(|g| g.bone == idx) {
-            // `t = 0`: these are parked keys, and no stage bone animates.
-            if let Some(c) = g.rotation.as_ref() {
-                rot = c.sample(0.0) * rot;
-            }
-            if let Some(c) = g.scale.as_ref() {
-                scale *= c.sample(0.0).x;
-            }
+        let (bone_rot, bone_scale) = stage_keys(anims, idx);
+        if let Some(r) = bone_rot {
+            rot = r * rot;
+        }
+        if let Some(s) = bone_scale {
+            scale *= s;
         }
         let Some(joint) = model.skeleton.joints.get(usize::from(idx)) else {
             break;
@@ -2317,6 +2315,28 @@ fn stage_frame(model: &M2Model, bone: u16) -> (Quat, f32) {
         match u16::try_from(joint.parent) {
             Ok(parent) => idx = parent,
             Err(_) => break, // -1 = root reached
+        }
+    }
+    (rot, scale)
+}
+
+/// One stage bone's parked rotation and uniform scale at `t = 0`: the keys of the idle sequence the
+/// scene plays (`UI_CharacterSelect` turns its seat 180° and scales it 0.673 there), then its
+/// global-sequence keys, which run over the sequence pose. No stage bone animates.
+fn stage_keys(anims: &benilla_assets::ModelAnimations, bone: u16) -> (Option<Quat>, Option<f32>) {
+    let keyed = anims
+        .idle_clip()
+        .and_then(|clip| anims.pose.node(clip.node))
+        .and_then(|node| anims.pose.clips.get(node.clip as usize))
+        .and_then(|clip| clip.bones.iter().find(|b| b.bone == bone));
+    let mut rot = keyed.and_then(|b| b.rotation.sample(0.0));
+    let mut scale = keyed.and_then(|b| b.scale.sample(0.0)).map(|s| s.x);
+    if let Some(g) = anims.global_bones.iter().find(|g| g.bone == bone) {
+        if let Some(c) = g.rotation.as_ref() {
+            rot = Some(c.sample(0.0));
+        }
+        if let Some(c) = g.scale.as_ref() {
+            scale = Some(c.sample(0.0).x);
         }
     }
     (rot, scale)
@@ -3036,6 +3056,31 @@ mod tests {
             first_seq: None,
             pose: Default::default(),
         }
+    }
+
+    #[test]
+    fn a_seat_keyed_in_the_idle_sequence_turns_and_scales_the_body() {
+        // UI_CharacterSelect, the Turtle troll's stage, keys bone 126 in sequence 0, not globally.
+        let half_turn = Quat::from_rotation_y(std::f32::consts::PI);
+        let mut anims = body_anims();
+        let mut pose = benilla_assets::PoseSource::default();
+        pose.set_node(anims.idle_clip().unwrap().node, 0, 0);
+        let mut clip = benilla_assets::PoseClip::default();
+        clip.push(benilla_assets::PoseBone {
+            bone: 126,
+            translation: Default::default(),
+            rotation: benilla_assets::PoseTrack::new(&[(0.0, half_turn)]),
+            scale: benilla_assets::PoseTrack::new(&[(0.0, Vec3::splat(0.673))]),
+        });
+        pose.clips.push(clip);
+        anims.pose = pose.into();
+
+        assert_eq!(stage_keys(&anims, 126), (Some(half_turn), Some(0.673)));
+        assert_eq!(
+            stage_keys(&anims, 127),
+            (None, None),
+            "an unkeyed bone stays put"
+        );
     }
 
     fn create(sex: u8, class: u8, skin: u8, hair_style: u8) -> GlueLook {
