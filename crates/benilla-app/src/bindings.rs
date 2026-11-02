@@ -574,12 +574,23 @@ pub(crate) fn sync_dispatch(
     })
 }
 
-/// A wheel delta in lines (notches), whatever unit the OS reported: a trackpad's `Pixel` deltas
-/// go through Bevy's own conversion factor. Every wheel reader shares it.
-pub(crate) fn wheel_lines(unit: MouseScrollUnit, dy: f32) -> f32 {
+/// The physical pixels of a trackpad's travel that make one notch. On Linux it is GNOME's own
+/// `DISCRETE_SCROLL_STEP` of 10 logical pixels, what a client on the wheel protocol is sent as one
+/// notch; elsewhere Bevy's conversion factor.
+pub(crate) fn pixels_per_notch(scale_factor: f32) -> f32 {
+    if cfg!(target_os = "linux") {
+        10.0 * scale_factor
+    } else {
+        MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR
+    }
+}
+
+/// A wheel delta in lines (notches), whatever unit the OS reported: a trackpad's `Pixel` deltas at
+/// the window's scale ([`pixels_per_notch`]). Every wheel reader shares it.
+pub(crate) fn wheel_lines(unit: MouseScrollUnit, dy: f32, scale_factor: f32) -> f32 {
     match unit {
         MouseScrollUnit::Line => dy,
-        MouseScrollUnit::Pixel => dy / MouseScrollUnit::SCROLL_UNIT_CONVERSION_FACTOR,
+        MouseScrollUnit::Pixel => dy / pixels_per_notch(scale_factor),
     }
 }
 
