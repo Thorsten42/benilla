@@ -23,6 +23,8 @@ fn aura(slot: u8, spell: u32, helpful: bool, crowd_control: bool) -> Aura {
         slot,
         crowd_control,
         source_guid: None,
+        self_only: false,
+        applies_aura: false,
         state: AuraState {
             spell_id: spell,
             name: Some(format!("Aura{spell}")),
@@ -184,6 +186,47 @@ fn a_player_auras_duration_is_what_was_left_when_its_expiry_was_first_read() {
             r#"
         local _, _, _, _, duration, expiration = C_UnitAuras.UnitAuraBySlot("player", 0)
         assert(duration == 1800 and expiration == 2200, tostring(duration))
+    "#,
+        )
+        .unwrap();
+}
+
+#[test]
+fn the_getters_list_own_auras_then_what_the_player_could_apply_then_the_rest() {
+    let script = fixture();
+    units::set_known_spells(script.lua(), [3]);
+    // Slot order: a stranger's, a spell the player knows, a self-only one, the pet's, and an own
+    // debuff that stays behind every buff.
+    let other = aura(0, 1, true, false);
+    let mut known = aura(1, 3, true, false);
+    known.applies_aura = true;
+    let mut own = aura(2, 4, true, false);
+    own.self_only = true;
+    let mut pets = aura(3, 5, true, false);
+    pets.source_guid = Some(4);
+    let mut unknown = aura(4, 6, true, false);
+    unknown.applies_aura = true;
+    auras::set_auras(
+        script.lua(),
+        3,
+        Some(vec![
+            other,
+            known,
+            own,
+            pets,
+            unknown,
+            aura(32, 7, false, false),
+        ]),
+    );
+    script
+        .run(
+            r#"
+        local ids = {}
+        for i = 1, 5 do ids[i] = C_UnitAuras.GetAuraDataByIndex('player', i, 'HELPFUL').spellId end
+        assert(table.concat(ids, ',') == '4,5,3,1,6', table.concat(ids, ','))
+        assert(C_UnitAuras.GetAuraDataByIndex('player', 1, 'HELPFUL|PLAYER').spellId == 4)
+        assert(C_UnitAuras.GetAuraDataByIndex('player', 2, 'HELPFUL|PLAYER').spellId == 5)
+        assert(C_UnitAuras.GetAuraDataByIndex('player', 3, 'HELPFUL|PLAYER') == nil)
     "#,
         )
         .unwrap();
