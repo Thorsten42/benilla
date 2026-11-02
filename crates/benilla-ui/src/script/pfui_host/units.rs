@@ -430,6 +430,11 @@ pub fn set_known_spells(lua: &Lua, spells: impl IntoIterator<Item = u32>) {
     }
 }
 
+pub fn knows_spell(lua: &Lua, spell: u32) -> bool {
+    lua.app_data_ref::<Metadata>()
+        .is_some_and(|metadata| metadata.known_spells.contains(&spell))
+}
+
 pub fn known_spells(lua: &Lua) -> Vec<u32> {
     lua.app_data_ref::<Metadata>()
         .map(|metadata| metadata.known_spells.iter().copied().collect())
