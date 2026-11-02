@@ -13,6 +13,30 @@ pub struct Aura {
     pub source_guid: Option<u64>,
     /// DBC mechanics and the descriptor's active aura effects, supplied by the host.
     pub crowd_control: bool,
+    /// Every effect of the spell targets its caster alone, so the unit wearing it cast it.
+    pub self_only: bool,
+    /// One of the spell's effects applies an aura, which a player who knows it could cast.
+    pub applies_aura: bool,
+}
+
+/// An aura's group in the order the modern getters list them: the player's or their pet's, then
+/// what the player could apply, then the rest. Slot order holds within each group.
+fn aura_rank(aura: &Aura, wearer: u64, units: &crate::script::UnitGuids, known: bool) -> u8 {
+    let caster = aura
+        .source_guid
+        .or(aura.self_only.then_some(wearer))
+        .unwrap_or(0);
+    if is_ours(caster, units) {
+        0
+    } else if aura.applies_aura && known {
+        1
+    } else {
+        2
+    }
+}
+
+fn is_ours(caster: u64, units: &crate::script::UnitGuids) -> bool {
+    caster != 0 && (caster == units.player || caster == units.pet)
 }
 
 #[derive(Default)]
@@ -256,9 +280,7 @@ pub(crate) fn list(lua: &Lua, token: &str, filter: Option<&str>) -> Vec<Aura> {
             {
                 return false;
             }
-            let ours = aura.source_guid.is_some_and(|guid| {
-                guid != 0 && (guid == model.unit_guids.player || guid == model.unit_guids.pet)
-            });
+            let ours = aura_rank(aura, guid, &model.unit_guids, false) == 0;
             if (has("PLAYER") && !ours) || (has("!PLAYER") && ours) {
                 return false;
             }
@@ -273,10 +295,12 @@ pub(crate) fn list(lua: &Lua, token: &str, filter: Option<&str>) -> Vec<Aura> {
         })
         .cloned()
         .collect();
-    // Descriptor order, with ordinary harmful slots before overflow slots.
-    result.sort_by_key(|aura| {
+    // Each polarity by group, then descriptor order, ordinary harmful slots before overflow slots.
+    result.sort_by_cached_key(|aura| {
+        let known = super::units::knows_spell(lua, aura.state.spell_id);
         (
             !aura.state.helpful,
+            aura_rank(aura, guid, &model.unit_guids, known),
             !aura.state.helpful && aura.slot < 32,
             aura.slot,
         )
