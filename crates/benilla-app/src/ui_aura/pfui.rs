@@ -113,6 +113,7 @@ fn project(slot: u8, flags: u8, state: &AuraState, catalog: Option<&SpellCatalog
     use benilla_protocol::messages::AURA_FLAG_EFF_INDEX_MASK;
     let mut state = state.clone();
     let mut crowd_control = false;
+    let (mut self_only, mut applies_aura) = (false, false);
     if let Some(spell) = catalog.and_then(|catalog| catalog.get(state.spell_id)) {
         // The nibble names active effects in reverse bit order (effect 0 is bit 3).
         // Roster-only records carry no flags, so all DBC effects remain candidates there.
@@ -129,6 +130,17 @@ fn project(slot: u8, flags: u8, state: &AuraState, catalog: Option<&SpellCatalog
         if state.helpful && !state.cancelable && harmful {
             state.helpful = false;
         }
+        let on_self = |i: usize| {
+            matches!(spell.effect_implicit_target_a[i], 0 | 1)
+                && matches!(spell.effect_implicit_target_b[i], 0 | 1)
+        };
+        self_only = spell.effects.iter().any(|effect| *effect != 0)
+            && (0..3).all(|i| spell.effects[i] == 0 || on_self(i));
+        // Apply aura, persistent area aura, party area aura.
+        applies_aura = spell
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, 6 | 27 | 35));
         crowd_control = !state.helpful
             && (control_effect
                 || mechanic(spell.mechanic)
@@ -139,6 +151,8 @@ fn project(slot: u8, flags: u8, state: &AuraState, catalog: Option<&SpellCatalog
         state,
         source_guid: None,
         crowd_control,
+        self_only,
+        applies_aura,
     }
 }
 
