@@ -10,7 +10,7 @@ use bevy::image::Image;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Buffer, Face};
 
-use crate::materials::{WowModelExt, WowModelMaterial, VANILLA_ALPHA_KEY_REF};
+use crate::materials::{TorchBinds, WowModelExt, WowModelMaterial, VANILLA_ALPHA_KEY_REF};
 use crate::SpatialCache;
 use benilla_formats::{
     blp_to_rgba, tga_texture_size, tga_to_rgba, Chain, ModelBlend, TGA_GATE_PREFIX,
@@ -42,6 +42,10 @@ pub struct WorldAssets {
     pub model_materials: SpatialCache<MaterialKey, Handle<WowModelMaterial>>,
     /// The shared global-light buffer, cloned into every deduped model material's `light_buf`.
     pub shared_light: Buffer,
+    /// MONKEY (torch shadows Phase 3A): the shared torch depth image + torch table buffer, held
+    /// beside `shared_light` for the same reason — cloned into every deduped model material's
+    /// `torch_depth`/`torch_buf` without threading them through the call sites.
+    pub torch: TorchBinds,
 }
 
 /// Identity of a deduped model material; everything textureless shares one fallback per WMO flag.
@@ -701,9 +705,17 @@ fn model_texture_chain(chain: &Chain, path: &str) -> Option<benilla_formats::Blp
 }
 
 impl WorldAssets {
-    /// Open the store over an opened patch chain. `shared_light` is a raw `Buffer`, not the
-    /// client's `SharedLightBuffer`, which keeps this crate below the renderer.
-    pub fn open(chain: Chain, shared_light: Buffer) -> Self {
+    /// Open the store over an already-opened patch chain.
+    ///
+    /// `shared_light` is the one global-light storage buffer, taken as a **`Buffer`** — a raw wgpu
+    /// handle — and not as the client's `SharedLightBuffer`. That is the whole reason this crate can
+    /// sit under the renderer: the store's only use of it is `clone()` into every deduped model
+    /// material's `light_buf`, so the parameter severs what would otherwise be a dependency on the
+    /// lighting layout and, through it, the rig-palette regions (decision 1164).
+    ///
+    /// `torch` (MONKEY, torch shadows Phase 3A) is the same shape of seam for the torch-shadow
+    /// receiver bindings: the raw image handle + table buffer, cloned into every model material.
+    pub fn open(chain: Chain, shared_light: Buffer, torch: TorchBinds) -> Self {
         Self {
             chain: Arc::new(Mutex::new(chain)),
             textures: SpatialCache::default(),
@@ -712,6 +724,7 @@ impl WorldAssets {
             loose: LooseFiles::install(),
             model_materials: SpatialCache::default(),
             shared_light,
+            torch,
         }
     }
 
@@ -1044,6 +1057,9 @@ impl WorldAssets {
                 stage1_texture: None,
                 light_buf: self.shared_light.clone(),
                 order: None, // clutter sorts by its own centre
+                // MONKEY (torch shadows Phase 3A): the shared torch receiver bindings.
+                torch_depth: self.torch.depth.clone(),
+                torch_buf: self.torch.table.clone(),
             },
         });
         self.model_materials.insert(key, handle.clone());

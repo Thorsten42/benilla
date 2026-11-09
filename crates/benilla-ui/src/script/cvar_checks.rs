@@ -252,6 +252,23 @@ pub fn check_farclip(value: &str, _applied: &str, _rows: CvarRows<'_>) -> CvarVe
     }
 }
 
+/// MONKEY (presets): the `farclip` ceiling past the reference's 777 — benilla-world's
+/// `view::FARCLIP_MAX`, which the Ultra graphics preset writes (modern fog stretches the fog end
+/// with the view distance, so a longer view is visible rather than fogged). benilla-app asserts
+/// the two agree.
+pub const MONKEY_FARCLIP_MAX: f32 = 1497.0;
+
+/// MONKEY (presets): [`check_farclip`] with the upper bound raised to [`MONKEY_FARCLIP_MAX`]; the
+/// same parse, the same unclamped refusal and NaN pass-through, the line naming the real range.
+pub fn check_farclip_extended(value: &str, _applied: &str, _rows: CvarRows<'_>) -> CvarVerdict {
+    let v = s_str_to_float(value);
+    if v < 177.0 || v as f32 > MONKEY_FARCLIP_MAX {
+        CvarVerdict::refuse("FarClip must be in range 177.0 - 1497.0.")
+    } else {
+        CvarVerdict::accept()
+    }
+}
+
 /// `frillDensity`'s callback (`0x688de0`): `SStrToInt` (`0x64ac60`) compared unsigned to 1 and
 /// 256 (`0x688dec`-`0x688df6`), so a negative is refused too, with "Frill Density must be in
 /// range 1 - 256." (`0x869ae4`).
@@ -836,6 +853,17 @@ mod tests {
             assert_eq!(
                 check_farclip(bad, "350", &no_rows),
                 CvarVerdict::refuse("FarClip must be in range 177.0 - 777.0."),
+                "{bad}"
+            );
+        }
+        // MONKEY (presets): the extended ceiling takes the Ultra rung and still refuses past it.
+        for ok in ["177", "777", "1000", "1497"] {
+            assert!(check_farclip_extended(ok, "350", &no_rows).accept, "{ok}");
+        }
+        for bad in ["176.9", "1497.5", "2000"] {
+            assert_eq!(
+                check_farclip_extended(bad, "350", &no_rows),
+                CvarVerdict::refuse("FarClip must be in range 177.0 - 1497.0."),
                 "{bad}"
             );
         }

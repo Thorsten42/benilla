@@ -127,8 +127,25 @@ pub struct WmoGroupVis {
 }
 
 impl WmoGroupVis {
-    /// Drawn iff any referencing group is in this frame's PVS; an index past the visible set reads
-    /// visible, so a lookup miss never blanks a building.
+    /// MONKEY (fire GO lights): a claim on exactly ONE room, for a rider whose membership comes
+    /// from the interior CLASSIFIER's down-ray ([`crate::interior::InteriorAnchor::room`]) rather
+    /// than from a building's own MODR/MOLR tables — an entity's carried light, whose owner walked
+    /// in through the door and is named by no chunk.
+    ///
+    /// One group, not the referrer set the table-driven path builds, and that is the honest shape:
+    /// the ray answers "which group is this standing in", singular. The `Arc` is a one-element
+    /// allocation per claim, which is nothing beside the per-frame ray it replaces — and it is
+    /// re-made only when the anchor's room actually changes (the claim system is change-gated).
+    pub fn single(instance: Entity, group: u16) -> Self {
+        Self {
+            instance,
+            groups: std::sync::Arc::from([group]),
+        }
+    }
+
+    /// The portal verdict: drawn iff **any** referencing group is in this frame's PVS. An index
+    /// past the instance's visible set (a stale or short set) reads as visible — the same fail-open
+    /// the rest of the cull takes, so a lookup miss can never blank a building.
     pub fn drawn_by(&self, inst: &WmoPortalInstance) -> bool {
         self.groups
             .iter()
@@ -279,7 +296,11 @@ pub(crate) fn compute_wmo_pvs(
     mut camera_fog: ResMut<CameraWmoFog>,
     mut camera_claim: ResMut<CameraInteriorClaim>,
     mut camera_windows: ResMut<ExteriorWindows>,
+    mut monkey_last_stall: Local<Option<std::time::Instant>>,
 ) {
+    let monkey_started = std::time::Instant::now();
+    let mut monkey_instances = 0u32;
+    let mut monkey_walks = 0u64;
     // No world camera yet: keep last frame's sets, all visible.
     let Some((cam_t, proj)) = cam.iter().next() else {
         return;
@@ -318,6 +339,7 @@ pub(crate) fn compute_wmo_pvs(
             continue;
         };
         let groups = model.group_nav.len();
+        monkey_instances += 1;
         // A WMO with no portal graph (single-group props, doors) is never culled, and never on the
         // interior-fog lane. Written through the change gate: marking every prop changed each frame
         // would defeat `Changed<WmoPortalInstance>`.
@@ -357,6 +379,7 @@ pub(crate) fn compute_wmo_pvs(
             &world_from_local,
             &mut (&mut tap, &mut log),
         );
+        monkey_walks += u64::from(fresh.iters);
         if inst.bypass_change_detection().visible != fresh.visible {
             inst.bypass_change_detection().visible = fresh.visible;
             inst.set_changed();
@@ -435,6 +458,14 @@ pub(crate) fn compute_wmo_pvs(
     };
     if *camera_windows != want_windows {
         *camera_windows = want_windows;
+    }
+    // A moving dungeon probe needs timed CPU evidence; snapshots cannot identify a portal hitch.
+    let monkey_ms = monkey_started.elapsed().as_secs_f32() * 1000.0;
+    if monkey_ms >= 8.0 && monkey_last_stall.is_none_or(|last| last.elapsed().as_secs_f32() >= 1.0)
+    {
+        *monkey_last_stall = Some(std::time::Instant::now());
+        warn!("MONKEY_WMO_STALL: cpu_ms={monkey_ms:.2} instances={monkey_instances} walk_steps={monkey_walks} eye={:?} claim={:?}",
+            bevy_to_wow(eye_world), camera_claim.0.as_ref().map(|c| c.room));
     }
     if let Some((mut text, path)) = dump_text.zip(dump_to) {
         // The frame's published verdict, after every placement: the claim and the windows.

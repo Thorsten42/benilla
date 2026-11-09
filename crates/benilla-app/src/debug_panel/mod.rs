@@ -23,6 +23,7 @@ use crate::ui_script::EguiPointerOver;
 
 mod inspect;
 mod journal;
+mod lighting_controls;
 
 /// The dev state this panel edits; the engine owns and inits it.
 use benilla_world::dev_state::DebugState;
@@ -141,6 +142,11 @@ impl Plugin for DebugPanelPlugin {
         app.init_resource::<MouseoverTarget>()
             .init_resource::<EguiDemand>()
             .init_resource::<journal::CastJournal>()
+            .init_resource::<lighting_controls::LightingBridge>()
+            .add_systems(
+                Update,
+                lighting_controls::lighting_bridge_sync.run_if(crate::ui_script::ingame_ui_up),
+            )
             // After `UiInput`: `update_mouseover` reads `PointerOverUi`, whose player-UI half it
             // writes, and must see this frame's hover.
             .add_systems(
@@ -292,7 +298,13 @@ fn debug_panel_ui(
     ping: Res<crate::net::PingShared>,
     dropped: Res<crate::net::DroppedOpcodes>,
     mut weather_state: Option<ResMut<benilla_world::weather::WeatherState>>,
-    mut world: WorldReadout,
+    (mut world, video, mut script): (
+        WorldReadout,
+        Res<crate::video::VideoConfig>,
+        // MONKEY (sync 1108): the lighting controls reach the VM through this bridge, whose
+        // `lighting_bridge_sync` system holds the call host (the panel's own `ResMut`s conflict with the host).
+        ResMut<lighting_controls::LightingBridge>,
+    ),
 ) -> Result {
     if !debug.open {
         return Ok(());
@@ -468,6 +480,12 @@ fn debug_panel_ui(
                             ui.add_space(8.0);
                             ui.checkbox(&mut l.disable_fog, "disable distance fog");
                             ui.checkbox(&mut l.disable_sky_dome, "disable sky dome");
+                        });
+
+                    egui::CollapsingHeader::new("Lighting & shadows")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            lighting_controls::section(ui, &video, &mut script);
                         });
 
                     egui::CollapsingHeader::new("Weather")

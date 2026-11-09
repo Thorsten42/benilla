@@ -908,6 +908,7 @@ mod tests {
                 display: DisplayMode::Windowed,
                 maximize: false,
                 windowed: UVec2::new(1024, 768),
+                ..Default::default()
             })
             .add_systems(PreUpdate, show_screen_size);
         assert!(!c.frame(1024.0, 768.0), "the size it was built at");

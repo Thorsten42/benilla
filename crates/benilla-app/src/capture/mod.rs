@@ -80,9 +80,10 @@ mod probe_vendor_swap;
 mod probes;
 mod realm_list;
 mod scenarios;
+mod spell_light;
 use crate::run_mode::CaptureMode;
 pub(crate) use depth_probe::DepthProbePlugin;
-use fixtures::seed_ui_fixture;
+use fixtures::{seed_perf_crowd, seed_ui_fixture, seed_wind_player};
 pub(crate) use live_shot::LiveShotPlugin;
 pub(crate) use phase_probe::PhaseProbePlugin;
 pub(crate) use pick_probe::PickProbePlugin;
@@ -671,6 +672,14 @@ impl Plugin for CapturePlugin {
         // sample, or it would measure a constant 16.67 ms ([`CaptureCtx::frozen_clock`]).
         app.insert_resource(TimeUpdateStrategy::ManualDuration(CAPTURE_FRAME_DT))
             .add_systems(Startup, hold_clock);
+        // MONKEY (perf): a probe window opens unfocused, and `WinitSettings::game()` runs an
+        // unfocused window at reactive 1/60 s — every probe read 16.7 ms whatever the scene cost.
+        if probe_frames > 0 {
+            app.insert_resource(bevy::winit::WinitSettings {
+                focused_mode: bevy::winit::UpdateMode::Continuous,
+                unfocused_mode: bevy::winit::UpdateMode::Continuous,
+            });
+        }
         app.insert_resource(CaptureMode)
             .init_resource::<FrameWatch>()
             .insert_resource(CaptureCtx {
@@ -690,6 +699,14 @@ impl Plugin for CapturePlugin {
                 bailed: false,
             })
             .add_systems(Update, pin_scene.in_set(WorldStage::Present))
+            .add_systems(Update, seed_wind_player)
+            .add_systems(Update, spell_light::seed)
+            .add_systems(
+                Last,
+                spell_light::trace.after(crate::shadow_core::ShadowSet::Lanes),
+            )
+            // MONKEY (perf): the probe crowd (`WOW_PERF_CROWD`).
+            .add_systems(Update, seed_perf_crowd)
             // Before `UnitFeed`: the seed stands in for wire data live play delivers on earlier
             // frames, so the same frame's feeds and the one-shot `MERCHANT_SHOW` paint must see it.
             .add_systems(
@@ -740,7 +757,21 @@ fn pin_scene(
         return;
     };
     debug.lighting.follow_server_time = false;
-    debug.lighting.manual_minute = scenario.minute;
+    // MONKEY (capture framing): `WOW_CAPTURE_MINUTE=<0..1440>`, `WOW_CAPTURE_EYE=x,y,z` and
+    // `WOW_CAPTURE_LOOK=x,y,z` (raw WoW coords) re-aim a scenario without a rebuild, for framing a
+    // reported spot; a scenario's baseline never sets them.
+    let triple = |var: &str| {
+        std::env::var(var).ok().and_then(|s| {
+            let v: Vec<f32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            (v.len() == 3).then(|| [v[0], v[1], v[2]])
+        })
+    };
+    debug.lighting.manual_minute = std::env::var("WOW_CAPTURE_MINUTE")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(scenario.minute);
+    let scene_eye = triple("WOW_CAPTURE_EYE").unwrap_or(scenario.eye);
+    let scene_look = triple("WOW_CAPTURE_LOOK").unwrap_or(scenario.look);
 
     // `WOW_MM_PROBE=x,y,z` (raw WoW coords) places an active player there, so the interior
     // minimap renders server-less, with the camera above so the WMO streams in around it.
@@ -774,7 +805,7 @@ fn pin_scene(
                 * Quat::from_rotation_x(-req.el_deg.to_radians());
             (look + orbit * (Vec3::Z * req.dist), look)
         }
-        _ => (wow_to_bevy(scenario.eye), wow_to_bevy(scenario.look)),
+        _ => (wow_to_bevy(scene_eye), wow_to_bevy(scene_look)),
     };
     for mut t in &mut cam {
         *t = Transform::from_translation(eye).looking_at(look, Vec3::Y);

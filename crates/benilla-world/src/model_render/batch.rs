@@ -3,7 +3,7 @@
 //! cannot feather through alpha, an authored-Blend batch is its own twin, and a batch that writes
 //! no depth primes nothing.
 
-use benilla_assets::materials::WowModelMaterial;
+use benilla_assets::materials::{TorchBinds, WowModelMaterial};
 use benilla_assets::ModelSubmesh;
 use benilla_formats::ModelBlend;
 use bevy::ecs::system::SystemParam;
@@ -12,6 +12,7 @@ use bevy::render::render_resource::Buffer;
 
 use super::{model_material, zfill_material, MaterialCache, ShadeSel};
 use crate::lighting::SharedLightBuffer;
+use crate::static_gx::TorchShared;
 
 /// The engine's one `WowModelMaterial` dedup cache, swept by distance and cleared on a map change;
 /// an evicted entry costs a rebuild, never a wrong material, as [`super::MatKey`] is complete.
@@ -60,12 +61,16 @@ pub struct M2BatchMaterials<'w> {
     cache: ResMut<'w, ModelMaterials>,
     materials: ResMut<'w, Assets<WowModelMaterial>>,
     light: Option<Res<'w, SharedLightBuffer>>,
+    /// MONKEY (torch shadows Phase 3A): the shared torch bindings every built material takes —
+    /// created in the same startup system as the light buffer, so the same "retry" contract.
+    torch: TorchShared<'w>,
 }
 
 impl M2BatchMaterials<'_> {
-    /// Whether the shared light buffer is resident.
+    /// Is the shared light buffer (and the torch pair) resident? A spawner that has other work to
+    /// skip asks first.
     pub fn ready(&self) -> bool {
-        self.light.is_some()
+        self.light.is_some() && self.torch.binds().is_some()
     }
 
     /// The material store this param holds: a second `ResMut<Assets<WowModelMaterial>>` beside it
@@ -84,6 +89,7 @@ impl M2BatchMaterials<'_> {
         order: u16,
     ) -> Option<Handle<WowModelMaterial>> {
         let light = self.light.as_ref()?.0.clone();
+        let torch = self.torch.binds()?;
         Some(self.build(
             sub,
             texture,
@@ -93,6 +99,7 @@ impl M2BatchMaterials<'_> {
             false,
             false,
             &light,
+            &torch,
         ))
     }
 
@@ -103,14 +110,20 @@ impl M2BatchMaterials<'_> {
     /// (`[CM2Model+0x180]`, from the interior crossfade `[0xce9bdc]`) scales every batch's alpha,
     /// and `0 < A < 1` promotes a batch to SRC_ALPHA blending (`0x70c190`): `fade_blend` is that
     /// twin, or `steady` when the batch already blends.
+    ///
+    /// MONKEY (skybox): `uv` and `tint` are the batch's texture-transform and colour loops, the
+    /// material's seed and identity; [`crate::skybox_anim`] drives their rows.
     pub fn skybox(
         &mut self,
         sub: &benilla_formats::RenderSubmesh,
         texture: Option<Handle<Image>>,
         stage1: Option<&benilla_assets::Stage1>,
         order: u16,
+        uv: Option<&std::sync::Arc<benilla_formats::UvAnim>>,
+        tint: Option<&std::sync::Arc<benilla_formats::RgbAnim>>,
     ) -> Option<SkyboxBatch> {
         let light = self.light.as_ref()?.0.clone();
+        let torch = self.torch.binds()?;
         let mut mk = |fade: bool| {
             model_material(
                 &mut self.cache.0,
@@ -132,16 +145,16 @@ impl M2BatchMaterials<'_> {
                 ShadeSel::Lit, // unread: every shipped skybox batch is UNLIT (0x01)
                 order,
                 None, // the sky keeps its own band
-                // No texture-transform or colour loop: neither shipped skybox authors one. Wiring
-                // one needs the `M2Model` lane's `Arc`, which the material key identifies it by.
-                None,
-                None,
+                // MONKEY (skybox): the loops' `Arc`s, which the material key identifies them by.
+                uv,
+                tint,
                 None, // M2: no MOBA class, no SIDN, no WINDOW
                 None,
                 false,
                 true, // the sky lane
                 &light,
-                None, // one shared sky material, no per-sequence channel to key on
+                &torch,
+                None, // one shared sky material — no per-sequence channel to key on
             )
         };
         let steady = mk(false);
@@ -154,6 +167,43 @@ impl M2BatchMaterials<'_> {
             mk(true)
         };
         Some(SkyboxBatch { steady, fade_blend })
+    }
+
+    /// MONKEY (skybox): the flag `0x4` fog cone's material: an untextured, unlit, two-sided blend
+    /// on the sky lane, its colour the vertex colour times the tint row the skybox lane writes.
+    pub fn sky_fog_cone(&mut self, order: u16) -> Option<Handle<WowModelMaterial>> {
+        let light = self.light.as_ref()?.0.clone();
+        let torch = self.torch.binds()?;
+        Some(model_material(
+            &mut self.cache.0,
+            &mut self.materials,
+            None,
+            ModelBlend::Blend,
+            true,
+            false,
+            false,
+            true, // unlit
+            false,
+            false,
+            true,  // never writes depth
+            false, // …and always tests it
+            benilla_formats::FogPolicy::Off,
+            false,
+            None, // no second stage
+            None,
+            ShadeSel::Lit,
+            order,
+            None, // the sky keeps its own band
+            None,
+            None,
+            None,
+            None,
+            false,
+            true, // the sky lane
+            &light,
+            &torch,
+            None,
+        ))
     }
 
     /// One steady material lit by a render target's own light buffer (a portrait booth, the model
@@ -169,7 +219,18 @@ impl M2BatchMaterials<'_> {
         rig: bool,
     ) -> Handle<WowModelMaterial> {
         let shade = if rig { ShadeSel::Rig } else { ShadeSel::Lit };
-        self.build(sub, texture, order, shade, false, false, rig, light)
+        // MONKEY (torch shadows Phase 3A): the torch pair is global (one image, one table for the
+        // whole process), so an off-world lane takes it from the shared resources even though its
+        // LIGHT is its own. Both are inserted by `assets::open_world_assets` at `Startup`, before
+        // any booth or glue system can run, so this cannot fire in a real app; it is an `expect`
+        // rather than an `Option` return because both callers build `BoothPart`s inside `.map()`
+        // closures that want a handle, not a retry. (An off-world scene never lights by the
+        // interior room lane, so the bindings are only ever read as "no torches".)
+        let torch = self.torch.binds().expect(
+            "TorchShared: the torch depth image + table are created at Startup \
+             (assets::open_world_assets) before any off-world material is built",
+        );
+        self.build(sub, texture, order, shade, false, false, rig, light, &torch)
     }
 
     /// [`Self::off_world`] for one scene's own batches: keyed to `scene`, so two scenes of one
@@ -183,6 +244,10 @@ impl M2BatchMaterials<'_> {
         light: &Buffer,
         scene: Entity,
     ) -> Handle<WowModelMaterial> {
+        // MONKEY (torch shadows Phase 3A): the global torch pair, as in `Self::off_world`.
+        let torch = self.torch.binds().expect(
+            "TorchShared: the torch depth image + table are created at Startup              (assets::open_world_assets) before any off-world material is built",
+        );
         self.build_for(
             sub,
             texture,
@@ -192,6 +257,7 @@ impl M2BatchMaterials<'_> {
             false,
             true,
             light,
+            &torch,
             Some(scene),
         )
     }
@@ -213,6 +279,7 @@ impl M2BatchMaterials<'_> {
         uv: &mut EntityUvLane<'_>,
     ) -> Option<BatchVariants> {
         let light = self.light.as_ref()?.0.clone();
+        let torch = self.torch.binds()?;
         let steady = self.build(
             sub,
             texture.clone(),
@@ -222,6 +289,7 @@ impl M2BatchMaterials<'_> {
             false,
             true,
             &light,
+            &torch,
         );
         let interior = self.build(
             sub,
@@ -232,6 +300,7 @@ impl M2BatchMaterials<'_> {
             false,
             true,
             &light,
+            &torch,
         );
         let interior_bake = self.build(
             sub,
@@ -242,6 +311,7 @@ impl M2BatchMaterials<'_> {
             false,
             true,
             &light,
+            &torch,
         );
         // A multiply batch fades by the shader's identity lerp (the reference's preset-5 shape)
         // and a Blend batch already blends: both are their own twin. The rest twin from the
@@ -262,6 +332,7 @@ impl M2BatchMaterials<'_> {
                 true,
                 true,
                 &light,
+                &torch,
             )
         };
         let interior_bake_blend = if own_twin {
@@ -276,6 +347,7 @@ impl M2BatchMaterials<'_> {
                 true,
                 true,
                 &light,
+                &torch,
             )
         };
         // `register_entity_uv` is idempotent per material, so collapsed variants cost nothing.
@@ -304,7 +376,7 @@ impl M2BatchMaterials<'_> {
             interior_bake,
             interior_bake_blend,
             fade_blend,
-            zfill: self.zfill_for(sub, texture, &light),
+            zfill: self.zfill_for(sub, texture, &light, &torch),
         })
     }
 
@@ -317,6 +389,7 @@ impl M2BatchMaterials<'_> {
         two_sided: bool,
     ) -> Option<BatchVariants> {
         let light = self.light.as_ref()?.0.clone();
+        let torch = self.torch.binds()?;
         let mut mk = |shade: ShadeSel, probe: bool, fade: bool| {
             model_material(
                 &mut self.cache.0,
@@ -347,6 +420,7 @@ impl M2BatchMaterials<'_> {
                 false, // …nor the WINDOW flag
                 false, // a character composite is never a skybox
                 &light,
+                &torch,
                 None, // a composite sheet carries no animated UV/tint channel at all
             )
         };
@@ -367,6 +441,7 @@ impl M2BatchMaterials<'_> {
                 two_sided,
                 blend == ModelBlend::AlphaTest,
                 &light,
+                &torch,
             )),
         })
     }
@@ -375,9 +450,15 @@ impl M2BatchMaterials<'_> {
     /// once per placement.
     pub fn pieces(
         &mut self,
-    ) -> Option<(&mut MaterialCache, &mut Assets<WowModelMaterial>, Buffer)> {
+    ) -> Option<(
+        &mut MaterialCache,
+        &mut Assets<WowModelMaterial>,
+        Buffer,
+        TorchBinds,
+    )> {
         let light = self.light.as_ref()?.0.clone();
-        Some((&mut self.cache.0, &mut self.materials, light))
+        let torch = self.torch.binds()?;
+        Some((&mut self.cache.0, &mut self.materials, light, torch))
     }
 
     /// The depth-prime twin; a multiply batch never feathers, so it primes nothing.
@@ -386,6 +467,7 @@ impl M2BatchMaterials<'_> {
         sub: &ModelSubmesh,
         texture: Option<Handle<Image>>,
         light: &Buffer,
+        torch: &TorchBinds,
     ) -> Option<Handle<WowModelMaterial>> {
         if sub.no_depth_write || sub.no_depth_test {
             return None;
@@ -401,6 +483,7 @@ impl M2BatchMaterials<'_> {
                 sub.two_sided,
                 b == ModelBlend::AlphaTest,
                 light,
+                torch,
             )),
         }
     }
@@ -416,11 +499,12 @@ impl M2BatchMaterials<'_> {
         fade: bool,
         play_uv: bool,
         light: &Buffer,
+        torch: &TorchBinds,
     ) -> Handle<WowModelMaterial> {
         // Entity batches share one material per batch: an entity resolves its sequence through
         // `MatAnim::host`, so only the world streamer keys one per placement.
         self.build_for(
-            sub, texture, order, shade, probe, fade, play_uv, light, None,
+            sub, texture, order, shade, probe, fade, play_uv, light, torch, None,
         )
     }
 
@@ -435,6 +519,7 @@ impl M2BatchMaterials<'_> {
         fade: bool,
         play_uv: bool,
         light: &Buffer,
+        torch: &TorchBinds,
         instance: Option<Entity>,
     ) -> Handle<WowModelMaterial> {
         model_material(
@@ -467,6 +552,7 @@ impl M2BatchMaterials<'_> {
             // The sky lane overrides the batch's depth state, so only `Self::skybox` builds it.
             false,
             light,
+            torch,
             instance,
         )
     }

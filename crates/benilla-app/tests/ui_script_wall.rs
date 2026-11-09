@@ -47,7 +47,11 @@ fn family(rel: &str) -> Family {
 /// show a refused follow's line in the calling VM and post its events at their signal points.
 /// 43: the host's world click (`script_calls/world_click.rs`), which applies the mouse commands'
 /// click inside their calls and keeps the steps that wait for an arm's pick in the calling VM.
-const CEILING: usize = 43;
+///
+/// MONKEY (lighting): upstream's 43 + 2. The dev lighting panel (`debug_panel/mod.rs`,
+/// `debug_panel/lighting_controls.rs`) writes its knobs through `UiScript::set_cvar_engine`, the
+/// queue Lua's `SetCVar` feeds, so a slider and the options page never disagree about a row.
+const CEILING: usize = 45;
 
 /// How far under [`CEILING`] the count may sit before the test asks for the ceiling to follow it.
 const SLACK: usize = 4;

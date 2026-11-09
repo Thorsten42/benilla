@@ -16,6 +16,9 @@ use bevy::prelude::*;
 use crate::dev_state::DebugState;
 
 mod precip;
+pub mod shelter; // MONKEY (rainshelter): the rain-occlusion height map the wet lane reads
+mod wetness; // MONKEY (wet): surface wetness + the rain-ripple clock -> MonkeyFrame wet0
+pub use wetness::{RainSurfaces, Wetness};
 
 /// Rain's forced-fog window, read by the effect lane's `EffectFog::Rain` row.
 pub(crate) use precip::{RAIN_FOG_END, RAIN_FOG_START};
@@ -315,6 +318,8 @@ impl Plugin for WeatherPlugin {
                     .after(crate::schedule::WorldStage::Present),
             );
         precip::register(app);
+        wetness::register(app); // MONKEY (wet)
+        shelter::register(app); // MONKEY (rainshelter)
     }
 }
 

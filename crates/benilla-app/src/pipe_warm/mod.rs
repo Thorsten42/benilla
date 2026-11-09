@@ -348,6 +348,8 @@ fn run_warm_pass(
     mut gizmos: Gizmos,
     mut cache: Local<MaterialCache>,
     shared_light: Option<Res<benilla_world::lighting::SharedLightBuffer>>,
+    // MONKEY (torch shadows Phase 3A): the shared torch bindings every warmed material takes.
+    torch: benilla_world::static_gx::TorchShared,
 ) {
     if !cover.covering() {
         // No cover: a leftover menagerie despawns, and `done` keeps the gate open.
@@ -375,6 +377,9 @@ fn run_warm_pass(
         warm.done = false;
         let Ok(cam) = camera.single() else { return };
         let Some(light) = shared_light.as_ref() else {
+            return;
+        };
+        let Some(torch) = torch.binds() else {
             return;
         };
         if !cover.presented() {
@@ -410,6 +415,7 @@ fn run_warm_pass(
             &mut lanes,
             &mut cache,
             &light.0,
+            &torch,
         );
         info!("pipeline warm: menagerie up ({count} variants, {WARM_REVEAL_PER_FRAME}/frame)");
         return;

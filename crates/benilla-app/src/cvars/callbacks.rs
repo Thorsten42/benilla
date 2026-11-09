@@ -47,6 +47,16 @@ pub(crate) struct CvarCallbacks<'w> {
     render_scale: Option<ResMut<'w, crate::world_backdrop::RenderScale>>,
     shadows: Option<ResMut<'w, crate::blob_shadow::ShadowSettings>>,
     violence: Option<ResMut<'w, crate::creature_anim::blood::ViolenceLevel>>,
+    // MONKEY (graphics programme): the programme's own knobs, whose callbacks used to be
+    // observers; they ride the registry's single path now, so a write in a verb's call or the
+    // frame's sync reaches them too.
+    sky_dither: Option<ResMut<'w, benilla_world::ffx_glow::SkyDither>>,
+    foliage_wind: Option<ResMut<'w, benilla_world::wind::FoliageWind>>,
+    foliage_wind_strength: Option<ResMut<'w, benilla_world::wind::FoliageWindStrength>>,
+    fog_model: Option<ResMut<'w, benilla_world::lighting::FogModelSetting>>,
+    rain_surfaces: Option<ResMut<'w, benilla_world::weather::RainSurfaces>>,
+    zone_override: Option<Res<'w, crate::zone_skybox::ZoneSkyboxOverride>>,
+    zone_skyboxes: Option<ResMut<'w, benilla_world::skybox::ZoneSkyboxes>>,
 }
 
 impl CvarCallbacks<'_> {
@@ -135,6 +145,28 @@ impl CvarCallbacks<'_> {
         if let Some(k) = self.violence.as_mut() {
             crate::creature_anim::blood::on_cvar(ev, k.reborrow(), cvars.locale);
         }
+        // MONKEY (graphics programme): the five rows `monkey_gfx` bridges.
+        if let (Some(a), Some(b), Some(c), Some(d), Some(e)) = (
+            self.sky_dither.as_mut(),
+            self.foliage_wind.as_mut(),
+            self.foliage_wind_strength.as_mut(),
+            self.fog_model.as_mut(),
+            self.rain_surfaces.as_mut(),
+        ) {
+            crate::monkey_gfx::on_cvar(
+                ev,
+                a.reborrow(),
+                b.reborrow(),
+                c.reborrow(),
+                d.reborrow(),
+                e.reborrow(),
+            );
+        }
+        // MONKEY (skybox): `zoneSkyboxes`.
+        if let Some(forced) = self.zone_override.as_deref() {
+            let zone = self.zone_skyboxes.as_mut().map(|z| z.reborrow());
+            crate::zone_skybox::on_cvar(ev, forced, zone);
+        }
     }
 }
 
@@ -199,6 +231,9 @@ impl CvarSteps<'_> {
             }
             None => None,
         };
+        // MONKEY (presets): derive the lighting and graphics labels after every ordered write and
+        // before the mirror flush below.
+        super::lighting_quality(cvars);
         if cvars.has_events() {
             for event in cvars.take_events() {
                 self.callbacks.run(&event, cvars);
@@ -211,8 +246,12 @@ impl CvarSteps<'_> {
             let outbox = cvars.take_outbox();
             // With no VM there is no mirror; a later VM is seeded from the table.
             if let Some(script) = script {
-                for (name, value) in outbox {
-                    script.set_cvar_host(&name, &value);
+                for (name, _) in outbox {
+                    // MONKEY (sync 1108): a preset may have queued this before a newer VM member
+                    // edit; publish the final registry value, never the older queued snapshot.
+                    if let Some(value) = cvars.get(&name) {
+                        script.set_cvar_host(&name, value);
+                    }
                 }
             }
         }

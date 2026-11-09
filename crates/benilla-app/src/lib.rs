@@ -54,6 +54,22 @@ mod dev;
 #[cfg(feature = "dev")]
 mod devtools;
 mod doodad_events;
+/// MONKEY (dynamic interiors): the cvar → benilla-world bridge for the fixture-lit interior lane.
+mod dynamic_interior;
+// MONKEY (volumetric fog): optional near-field atmosphere plugin.
+mod volumetric_fog;
+// GFX (volumetric light): shadow-mapped sun/moon light shafts.
+mod volumetric_light;
+// MONKEY (p0 graphics programme): the programme's cvar bridges (skyDither, ...).
+mod monkey_gfx;
+// MONKEY (post): optional world-only HDR post-processing.
+mod post;
+// MONKEY (sky): the skyQuality cvar bridge.
+mod sky_quality;
+// MONKEY (ao): optional screen-space ambient occlusion plugin.
+mod ssao;
+// MONKEY (skybox): the zoneSkyboxes cvar bridge.
+mod character_shadow;
 mod entities;
 mod field_callbacks;
 mod field_watch;
@@ -101,6 +117,8 @@ mod screen_fade;
 mod screenshot;
 mod script_calls;
 mod shaders;
+mod shadow_core;
+mod zone_skybox;
 
 mod game_tip;
 mod opaque2d;
@@ -119,6 +137,7 @@ mod target;
 pub(crate) mod test_support;
 mod text_filter;
 mod textinput;
+mod torch_shadow;
 mod transport;
 mod tutorial;
 mod ui_action;
@@ -196,6 +215,7 @@ mod wdb;
 mod weapon_trail;
 mod world_backdrop;
 mod world_console;
+mod world_shadow;
 mod world_state;
 mod world_state_ui;
 
@@ -343,9 +363,12 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     let background = benilla_world::bgwin::background_run();
     if capturing {
         // Ground clutter scatters with per-run randomness, so captures turn it off for byte-stable
-        // baselines; set before plugins build so `ClutterConfig::from_env` reads it. The frame
-        // clock, frozen in `capture`, is the other source of drift.
-        std::env::set_var("WOW_CLUTTER_DENSITY", "0");
+        // baselines unless a capture asks for it (MONKEY wind does); set before plugins build so
+        // `ClutterConfig::default` reads it. The frame clock, frozen in `capture`, is the other
+        // source of drift.
+        if std::env::var_os("WOW_CLUTTER_DENSITY").is_none() {
+            std::env::set_var("WOW_CLUTTER_DENSITY", "0");
+        }
         // Anim-LOD park/wake (`creature_anim::lod::gate_rig_animation`) hangs on asset-load timing,
         // which the frozen clock does not control, so captures turn it off unless overridden. A rig
         // in frame should never be parked, so the shot keeps its subject.

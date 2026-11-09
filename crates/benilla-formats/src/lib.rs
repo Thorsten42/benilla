@@ -39,6 +39,10 @@ mod camera_shakes;
 mod cinematics;
 mod creatures;
 mod dbc;
+mod monkey_zone_grade;
+pub use monkey_zone_grade::{
+    load_monkey_zone_grades, parse_monkey_zone_grades, MonkeyZoneGrade, MonkeyZoneGrades,
+};
 mod unit_blood;
 pub use camera_shakes::{load_camera_shakes, CameraShake, CameraShakeCatalog, SpellShakeGroup};
 pub use cinematics::{
@@ -165,6 +169,14 @@ pub use ground_effects::{
 };
 mod light;
 pub use light::{Atmosphere, LightCatalog, Submersion, ZERO_KEY_COLOR, ZERO_KEY_SCALAR};
+// MONKEY (fog): `LightFogBand.dbc`.
+pub use light::{FogBand, FogBandCatalog, FOG_BANDS_PER_PARAM};
+// MONKEY (skybox): the skybox row and the zone walk's entries.
+// MONKEY (leftovers): + the 0x8 / 0x10 flags.
+pub use light::{
+    SkyboxDef, ZoneSkybox, SKYBOX_FOG_BLEND, SKYBOX_FORCE_SUN_SHAFTS, SKYBOX_FULL_DAY,
+    SKYBOX_KEEP_CELESTIAL, SKYBOX_NO_SUN_FOG,
+};
 mod loading_screen;
 pub use loading_screen::{load_loading_screens, LoadingScreenCatalog};
 // The route a transport transfer's loading screen draws.
@@ -269,6 +281,30 @@ pub use particles::{
     parse_m2_particle_emitters, CellRamp, OverLife, OverLifeSample, ParticleBlend,
     ParticleEmitterDef, ParticleShape, SplineData,
 };
+// MONKEY (fire GO lights): the SYNTHESISED-light rule for fire props that author no light block —
+// derived from the model's own flame emitter. Beside `particles` because that is its whole input.
+pub mod fire_light;
+pub use fire_light::{synthesize_fire_light, SyntheticFire};
+// MONKEY (lamp lights): the SECOND route in that same module — an emissive lamp/lantern
+// GEOSET rather than a flame emitter (a lamppost authors no particles at all).
+pub use fire_light::{synthesize_lamp_light, EmissiveBatch, LightRoute, SyntheticLamp};
+// MONKEY (spell light): the THIRD route in that same module — a SPELL EFFECT's / FIREWORK's
+// emitter, which the two above veto outright. Fire, holy and fel burn; frost, nature, arcane and
+// shadow emit nothing at all.
+pub use fire_light::{is_spell_light_path, synthesize_spell_light, SpellLightKind, SyntheticSpell};
+// MONKEY (area spell light): the same route's PERSISTENT-GROUND-EFFECT arm — a DynamicObject's
+// area model, which is routinely a flat decal with no emitter for the rule above to read, so its
+// school comes off the model path / the spell's `Spell.dbc` school and its pool is sized from the
+// wire AoE radius.
+pub use fire_light::{
+    area_color, area_light_kind, area_reach, spell_school_kind, AREA_FALLBACK_INTENSITY,
+    AREA_LIGHT_LIFT,
+};
+// MONKEY (portal claims): which ROOMS one fixture may light -- containment, MOLR, and one portal
+// hop. Shared by the runtime spawner and the `wmolights`/`wmolamps` audits so the gate the shader
+// enforces and the gate the instrument prints can never be two different rules.
+pub mod room_claim;
+pub use room_claim::{claim_groups, room_claims, Claim, ClaimHow, PortalGraph};
 mod ribbons;
 pub use ribbons::{parse_m2_ribbon_emitters, RibbonEmitterDef, RibbonVisibility};
 mod value_track;

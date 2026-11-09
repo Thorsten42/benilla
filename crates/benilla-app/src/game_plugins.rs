@@ -100,6 +100,9 @@ impl PluginGroup for GamePlugins {
         PluginGroupBuilder::start::<Self>()
             // The game's own WGSL, compiled in, before anything that could ask for one.
             .add(crate::shaders::plugin)
+            .add(benilla_world::liquid::WaterDepthPlugin)
+            // MONKEY (planar water): the High tier's mirrored view, rendered before the world.
+            .add(benilla_world::liquid::WaterMirrorPlugin)
             .add(BowstringPlugin)
             .add(crate::weapon_trail::WeaponTrailPlugin)
             .add(FishingLinePlugin)
@@ -112,6 +115,8 @@ impl PluginGroup for GamePlugins {
             .add(CreatureAnimPlugin)
             // The blob shadow (`0x6d7920`), sized from the Stand box (`playableAnimationLookup[0]`,
             // fixed per model), never the playing sequence.
+            // MONKEY (shadows): `worldShadows 1` hands unit shadows to the shadow-map path and this
+            // lane hides (the gate inside `update_shadows`); `0`, the default, draws it as 1.12 does.
             .add(BlobShadowPlugin)
             .add(CameraShakePlugin)
             .add(FootprintsPlugin)
@@ -152,6 +157,31 @@ impl PluginGroup for GamePlugins {
             .add(UiScriptPlugin)
             // Before CvarPlugin, so the resource exists when `load_config` applies the saved value.
             .add(crate::video::VideoPlugin)
+            // MONKEY (shadows): the shared rig (loads first) + the independent lane plugins. Here,
+            // between `VideoPlugin` and `RealmlistPlugin`, because every one of them registers cvars
+            // that `CvarPlugin` (two lines down) must already see when `load_config` applies the
+            // saved values at Startup — the same edge that pins the two knob plugins around them.
+            .add(crate::shadow_core::ShadowCorePlugin)
+            .add(crate::character_shadow::CharacterShadowPlugin)
+            .add(crate::world_shadow::WorldShadowPlugin)
+            .add(crate::torch_shadow::TorchShadowPlugin)
+            // MONKEY (dynamic interiors): the fixture-lit interior lane's cvar bridge — independent
+            // of the shadow lanes, a plain drop-in.
+            .add(crate::dynamic_interior::DynamicInteriorPlugin)
+            // MONKEY (volumetric fog): bridge the live setting to Bevy.
+            .add(crate::volumetric_fog::VolumetricFogPlugin)
+            // GFX (volumetric light): after the fog plugin, whose graph node it follows.
+            .add(crate::volumetric_light::VolumetricLightPlugin)
+            // MONKEY (p0 graphics programme): the programme's cvar bridges (skyDither, ...).
+            .add(crate::monkey_gfx::MonkeyGfxPlugin)
+            // MONKEY (post): world-only HDR effects, before the legacy FFX clamp/UI composite.
+            .add(crate::post::PostPlugin)
+            // MONKEY (sky): the sky tier bridge.
+            .add(crate::sky_quality::SkyQualityPlugin)
+            // MONKEY (ao): contact shadows after the opaque pass, before the water copy.
+            .add(crate::ssao::AmbientOcclusionPlugin)
+            // MONKEY (skybox): bridge the zone-skybox setting to the world lane.
+            .add(crate::zone_skybox::ZoneSkyboxPlugin)
             // A CVar knob too, so before CvarPlugin for the same reason.
             .add(crate::realmlist::RealmlistPlugin)
             .add(crate::cvars::CvarPlugin)
@@ -922,7 +952,17 @@ pub(crate) mod schedule_tests {
 
     /// `PostUpdate`'s undeclared-order pairs on the declared graph; `GlobalTransform` and the
     /// particle `EffectQuads` are most of it.
-    const POST_UPDATE_CEILING: usize = 370;
+    ///
+    /// MONKEY (lighting, water, fog): this branch adds the carried-light motion tracker, the
+    /// light-lane classifier, the shadow rig, the lava light and the swim bob, all reading
+    /// `GlobalTransform`/`Transform`/`Mesh3d` and re-derived every frame, so a frame-late read
+    /// trails by one frame and corrects itself (`WOW_AMBIGUITY_DUMP_POST=1` lists them). KNOWN
+    /// FOLLOW-UP: the swim bob writes a rig's visual offset with no order against
+    /// `rig_anim::compose`. NOT YET RE-MEASURED after merging upstream 1108: the ceiling below is
+    /// upstream's own; raise it by exactly our pairs, read off the merged tree's test run.
+    // MONKEY (sync 1108): measured on this merge (upstream's own was 370).
+    const POST_UPDATE_CEILING: usize = 478;
+
     const POST_UPDATE_SLACK: usize = 20;
     /// The actionable pairs in `Update`: conflicting access, no declared order, and nothing
     /// [`Classes`] explains, so the executor orders them however the graph falls. The count may
@@ -979,12 +1019,22 @@ pub(crate) mod schedule_tests {
     /// Raising the ceiling is a claim that a new undeclared order is acceptable: make it with the
     /// reason read off the dump, or declare the order (`.after`, a set, a `chain`). A resource
     /// that commutes by construction belongs in [`Classes`].
+    ///
+    /// MONKEY (graphics programme): measured with the lanes' orders declared (wind, wetness and
+    /// fog-model writers of `MonkeyFrame`; the viewer publish before its readers; the sky clock
+    /// and tier before the consume set; the grass benders). What remains: `skybox::animate_skyboxes`
+    /// against the `MatAnimTable` allocators (it writes only its own rows) and one pair each of the
+    /// new systems against the two exclusive systems. NOT YET RE-MEASURED after merging upstream
+    /// 1108: the ceiling below is upstream's own; raise it by exactly our pairs, read off the
+    /// merged tree's test run.
+    // MONKEY (sync 1108): measured on this merge (upstream's own was 1_467); the extra pairs are
+    // the graphics programme's systems against shared state, listed by `WOW_AMBIGUITY_DUMP=1`.
     #[cfg(not(feature = "pfui"))]
-    const UPDATE_ACTIONABLE_CEILING: usize = 1_467;
+    const UPDATE_ACTIONABLE_CEILING: usize = 1_592;
     // The optional feeds order stock producers before their consumers, so the pfUI build has its
     // own ratchet. The stage seat reads the scene rig; the rig writers it pairs with hold others.
     #[cfg(feature = "pfui")]
-    const UPDATE_ACTIONABLE_CEILING: usize = 1_475;
+    const UPDATE_ACTIONABLE_CEILING: usize = 1_600;
     const UPDATE_ACTIONABLE_SLACK: usize = 40;
 
     fn ratchet(what: &str, n: usize, ceiling: usize, slack: usize) {
@@ -1052,6 +1102,33 @@ pub(crate) mod schedule_tests {
                         update.name(y),
                         what.iter()
                             .map(|id| update.component(*id))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                })
+                .collect();
+            rows.sort();
+            for r in rows {
+                eprintln!("{r}");
+            }
+        }
+        // MONKEY (lighting): the `PostUpdate` half of the dump, which upstream's `Update`-only
+        // lever had no equivalent of — and without which `POST_UPDATE_CEILING` could only ever be
+        // raised by reasoning about what the new pairs must be, the exact mistake the ceiling's
+        // own comments record. Its own env var, not `WOW_AMBIGUITY_DUMP`, because `PostUpdate`
+        // prints every pair (there is no `Classes` pass over it) and 466 rows would bury the
+        // actionable `Update` list this test is usually run for.
+        if std::env::var_os("WOW_AMBIGUITY_DUMP_POST").is_some() {
+            let mut rows: Vec<String> = post
+                .conflicts
+                .iter()
+                .map(|(a, b, what)| {
+                    format!(
+                        "POST  {}  <->  {}\n      on {}",
+                        post.name(*a),
+                        post.name(*b),
+                        what.iter()
+                            .map(|id| post.component(*id))
                             .collect::<Vec<_>>()
                             .join(", ")
                     )
@@ -1720,6 +1797,9 @@ pub(crate) mod schedule_tests {
          "the drag probe: dev-only (`WOW_PROBE_DRAG`), it starts past `WOW_PROBE_DRAG_AT` with the \
           player's body in the world, and its `.drain(..)` is of the VM's own script errors, \
           raised by the gesture it just made"),
+        // MONKEY (sync 1108)
+        ("debug_panel/lighting_controls.rs", "lighting_bridge_sync", Because::Deliberate,
+         "the lighting panel's VM bridge: the debug panel is dev-only (not in the headless client this census builds), the system is gated on `ingame_ui_up` where it exists, and its `mem::take` is of its OWN queue of the panel's clicks, which only the egui pass fills"),
         ("death/mod.rs", "signal", Because::Deliberate,
          "the death state's signal: our death's leg (`signal_death`), run in its packet with the VM deferred, its `PLAYER_DEAD` parked for the deaths lane, whose drain runs only with the interface up (`ingame_ui_up`); and an arrival's, run by the arrival lane's firing inside the lanes' drain, which runs only with the interface up (`ingame_ui_up`)"),
         ("death/mod.rs", "ask_spirit_healer", Because::Deliberate,
