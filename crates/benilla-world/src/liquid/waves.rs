@@ -43,7 +43,7 @@ const GRAVITY_YD: f32 = 10.72;
 
 /// `6.2831853` exactly as the shader spells it (`enhanced_water.wgsl`). Identical to `f32::TAU` once
 /// rounded, spelled as the literal so the mirror reads against the line it copies.
-const TWO_PI: f32 = 6.2831853;
+const TWO_PI: f32 = std::f32::consts::TAU;
 
 /// The ADT **ocean**'s wave energy — `liquid/surface.rs` packs `water.mode.y = 1.0` for
 /// `LiquidPath::Adt` + [`benilla_formats::LiquidKind::Ocean`] (river/lake 0.18, WMO exterior 0.26,
@@ -208,6 +208,7 @@ mod tests {
     /// EITHER side is a build failure rather than a swimmer floating half a yard off the sea: the
     /// shader is another agent's file, and nothing but this assertion couples the two.
     #[test]
+    #[allow(clippy::approx_constant)] // the shader's own literal, pinned
     fn the_table_mirrors_the_shader() {
         assert_eq!(
             LONG_SWELL,
