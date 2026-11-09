@@ -21,6 +21,7 @@ use std::sync::Arc;
 
 use mlua::{Lua, MultiValue, Table, Value};
 
+use super::binding_abi::{self, optional_string, usage};
 use super::object::frame_handle_of;
 use super::Model;
 use crate::widget::{model_key, FrameHandle, KindState, ModelFileFacts, ModelLight, ModelState};
@@ -30,29 +31,48 @@ impl Model {
     /// holds `1/√(a²+1)`): the unit of `SetPosition` and of the implicit rect. `a` is 4/3 before a
     /// screen exists.
     pub(crate) fn layout_unit(&self) -> f32 {
-        let (w, h) = (self.screen.width(), self.screen.height());
-        let a = if h > 0.0 && w > 0.0 { w / h } else { 4.0 / 3.0 };
+        let a = self.screen_aspect();
         768.0 * (a * a + 1.0).sqrt()
     }
 
-    /// `ApplyRect`'s size threshold, 2⁻²² in the reference's layout units (`0x76b5e7`,
-    /// `0x76b602`, `[0x8029d4]`), in ours: [`crate::layout::SIZE_EPS`] times the layout unit.
+    /// The aspect the screen-scale cells are set from: the window's, as
+    /// [`crate::script::UiScript::set_window_size`] gave it, else the root's own width over height,
+    /// else 4/3.
+    pub(crate) fn screen_aspect(&self) -> f32 {
+        Self::aspect_of(self.screen, self.aspect)
+    }
+
+    /// [`Self::screen_aspect`] for a root `screen` and a window aspect `aspect`.
+    pub(crate) fn aspect_of(screen: crate::layout::Rect, aspect: Option<f32>) -> f32 {
+        if let Some(a) = aspect {
+            return a;
+        }
+        let (w, h) = (screen.width(), screen.height());
+        if h > 0.0 && w > 0.0 {
+            w / h
+        } else {
+            4.0 / 3.0
+        }
+    }
+
+    /// `ApplyRect`'s size threshold, 2⁻²² layout units (`0x76b5e7`, `0x76b602`, `[0x8029d4]`), in
+    /// the root's units, for a reader that compares root-unit rects: [`crate::layout::SIZE_EPS`]
+    /// times the layout unit. The resolver compares its layout rects against the constant itself.
     pub(crate) fn size_eps(&self) -> f64 {
         crate::layout::SIZE_EPS * f64::from(self.layout_unit())
     }
 
-    /// The aspect globals `SetPoint`'s unchanged-anchor test quantizes offsets by
-    /// ([`crate::layout::Anchors::set`]), for the screen aspect [`Self::layout_unit`] reads.
+    /// The screen-scale cells (`0x41ad10`) for [`Self::screen_aspect`].
+    #[inline]
     pub(crate) fn layout_units(&self) -> crate::layout::LayoutUnits {
-        let (w, h) = (self.screen.width(), self.screen.height());
-        let a = if h > 0.0 && w > 0.0 { w / h } else { 4.0 / 3.0 };
-        crate::layout::LayoutUnits::from_aspect(a)
+        self.space.units()
     }
 
-    /// The drain's keep threshold, 1e-5 in the reference's layout units (`[0x80c5c8]`, tested in
-    /// `0x768d20`), in ours: [`crate::layout::RESOLVE_EPS`] times the layout unit.
-    pub(crate) fn resolve_eps(&self) -> f64 {
-        crate::layout::RESOLVE_EPS * f64::from(self.layout_unit())
+    /// The layout space of the screen root under [`Self::layout_units`]: the root's extent in
+    /// layout units and the map back to its own units.
+    #[inline]
+    pub(crate) fn layout_space(&self) -> crate::layout::LayoutSpace {
+        self.space
     }
 
     /// `SetModel` on the pane `h` (`0x76cce0`): the file, seeded now if its facts are held (else
@@ -73,10 +93,16 @@ impl Model {
         self.apply_implicit_rect(h);
     }
 
-    /// `SetCamera(idx)` on the pane `h` (`0x76cec0`), against the facts of the file it holds.
+    /// `SetCamera(idx)` on the pane `h` (`0x76cec0`): on a character pane's copy, else against
+    /// the facts of the file it holds.
     pub(crate) fn set_pane_camera(&mut self, h: FrameHandle, idx: i32) {
-        let path = match self.arena.frame(h).map(|f| &f.kind_state) {
-            Some(KindState::Model(m)) => m.path.clone(),
+        let path = match self.arena.frame_mut(h).map(|f| &mut f.kind_state) {
+            Some(KindState::Model(m)) => {
+                if m.character.as_mut().is_some_and(|c| c.set_camera(idx)) {
+                    return;
+                }
+                m.path.clone()
+            }
             _ => return,
         };
         let facts = path.and_then(|p| self.model_facts_for(&p));
@@ -104,7 +130,7 @@ impl Model {
                 && self
                     .layout_inputs
                     .get(&h)
-                    .is_some_and(|i| i.width != 0.0 || i.height != 0.0);
+                    .is_some_and(|i| !i.width.is_zero() || !i.height.is_zero());
             if authored {
                 return;
             }
@@ -112,10 +138,10 @@ impl Model {
         };
         let (w, ht) = (extent.0 * unit, extent.1 * unit);
         let input = self.layout_inputs.entry(h).or_default();
-        let changed =
-            input.width.to_bits() != w.to_bits() || input.height.to_bits() != ht.to_bits();
-        input.width = w;
-        input.height = ht;
+        let changed = input.width.bits() != crate::layout::Len::Script(w).bits()
+            || input.height.bits() != crate::layout::Len::Script(ht).bits();
+        input.width = crate::layout::Len::Script(w);
+        input.height = crate::layout::Len::Script(ht);
         // The model-ready size write invalidates the frame (`0x76ce70`).
         self.invalidate_frame(h, changed);
         if let Some(KindState::Model(m)) = self.arena.frame_mut(h).map(|f| &mut f.kind_state) {
@@ -131,14 +157,18 @@ impl Model {
         }
     }
 
-    /// The host's facts for `path`; on a miss the path is queued, once, for the host to load.
+    /// The host's facts for `path`; on a miss the path is queued, once per key, for the host to
+    /// load.
     pub(crate) fn model_facts_for(&mut self, path: &str) -> Option<Arc<ModelFileFacts>> {
         let key = model_key(path);
         match self.model_facts.get(&key) {
             Some(facts) => Some(facts.clone()),
             None => {
-                if !self.model_facts_wanted.contains(&key) {
-                    self.model_facts_wanted.push(key);
+                if !self.model_facts_wanted.iter().any(|w| w.key == key) {
+                    self.model_facts_wanted.push(ModelWanted {
+                        key,
+                        path: path.to_string(),
+                    });
                 }
                 None
             }
@@ -178,19 +208,21 @@ pub(super) fn with_model<T>(
         .ok_or_else(|| mlua::Error::runtime("stale frame handle"))?;
     match &mut frame.kind_state {
         KindState::Model(m) => Ok(f(m)),
-        _ => Err(mlua::Error::runtime("not a Model")),
+        _ => Err(mlua::Error::runtime(crate::script::object::ERR_WRONG_TYPE)),
     }
 }
 
-/// `lua_tonumber`, which the reference's coordinate and angle setters read through: a number or a
-/// numeric string, anything else 0.0.
-fn num(v: &Value) -> f32 {
-    match v {
-        Value::Number(n) => *n as f32,
-        Value::Integer(i) => *i as f32,
-        Value::String(s) => s.to_str().ok().and_then(|t| t.parse().ok()).unwrap_or(0.0),
-        _ => 0.0,
-    }
+/// A bare `lua_tonumber` (`0x6f3620`), which `SetPosition` (`0x76dc92`) and `SetFogColor`'s
+/// colour read through: a number or a string the VM converts, anything else 0.0.
+fn num(lua: &Lua, v: &Value) -> f32 {
+    binding_abi::coerced_number(lua, Some(v.clone())) as f32
+}
+
+/// A scalar setter's argument: `lua_isnumber` (`0x6f34d0`) after the receiver check, else the
+/// verb's `Usage: %s:<line>` naming the pane.
+fn model_number(lua: &Lua, this: &Table, v: Value, line: &str) -> mlua::Result<f64> {
+    with_model(lua, this, |_| ())?;
+    binding_abi::method_number(lua, this, v, line)
 }
 
 /// `SetSequence`/`SetSequenceTime` on any model pane: a character pane's copy takes the arm (the
@@ -200,37 +232,29 @@ fn arm_pane(m: &mut ModelState, id: i32, ms: i64, facts: Option<&ModelFileFacts>
     m.arm_key_bone(id, ms, false, facts);
 }
 
-/// Same, as an integer (sequence and camera indices).
-fn int(v: &Value) -> i32 {
-    num(v) as i32
-}
-
-/// `lua_isnumber`: a number or a string that converts. Separate from [`num`] because `SetLight`
-/// raises on a non-number where the coordinate setters read 0.
-fn number(v: &Value) -> Option<f32> {
-    match v {
-        Value::Number(n) => Some(*n as f32),
-        Value::Integer(i) => Some(*i as f32),
-        Value::String(s) => s.to_str().ok().and_then(|t| t.trim().parse().ok()),
-        _ => None,
-    }
+/// `lua_isnumber` then `lua_tonumber`: a number or a string the VM converts. Separate from
+/// [`num`] because `SetLight` raises on a non-number where the coordinate setters read 0.
+fn number(lua: &Lua, v: &Value) -> Option<f32> {
+    binding_abi::is_number(lua, v.clone()).map(|n| n as f32)
 }
 
 /// `[0x8029d4]`, the client's float-zero epsilon: `SetLight`'s intensity gate, `0x71b6a0`'s
 /// direction normalise and the paint's degenerate-rect test.
 const FLOAT_EPS: f32 = 2.384_185_8e-7;
 
-/// `Model:SetLight`'s usage error. The reference's (`0x878c00`) names the receiver through `%s`
-/// and ends in `)`; this one names `Model` and drops the `)`.
-const SET_LIGHT_USAGE: &str = "Usage: Model:SetLight(enabled[, omni, dirX, dirY, dirZ, \
-     ambIntensity[, ambR, ambG, ambB], dirIntensity[, dirR, dirG, dirB]]";
+/// `Model:SetLight`'s usage line, `Usage: %s:SetLight(…)` (`0x878c00`) naming the receiver.
+const SET_LIGHT_USAGE: &str = "SetLight(enabled[, omni, dirX, dirY, dirZ, \
+     ambIntensity[, ambR, ambG, ambB], dirIntensity[, dirR, dirG, dirB]])";
 
 /// `PlayerModel:SetUnit`'s usage error (`0x84f284`), which names no receiver.
 const SET_UNIT_USAGE: &str = "Usage: SetUnit(\"unit\")";
 
+/// `PlayerModel:SetRotation`'s usage error (`0x84f29c`), which names no receiver.
+const SET_ROTATION_USAGE: &str = "Usage: SetRotation(rotation (in radians))";
+
 /// What [`parse_set_light`] decided.
 enum SetLight {
-    /// A non-number where one is required: `luaL_error(SET_LIGHT_USAGE)`.
+    /// A non-number where one is required: `luaL_error` of [`SET_LIGHT_USAGE`].
     Raise,
     /// `enabled == 0` returns (`0x76e2cb`) before the copy, so the call neither disables nor
     /// edits the light.
@@ -244,8 +268,8 @@ enum SetLight {
 /// A colour triple is read only when its intensity is nonzero and all three are numbers; otherwise
 /// it is white and the cursor does not advance, so `SetLight(1, 0, x, y, z, ambI, dirI)` reads the
 /// second intensity at index 8, not 11.
-fn parse_set_light(a: &[Value]) -> SetLight {
-    let Some(enabled) = a.first().and_then(number) else {
+fn parse_set_light(lua: &Lua, a: &[Value]) -> SetLight {
+    let Some(enabled) = a.first().and_then(|v| number(lua, v)) else {
         return SetLight::Raise;
     };
     if enabled as i32 == 0 {
@@ -254,7 +278,7 @@ fn parse_set_light(a: &[Value]) -> SetLight {
     // Lua indices 3..=7 (omni, x, y, z, ambient intensity) are required once enabled.
     let mut head = [0.0f32; 5];
     for (i, slot) in head.iter_mut().enumerate() {
-        match a.get(i + 1).and_then(number) {
+        match a.get(i + 1).and_then(|v| number(lua, v)) {
             Some(v) => *slot = v,
             None => return SetLight::Raise,
         }
@@ -272,7 +296,7 @@ fn parse_set_light(a: &[Value]) -> SetLight {
     let quantize = |v: f32| ((v.clamp(0.0, 1.0) * 255.0).round()) / 255.0;
     let block = |at: usize| -> Option<[f32; 3]> {
         let c: Vec<f32> = (at..at + 3)
-            .filter_map(|k| a.get(k).and_then(number))
+            .filter_map(|k| a.get(k).and_then(|v| number(lua, v)))
             .collect();
         (c.len() == 3).then(|| [quantize(c[0]), quantize(c[1]), quantize(c[2])])
     };
@@ -288,39 +312,13 @@ fn parse_set_light(a: &[Value]) -> SetLight {
         ambient: ambient_rgb.map(|c| c * ambient_i),
         diffuse: [0.0; 3],
     };
-    if let Some(diffuse_i) = a.get(next).and_then(number) {
+    if let Some(diffuse_i) = a.get(next).and_then(|v| number(lua, v)) {
         let rgb = block(next + 1)
             .filter(|_| diffuse_i.abs() > FLOAT_EPS)
             .unwrap_or([1.0; 3]);
         light.diffuse = rgb.map(|c| c * diffuse_i);
     }
     SetLight::Set(light)
-}
-
-/// A string argument as `lua_isstring` gates it: a string or a number (tags 3 and 4), the number
-/// rendered as decimal text.
-fn string_arg(v: &Value) -> Option<std::borrow::Cow<'_, str>> {
-    match v {
-        Value::String(s) => s
-            .to_str()
-            .ok()
-            .map(|t| std::borrow::Cow::Owned(t.to_string())),
-        Value::Number(n) => Some(std::borrow::Cow::Owned(n.to_string())),
-        Value::Integer(i) => Some(std::borrow::Cow::Owned(i.to_string())),
-        _ => None,
-    }
-}
-
-/// The client's `Usage:` error, naming the receiver by `GetName()` or `<unnamed>` (`0x84c7f0`).
-fn usage(lua: &Lua, this: &Table, call: &str) -> mlua::Error {
-    let name = this
-        .get::<mlua::Function>("GetName")
-        .and_then(|f| f.call::<Option<String>>(this.clone()))
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| "<unnamed>".to_string());
-    let _ = lua;
-    mlua::Error::runtime(format!("Usage: {name}:{call}"))
 }
 
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
@@ -338,9 +336,9 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     m.set(
         "SetModel",
         lua.create_function(|lua, (this, path): (Table, Value)| {
-            let path = string_arg(&path)
-                .ok_or_else(|| usage(lua, &this, "SetModel(\"file\")"))?
-                .to_string();
+            // `lua_isstring` then `lua_tostring` (`0x76d9dc`, `0x76d9ec`).
+            let path = optional_string(lua, &path)
+                .ok_or_else(|| usage(lua, &this, "SetModel(\"file\")"))?;
             // A pane of this kind, or the error.
             with_model(lua, &this, |_| ())?;
             let h = frame_handle_of(lua, &this)?;
@@ -367,10 +365,13 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     //
     // On a character pane holding a copy the arm lands on the copy, blend 0; the next paint's
     // turn timer replaces anything but Stand with Stand (`0x505c81`), so it shows for one paint.
+    // Each argument passes `lua_isnumber` (`0x76df4c`; `0x76e04c`, `0x76e05d`) and is `_ftol`ed,
+    // else `Usage: %s:SetSequence(sequence)` (`0x878b94`) or `…SetSequenceTime(sequence, time)`
+    // (`0x878bb4`).
     m.set(
         "SetSequence",
         lua.create_function(|lua, (this, seq): (Table, Value)| {
-            let seq = int(&seq);
+            let seq = binding_abi::ftol(model_number(lua, &this, seq, "SetSequence(sequence)")?);
             let facts = facts_of_pane(lua, &this)?;
             with_model(lua, &this, |m| arm_pane(m, seq, 0, facts.as_deref()))
         })?,
@@ -378,7 +379,10 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     m.set(
         "SetSequenceTime",
         lua.create_function(|lua, (this, seq, ms): (Table, Value, Value)| {
-            let (seq, ms) = (int(&seq), int(&ms));
+            let line = "SetSequenceTime(sequence, time)";
+            let seq = model_number(lua, &this, seq, line)?;
+            let ms = model_number(lua, &this, ms, line)?;
+            let (seq, ms) = (binding_abi::ftol(seq), binding_abi::ftol(ms));
             let facts = facts_of_pane(lua, &this)?;
             with_model(lua, &this, |m| {
                 arm_pane(m, seq, i64::from(ms), facts.as_deref())
@@ -389,11 +393,14 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     // ── The pane's view: yaw, scale, camera, position ───────────────────────────────────────
     //
     // `SetFacing` (`0x878948[4]` → `0x76dce0`) writes the yaw at `+0x39c`, the field
-    // `PlayerModel:SetRotation` also writes.
+    // `PlayerModel:SetRotation` also writes. It and `SetModelScale`, `SetCamera`, `SetFogNear`
+    // and `SetFogFar` gate on `lua_isnumber` (`0x76dd6c`, `0x76de5c`, `0x76e16c`, `0x76f26c`,
+    // `0x76f41c`), else their usage line (`0x878b5c`, `0x878b78` "SetScale" sic, `0x878be0`,
+    // `0x878ca4`, `0x878cc0`).
     m.set(
         "SetFacing",
         lua.create_function(|lua, (this, rad): (Table, Value)| {
-            let rad = num(&rad);
+            let rad = model_number(lua, &this, rad, "SetFacing(facing)")? as f32;
             with_model(lua, &this, |m| m.facing = rad)
         })?,
     )?;
@@ -404,7 +411,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     m.set(
         "SetModelScale",
         lua.create_function(|lua, (this, s): (Table, Value)| {
-            let s = num(&s);
+            let s = model_number(lua, &this, s, "SetScale(scale)")? as f32;
             with_model(lua, &this, |m| m.scale = s)
         })?,
     )?;
@@ -414,12 +421,12 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     )?;
     // `SetCamera(n)` (`0x76e0e0` → `0x76cec0`) picks a camera by raw table index, not through
     // `cameraLookup`; past the table it installs the NULL (orthographic) camera, and until the
-    // facts arrive the pane draws nothing.
+    // facts arrive the pane draws nothing. `PlayerModel` adds no `SetCamera` (`0x84f1fc`), so a
+    // character pane's copy takes this one, until its next build installs the pane's own.
     m.set(
         "SetCamera",
         lua.create_function(|lua, (this, c): (Table, Value)| {
-            let c = int(&c);
-            with_model(lua, &this, |_| ())?;
+            let c = binding_abi::ftol(model_number(lua, &this, c, "SetCamera(index)")?);
             let h = frame_handle_of(lua, &this)?;
             lua.app_data_mut::<Model>()
                 .expect("model app_data")
@@ -430,7 +437,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     m.set(
         "SetPosition",
         lua.create_function(|lua, (this, x, y, z): (Table, Value, Value, Value)| {
-            let p = (num(&x), num(&y), num(&z));
+            let p = (num(lua, &x), num(lua, &y), num(lua, &z));
             with_model(lua, &this, |m| m.position = p)
         })?,
     )?;
@@ -452,8 +459,9 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 _ => return Err(mlua::Error::runtime("expected a Model")),
             };
             let a: Vec<Value> = it.collect();
-            match parse_set_light(&a) {
-                SetLight::Raise => Err(mlua::Error::runtime(SET_LIGHT_USAGE)),
+            with_model(lua, &this, |_| ())?;
+            match parse_set_light(lua, &a) {
+                SetLight::Raise => Err(usage(lua, &this, SET_LIGHT_USAGE)),
                 SetLight::NoOp => with_model(lua, &this, |_| ()),
                 SetLight::Set(l) => with_model(lua, &this, |m| m.light = l),
             }
@@ -487,11 +495,15 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         "SetFogColor",
         lua.create_function(
             |lua, (this, r, g, b, a): (Table, Value, Value, Value, Option<Value>)| {
-                // The fifth argument is alpha, clamped like the rest but 1.0 when absent, where an
-                // absent r, g or b reads 0.0: `SetFogColor(r, g, b)` is opaque.
+                // The fifth argument is alpha, clamped like the rest but 1.0 unless it passes
+                // `lua_isnumber` (`0x76efa9`-`0x76efb7`), where r, g and b are bare `lua_tonumber`
+                // and read 0.0: `SetFogColor(r, g, b)` and `SetFogColor(r, g, b, "x")` are opaque.
                 let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u32;
-                let a = a.as_ref().map_or(1.0, num);
-                let packed = (q(a) << 24) | (q(num(&r)) << 16) | (q(num(&g)) << 8) | q(num(&b));
+                let a = a.as_ref().and_then(|a| number(lua, a)).unwrap_or(1.0);
+                let packed = (q(a) << 24)
+                    | (q(num(lua, &r)) << 16)
+                    | (q(num(lua, &g)) << 8)
+                    | q(num(lua, &b));
                 // Setting the colour arms the fog (`0x76f059`), the only verb that does.
                 with_model(lua, &this, |m| {
                     m.fog_color = packed;
@@ -515,7 +527,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     m.set(
         "SetFogNear",
         lua.create_function(|lua, (this, v): (Table, Value)| {
-            let v = num(&v);
+            let v = model_number(lua, &this, v, "SetFogNear(value)")? as f32;
             with_model(lua, &this, |m| m.fog_near = v)
         })?,
     )?;
@@ -526,7 +538,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     m.set(
         "SetFogFar",
         lua.create_function(|lua, (this, v): (Table, Value)| {
-            let v = num(&v);
+            let v = model_number(lua, &this, v, "SetFogFar(value)")? as f32;
             with_model(lua, &this, |m| m.fog_far = v)
         })?,
     )?;
@@ -557,10 +569,10 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     m.set(
         "ReplaceIconTexture",
         lua.create_function(|lua, (this, path): (Table, Value)| {
-            let Some(path) = string_arg(&path) else {
+            // `lua_isstring` then `lua_tostring` (`0x76edfc`, `0x76ee0d`).
+            let Some(path) = optional_string(lua, &path) else {
                 return Err(usage(lua, &this, "ReplaceIconTexture(\"texture\")"));
             };
-            let path = path.to_string();
             with_model(lua, &this, |m| {
                 if m.path.is_some() {
                     m.icon = Some(path);
@@ -586,13 +598,13 @@ pub(super) fn install_player_model(lua: &Lua) -> mlua::Result<()> {
         "SetUnit",
         lua.create_function(|lua, (this, unit): (Table, Value)| {
             with_model(lua, &this, |_| ())?;
-            let token = string_arg(&unit)
-                .ok_or_else(|| mlua::Error::runtime(SET_UNIT_USAGE))?
-                .to_string();
+            // `lua_isstring` then `lua_tostring` (`0x505dfc`, `0x505e20`).
+            let token =
+                optional_string(lua, &unit).ok_or_else(|| mlua::Error::runtime(SET_UNIT_USAGE))?;
             let h = frame_handle_of(lua, &this)?;
             let guid = {
                 let model = lua.app_data_ref::<Model>().expect("model app_data");
-                model.unit_guids.guid_of(&token)?.unwrap_or(0)
+                crate::script::unit::guid_of(lua, &model, &token)?.unwrap_or(0)
             };
             lua.app_data_mut::<Model>()
                 .expect("model app_data")
@@ -618,11 +630,13 @@ pub(super) fn install_player_model(lua: &Lua) -> mlua::Result<()> {
 
     // `SetRotation(rad)` (`0x84f1fc[2]` → `0x505f00` → `0x505bb0`) turns whatever `+0x318` holds
     // toward the angle ([`crate::widget::ModelState::rotate`]) and writes the yaw `SetFacing` writes
-    // (`0x505c44`).
+    // (`0x505c44`). The angle passes `lua_isnumber` (`0x505f8c`), else
+    // `Usage: SetRotation(rotation (in radians))` (`0x84f29c`, `0x505fb6`), naming no receiver.
     m.set(
         "SetRotation",
         lua.create_function(|lua, (this, rad): (Table, Value)| {
-            let rad = num(&rad);
+            with_model(lua, &this, |_| ())?;
+            let rad = binding_abi::float_arg(lua, rad, SET_ROTATION_USAGE)? as f32;
             let now_ms = lua
                 .app_data_ref::<Model>()
                 .expect("model app_data")
@@ -703,6 +717,7 @@ impl crate::script::UiScript {
                     pending: c.pending(),
                     copy: c.copy,
                     file: m.path.is_some(),
+                    camera: c.view_camera(),
                     facing: m.facing,
                     light: m.light,
                     fog: m.scene_fog(),
@@ -794,7 +809,7 @@ impl crate::script::UiScript {
         let facts = Arc::new(facts);
         let mut model = self.model_mut();
         model.model_facts.insert(key.clone(), facts.clone());
-        model.model_facts_wanted.retain(|k| *k != key);
+        model.model_facts_wanted.retain(|w| w.key != key);
         // The panes holding this file: the waiters the reference links on its streaming drain
         // (`0x71d640`).
         let handles: Vec<_> = model
@@ -834,9 +849,9 @@ impl crate::script::UiScript {
         }
     }
 
-    /// Drain the model files panes named with no facts yet, as [`crate::widget::model_key`]s; the
-    /// host loads each once and answers through [`Self::set_model_facts`].
-    pub fn model_facts_wanted(&mut self) -> Vec<String> {
+    /// Drain the model files panes named with no facts yet; the host loads each once and answers
+    /// through [`Self::set_model_facts`].
+    pub fn model_facts_wanted(&mut self) -> Vec<ModelWanted> {
         std::mem::take(&mut self.model_mut().model_facts_wanted)
     }
 
@@ -897,11 +912,22 @@ pub struct CharacterPaneFrame {
     pub copy: Option<crate::widget::PaneCopy>,
     /// A file `SetModel` put at `+0x318` since the last copy: the pane draws that, not a copy.
     pub file: bool,
+    /// The camera the copy draws through (`+0x31c`).
+    pub camera: crate::widget::CopyCamera,
     /// The facing, the root's yaw (`+0x39c`).
     pub facing: f32,
     /// The pane's light and the fog its scene draws with.
     pub light: ModelLight,
     pub fog: Option<crate::widget::ModelFog>,
+}
+
+/// A model file a pane named whose facts the host has yet to load. `key` ([`model_key`]) is only
+/// the match key, `.mdx`, `.mdl` and `.m2` spellings alike; `path` is the pane's own, as given to
+/// `SetModel` or `file=`, which the host opens through the cache's extension rule (`0x706a50`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModelWanted {
+    pub key: String,
+    pub path: String,
 }
 
 /// One row of [`UiScript::visible_model_panes`].

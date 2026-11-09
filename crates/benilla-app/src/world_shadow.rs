@@ -179,7 +179,9 @@ fn update_world_shadows(
     mut cutout_materials: ResMut<Assets<CutoutShadowCasterMaterial>>,
     // The retained static world — `Option` because it exists only when the retained pass is armed.
     gx: Option<Res<StaticGx>>,
-    terrain: (Res<TerrainStreamer>, Res<Assets<AdtTile>>),
+    // MONKEY (sync 1108): `Option`s — a harness without terrain (upstream's script-call tests)
+    // runs this system, and a missing resource must mean "no terrain triangles", not a panic.
+    terrain: (Option<Res<TerrainStreamer>>, Option<Res<Assets<AdtTile>>>),
     // The terrain MCSH-suppression flag (this lane owns it).
     mut world_active: ResMut<WorldShadowActive>,
     parts: Query<
@@ -304,14 +306,17 @@ fn update_world_shadows(
                 &mut indices,
             );
             // MONKEY (gfx): the directional map also occludes volumetric shafts; hills must cast.
-            let terrain_tris = append_terrain_torch_triangles(
-                &terrain.0,
-                &terrain.1,
-                frame.light_position,
-                frame.tall_reach,
-                &mut positions,
-                &mut indices,
-            );
+            let terrain_tris = match (terrain.0.as_deref(), terrain.1.as_deref()) {
+                (Some(streamer), Some(tiles)) => append_terrain_torch_triangles(
+                    streamer,
+                    tiles,
+                    frame.light_position,
+                    frame.tall_reach,
+                    &mut positions,
+                    &mut indices,
+                ),
+                _ => 0,
+            };
             let tris = (indices.len() / 3) as u32;
             restore_mesh_buffers(mesh, positions, indices);
             lane.static_rebuilt_at = Some(frame.light_position);

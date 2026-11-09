@@ -2892,17 +2892,10 @@ mod tests {
         assert_eq!(m2_light_reach(16.0), 24.0, "the ladder has no upper hole");
     }
 
-    /// GOLDEN — the PACKER's SH block: evaluating the rows this packer writes (DC lane +
-    /// grade.yzw × I + I × (linear + quad + x²−y²)) must reproduce the disassembled `Model2.bls`
-    /// closed form `clamp01(ambient + D·I·(3 + 16μ + 15μ²)/34)` at every intensity rung (2.5 lit /
-    /// 1.0 mid-band / 0.5 MCSH-shadowed). Pins the "every sun band scales by I, never I²" law and
-    /// the row homes (ambient in the DC lanes, the sun's DC redistribution on grade.yzw).
-    ///
-    /// NB (0747): no shader currently READS rows 6-12.xyz / 17.yzw — the live exterior lane in
-    /// `wow_model.wgsl` implements the same closed form inline (sun side only, `max(0, f(μ))`;
-    /// the full block's back-side wrap stays out per the anti-sun ruling). This golden pins the
-    /// packed block itself; the flagged cleanup is either wiring a lane to the rows or retiring
-    /// the dead fold together with this test.
+    /// The packed SH block gives `Model2.bls`'s light sum `E = A + D·I·(3 + 16μ + 15μ²)/34` at
+    /// each intensity rung (2.5 lit, 1.0 mid-band, 0.5 MCSH-shadowed), with ambient in the DC lanes
+    /// and the sun's DC on `grade.yzw`. E is unclamped: the program clamps `c28·E + c29`, and E
+    /// itself only with a point light bound.
     #[test]
     fn exterior_lane_reproduces_the_closed_form_at_every_intensity_rung() {
         let ambient = [0.30, 0.32, 0.38];
@@ -2919,7 +2912,7 @@ mod tests {
                 let lin = c10[0] * n.x + c10[1] * n.y + c10[2] * n.z;
                 let q: f32 = (0..4).map(|k| c13[k] * quad[k]).sum::<f32>()
                     + rows[12][ch] * (n.x * n.x - n.y * n.y);
-                (c10[3] + rows[17][1 + ch] * i + i * (lin + q)).clamp(0.0, 1.0)
+                c10[3] + rows[17][1 + ch] * i + i * (lin + q)
             })
         };
         let u = -sun_dir; // toward-light
@@ -2933,7 +2926,7 @@ mod tests {
                 let b = (3.0 + 16.0 * mu + 15.0 * mu * mu) / 34.0;
                 let got = eval(n, i);
                 for ch in 0..3 {
-                    let want = (ambient[ch] + diffuse[ch] * i * b).clamp(0.0, 1.0);
+                    let want = ambient[ch] + diffuse[ch] * i * b;
                     assert!(
                         (got[ch] - want).abs() < 1e-5,
                         "I={i} {who}: ch{ch} got {} want {want}",
@@ -3041,9 +3034,21 @@ mod tests {
         assert!(squash(TERRAIN).contains("letworld_shadow_lane=wow_light.sh_c16.w>0.5;"));
         let gate = "letmcsh_suppress=select(0.0,shadow_hook::sun_shadow_w(wow_light.fog_params.z),\
                     wow_light.sh_c16.w>0.5);";
-        let apply = "letintensity=select(intensity_ref,mix(intensity_ref,1.0,mcsh_suppress),\
-                     mcsh_suppress>0.0);";
-        for (name, shader) in [("wow_model.wgsl", MODEL), ("static_gx.wgsl", STATIC_GX)] {
+        // The lift moves the shade toward the family's lit band, inside the uncapped intensity: a
+        // doodad's mid band (0.75, I = 1.0) or an entity's lit 0 on the model lane, Lit on statics.
+        for (name, shader, apply) in [
+            (
+                "wow_model.wgsl",
+                MODEL,
+                "letshade_t=select(shade_ref,mix(shade_ref,select(0.0,0.75,mat_shade>0.5),\
+                 mcsh_suppress),mcsh_suppress>0.0);",
+            ),
+            (
+                "static_gx.wgsl",
+                STATIC_GX,
+                "letshade_t=select(shade_ref,mix(shade_ref,0.0,mcsh_suppress),mcsh_suppress>0.0);",
+            ),
+        ] {
             let s = squash(shader);
             assert!(
                 s.contains(gate),

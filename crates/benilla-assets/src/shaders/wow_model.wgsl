@@ -1,11 +1,19 @@
 // The model pass for M2, WMO and ground-clutter meshes, lit and fogged in gamma space:
-//   M2:           color = clamp01(A + D·I·(4/17)(0.375 + 2μ + 1.875μ²)) × tex × tint, μ = N·L
-//   clutter, WMO: color = clamp(ambient + diffuse·max(N·L, 0)) × tex × tint
-//   fog:          color = mix(fog_color, color, fog_factor); out = color, raw gamma
+//   M2:      color = clamp(C·E + highlight) × tex, E = A + D·I·(4/17)(0.375 + 2μ + 1.875μ²) + the
+//            point lights, μ = N·L, E clamped to [0, 1] first when a point light is bound
+//   WMO:     color = clamp(MOCV·(ambient + diffuse·max(N·L, 0)) + emission) × tex
+//   clutter: color = clamp(grey·(ambient + diffuse·max(N·L, 0) + the point lights)) × tex
+//   stage 1: color = combine(color, tex1), tex1 at the generated coordinate or on the vertex's
+//            UV set 1 by its own texture transform (presets below)
+//   fog:     color = mix(fog_color, color, fog_factor); out = color, raw gamma
 // The M2 law is the order-2 SH lobe of `Shaders\Vertex\Model2.bls` (cvar `M2UseShaders`, default
 // 1); M2's one FFP light site (`70bdf6`) runs only with that cvar off. Clutter and WMO are the FFP
 // light (GL_LIGHTING, GL_LIGHT0, GL_COLOR_MATERIAL); clutter's normal is the terrain normal under
-// the tuft, which the reference writes onto the clutter vertex.
+// the tuft, which the reference writes onto the clutter vertex. Both light per vertex and the
+// clamped colour is interpolated (`vertex_light`); the fragment multiplies the texel by it.
+// MONKEY (lighting lanes): the realtime sun/moon shadows, the moonlight, and the per-fragment
+// exterior point lights re-light the fragment from the vertex's unclamped sky sum (`sky_e`) only
+// where one is active; with every lane off the fragment reads `primary` alone.
 // Not built: a specular term (the M2 per-material shininess is only inferred) and the WMO
 // per-group authored colour.
 // Ported from WarcraftXL (https://github.com/WarcraftXL) by iThorgrim — module
@@ -61,14 +69,19 @@ struct ModelParams {
     // Rows of `wow_light.matanim`, 0 = identity: x = UV scroll, y = tint, z = texture-transform
     // affine, w = the UI tile's cell clip.
     anim_slots: vec4<f32>,
-    // MONKEY (skybox): stage 1 of a two-texture batch: x = 0 none / 1 Mod / 2 Mod2x, z/w = the
-    // matanim rows of its translation and affine.
+    // The second texture stage: x = bound (1) or not (0), y = its combine preset 0-5, z = the
+    // stage-0 preset + 1 (0 for none), w = 1 when it reads the vertex's UV set 1, not the
+    // generated coordinate.
     stage1: vec4<f32>,
+    // Stage 1's own texture transform, read when `stage1.w` is set: x = its UV-scroll row, y = its
+    // affine row, zw = its UV-scroll seed, as `anim_slots.x`, `anim_slots.z` and `sun_scale.zw`
+    // are stage 0's.
+    stage1_uv: vec4<f32>,
 };
 @group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> m: ModelParams;
-// MONKEY (skybox): stage 1's texture, the fallback image off `WOW_STAGE1`.
-@group(#{MATERIAL_BIND_GROUP}) @binding(94) var stage1_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(95) var stage1_sampler: sampler;
+// Stage 1's texture, sampled at `stage1_uv` when `m.stage1.x` is set.
+@group(#{MATERIAL_BIND_GROUP}) @binding(101) var stage1_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(102) var stage1_sampler: sampler;
 
 // A fully covered character shadow retains 45% of the authored model lighting.
 const SHADOW_SUN_FLOOR: f32 = 0.45;
@@ -373,12 +386,12 @@ struct WowVsOut {
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     @location(6) @interpolate(flat) instance_index: u32,
 #endif
+    // The lit colour from `vertex_light`, clamped at the vertex and interpolated, as the
+    // reference interpolates its vertex program's `oD0` and the FFP's lit colour.
+    @location(8) primary: vec3<f32>,
 #ifdef WOW_MERGED_FADE
     // A merged blob's per-placement fade alpha, constant over the placement.
     @location(9) merged_fade: f32,
-#endif
-#ifdef WOW_MERGED_SLOT
-    @location(10) @interpolate(flat) merged_slot: u32,
 #endif
     // MONKEY (outdoor torch shadows; ext light k8): WHICH <=`EXT_SEL_K` exterior table entries
     // the fragment evaluates, packed 8 bits each across FOUR u32s (see `EXT_SEL_NONE` /
@@ -386,9 +399,68 @@ struct WowVsOut {
     // indices would produce a different, meaningless one. `EXT_SEL_NONE` on every lane that takes
     // no exterior point term (interior WMO surfaces, interior props), which makes the night lane a
     // no-op there by construction. Widened from ONE u32 of three 10-bit ranks to TWO u32s of eight
-    // 8-bit ranks and then to FOUR u32s of twelve - three extra interstage components in all (25
-    // for this struct, against a 60-component limit) - see `EXT_SEL_K`.
-    @location(11) @interpolate(flat) ext_sel: vec4<u32>,
+    // 8-bit ranks and then to FOUR u32s of twelve - see `EXT_SEL_K`. MONKEY (gfx sync 1108): at
+    // location 10 since the probe slot moved into the vertex stage (`vertex_light`); 11 is
+    // stage 1's coordinate.
+    @location(10) @interpolate(flat) ext_sel: vec4<u32>,
+    // Stage 1's coordinate, generated or the vertex's UV set 1; (0, 0) without a stage 1.
+    @location(11) stage1_uv: vec2<f32>,
+    // MONKEY (lighting lanes): the vertex's light sum E before the point lights and the clamp
+    // (`monkey_vertex_sky`), which the fragment re-lights from where a lane is active. 29
+    // interstage components for this struct with every def on, against a 60-component limit.
+    @location(12) sky_e: vec3<f32>,
+}
+
+// The generated environment coordinate of `Model2.bls` (its programs for a stage whose coordinate
+// lookup is above 2, `0x70b8bd`): in view space R = normalize(P − 2(P·N)N), uv = R.xy·0.5 + 0.5,
+// per vertex. The reference view basis (`0x5c3e70`) and Bevy's −Z-forward one differ only in z,
+// so R.xy needs no fixup.
+fn wow_env_uv(p_view: vec3<f32>, n_view: vec3<f32>) -> vec2<f32> {
+    let refl = normalize(p_view - 2.0 * dot(p_view, n_view) * n_view);
+    return refl.xy * 0.5 + vec2<f32>(0.5, 0.5);
+}
+
+// The M2 texture transform past its translation (in sync with `tex_anim::uv_transform`): with
+// `uv_t` = uv + t, uv' = R((uv_t − p) ⊙ s) + p, p = (½, ½), R and s from the affine row
+// `[cos − 1, sin, sx − 1, sy − 1]`. Each stage takes its own matrix (`0x70b91f`).
+fn wow_uv_affine(uv_t: vec2<f32>, affine: vec4<f32>) -> vec2<f32> {
+    let d = (uv_t - vec2<f32>(0.5, 0.5)) * vec2<f32>(1.0 + affine.z, 1.0 + affine.w);
+    let c = 1.0 + affine.x;
+    return vec2<f32>(0.5 + d.x * c - d.y * affine.y, 0.5 + d.x * affine.y + d.y * c);
+}
+
+// Stage 1's colour combine on `prev`, the stage-0 result, by gx preset as the default device,
+// Direct3D, maps it (`0x80a25c` = 4, 4, 13, 7, 5, 12 as `D3DTOP`, args TEXTURE and CURRENT, which
+// the device never changes): 0 and 1 modulate, 2 BLENDTEXTUREALPHA interpolates by the texel's
+// alpha, 3 adds, 4 modulates ×2, 5 BLENDDIFFUSEALPHA interpolates by `diffuse_a`, the vertex
+// colour's alpha. Each stage's result saturates.
+fn stage1_rgb(preset: u32, prev: vec3<f32>, tex: vec4<f32>, diffuse_a: f32) -> vec3<f32> {
+    var c = prev * tex.rgb;
+    if (preset == 2u) {
+        c = mix(prev, tex.rgb, tex.a);
+    } else if (preset == 3u) {
+        c = prev + tex.rgb;
+    } else if (preset == 4u) {
+        c = 2.0 * prev * tex.rgb;
+    } else if (preset == 5u) {
+        c = mix(prev, tex.rgb, diffuse_a);
+    }
+    return clamp(c, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// A stage's alpha on `prev`, the previous stage's (the diffuse alpha, for stage 0), by gx preset
+// (`0x80a274`, args TEXTURE and CURRENT): 1 modulates, 3 adds, 4 modulates ×2, the rest
+// (SELECTARG2) pass the previous.
+fn stage_alpha(preset: u32, prev: f32, tex: f32) -> f32 {
+    var a = prev;
+    if (preset == 1u) {
+        a = prev * tex;
+    } else if (preset == 3u) {
+        a = prev + tex;
+    } else if (preset == 4u) {
+        a = 2.0 * prev * tex;
+    }
+    return clamp(a, 0.0, 1.0);
 }
 
 // The dynamic point-light term at a world-space point (decisions 0016/0273/0278, selection 0285) —
@@ -1069,6 +1141,184 @@ fn wow_skin_normals(frame_from_local: mat4x4<f32>, normal: vec3<f32>) -> vec3<f3
 }
 #endif
 
+// MONKEY (lighting lanes): `vertex_light`'s unclamped light sum E without the point lights, for the
+// vertex stage to hand the fragment as `sky_e`; written on every path `vertex_light` returns by.
+var<private> monkey_vertex_sky: vec3<f32>;
+
+// MONKEY (lighting lanes): a fragment lane's lit colour from its light sum `e_in`, by the law
+// `vertex_light` writes `primary` with: the material colour `c` on E and the emission inside the one
+// clamp, E clamped first (`clamp_e`) on an M2 with a point light bound.
+fn monkey_lane_colour(e_in: vec3<f32>, c: vec3<f32>, emission: vec3<f32>, clamp_e: bool) -> vec3<f32> {
+    let e = select(e_in, clamp(e_in, vec3<f32>(0.0), vec3<f32>(1.0)), clamp_e);
+    return clamp(c * e + emission, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// The body tint (an aura colouring the whole model) by the tag's rig slot, 0 = identity: the
+// material ambient+diffuse colour (gx SetState(1), GL_COLOR_MATERIAL), so it multiplies the light
+// sum inside the clamp, never the emission.
+fn body_tint(fade_tag: u32) -> vec3<f32> {
+    let tint_word = wow_light.rig_tint[(fade_tag >> 19u) & 0x7ffu];
+    return select(
+        vec3<f32>(
+            f32((tint_word >> 16u) & 0xffu),
+            f32((tint_word >> 8u) & 0xffu),
+            f32(tint_word & 0xffu),
+        ) * (1.0 / 255.0),
+        vec3<f32>(1.0),
+        tint_word == 0u,
+    );
+}
+
+// The hover/target highlight (tag bit 31): the scene's committed ambient
+// (`0x614576`-`0x6145bd`), added to the batch colour inside the final clamp, lit or unlit
+// (`c29`). Sampled live, where the reference holds the value sampled when the highlight
+// began: a unit's tag has no slot to hold a colour, and the ambient moves slowly.
+fn highlight_add(raw_tag: u32) -> vec3<f32> {
+    return select(vec3<f32>(0.0), wow_light.light_ambient.rgb, (raw_tag & 0x80000000u) != 0u);
+}
+
+// The lit colour at one vertex: the reference lights in the vertex stage (`Model2.bls` evaluates
+// the SH and writes `oD0`; WMO and clutter run FFP T&L) and the rasterizer interpolates the
+// clamped result. `world_normal` is the submitted one: the reference never enables
+// GL_LIGHT_MODEL_TWO_SIDE (`0x59ce30`), so a back face lights from it too. `vcol` is the vertex
+// colour (white without one), `point_lit` the bound point lights' sum and, in `.w`, their count.
+// The colour is the lit material, inside the one clamp: GL_COLOR_MATERIAL on ambient and diffuse
+// (`0x59cfec`, `0x59cff3`-`0x59cffd`) for the FFP, `c28` for `Model2.bls`.
+fn vertex_light(
+    world_normal: vec3<f32>,
+    point_lit: vec4<f32>,
+    vcol: vec4<f32>,
+    probe_slot: u32,
+    raw_tag: u32,
+) -> vec3<f32> {
+    let is_clutter = m.clutter_fade.w > 0.5;
+    let is_wmo = m.model_flags.x > 0.5;
+    let is_interior = m.model_flags.z > 0.5;
+    let interior_prop = is_interior && !is_wmo;
+    let fade_tag = raw_tag & 0x3fffffffu;
+    let highlight = highlight_add(raw_tag);
+    let L = -normalize(wow_light.light_sun.xyz);
+    // `wow_normalize`: an authored zero normal reaches here on the unskinned lane.
+    let n_lit = wow_normalize(world_normal);
+    let ndotl = max(dot(n_lit, L), 0.0);
+    // The FFP light sum, unclamped: GL clamps the lit colour once, after the material colour.
+    let sum_nl = wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb * ndotl;
+    if (is_wmo) {
+        // WMO interior groups (`groupFlags & 0x48 == 0`) by batch class (`tint.w`): INT (1) is
+        // unlit, drawn in the fragment; TRANS (2) is the reference's two passes, this the lit one;
+        // EXT (0) is the FFP sum. A WINDOW batch (MOMT 0x20) on the interior drawer lights with the
+        // Direct/Ambient midpoint as diffuse and it +16/255 as ambient, that byte add saturating
+        // on its own (`0x6d37e0`).
+        let window_mid = 0.5 * (wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb);
+        let sum_window = min(window_mid + vec3<f32>(16.0 / 255.0), vec3<f32>(1.0))
+            + window_mid * ndotl;
+        var sum_wmo = sum_nl;
+        // SIDN night glow: the emissive × the night fraction (ramping 20:30→21:30, 06:00→07:00),
+        // a GL_EMISSION term beside MOCV inside the clamp; TRANS's blend weights its lit pass.
+        var sidn_w = 1.0;
+        if (is_interior) {
+            sum_wmo = select(sum_nl, sum_window, m.sidn.w > 0.5);
+            if (m.tint.w > 0.5 && m.tint.w < 1.5) {
+                // INT draws unlit: the bare texel without MOCV, no emission.
+                sum_wmo = vec3<f32>(1.0);
+                sidn_w = 0.0;
+            }
+        }
+        let sidn_e = m.sidn.rgb * (wow_light.grade.x * sidn_w);
+        // MONKEY (lighting lanes): the FFP sum, before MOCV and the clamp.
+        monkey_vertex_sky = sum_wmo;
+        return clamp(vcol.rgb * sum_wmo + sidn_e + highlight, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    // `c28`, and the FFP's material colour: the vertex colour (an M2's static M2Color, a
+    // clutter tuft's MCSH grey `0xffc0c0c0` or white, `0x6b260e`/`0x6b2615`) × the animated
+    // M2Color (`m.tint` plus its mat-anim delta) × the body tint.
+    let anim_tint = m.tint.rgb + wow_light.matanim[u32(m.anim_slots.y)].xyz;
+    let c = vcol.rgb * anim_tint * body_tint(fade_tag);
+    if (is_clutter) {
+        // The detail-doodad pass lights by the FFP (`0x6813d0` commits the chunk's lights at
+        // `0x681656`), so the grey multiplies the whole light sum inside the one clamp.
+        monkey_vertex_sky = sum_nl;
+        return clamp(c * (sum_nl + point_lit.rgb) + highlight, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    // The order-2 SH basis, shared by the exterior lobe and the interior probes.
+    let quad = vec4<f32>(n_lit.x * n_lit.y, n_lit.y * n_lit.z, n_lit.z * n_lit.z, n_lit.x * n_lit.z);
+    let n1 = vec4<f32>(n_lit, 1.0);
+    let x2y2 = n_lit.x * n_lit.x - n_lit.y * n_lit.y;
+    // Exterior doodads and entities: the header's `Model2.bls` lobe at the per-instance intensity
+    // I, `[node+0xa4]` (animator targets 2.5 lit and 0.5 shadowed, `0x69e4ad`/`0x69e280`; 1.0
+    // indoors, `0x69e36b`). `sun_scale.x` picks the family:
+    //   ≥ 0.85: an entity M2, 2.5 mixed toward 0.5 by the tag's shade byte (ramped like `0x69e770`)
+    //   0.5..0.85: a doodad (ADT MDDF or WMO MODD, both `CMapDoodadDef`): 1.0, never 2.5
+    //   < 0.5: a doodad on MCSH-shadowed ground: 0.5
+    // The intensity is baked into the SH unclamped (`0x71c4e0`); only the per-vertex sum clamps.
+    let inst_shade = select(f32((fade_tag >> 6u) & 0xffu) / 255.0, 0.0, interior_prop);
+    let mat_shade = select(0.0, 1.0, m.sun_scale.x < 0.5);
+    let shade_ref = max(mat_shade, inst_shade);
+    // MONKEY (mcsh model shade): the 0.5 band is the MCSH bit under the model, the same baked
+    // shadow `terrain.wgsl` drops while the realtime world lane is on (`sh_c16.w > 0.5`, weighted
+    // by the sun lane so the bake returns at night). Keeping it here left a doodad standing on its
+    // own baked shadow (Lakeshire's gryphon roosts) dimmed twice, by the bake AND the realtime map,
+    // on ground that no longer shows the bake. The lane lifts the shadowed band to its lit value:
+    // a doodad to the mid band's 1.0 (`shade_t` 0.75), an entity's ground-shade byte to lit (0).
+    // With the lane off this is the reference value bit for bit.
+    let mcsh_suppress = select(0.0, shadow_hook::sun_shadow_w(wow_light.fog_params.z),
+        wow_light.sh_c16.w > 0.5);
+    let shade_t = select(shade_ref, mix(shade_ref, select(0.0, 0.75, mat_shade > 0.5), mcsh_suppress),
+        mcsh_suppress > 0.0);
+    let mid_band = m.sun_scale.x >= 0.5 && m.sun_scale.x < 0.85;
+    let intensity = select(mix(2.5, 0.5, shade_t), 1.0, mid_band);
+    // One `intensity` multiply covers every sun band (never I²); the c10 `.w` ambient does not
+    // scale. `pack_model_core_rows` packs the same closed form.
+    let sun_dc = wow_light.grade.yzw * intensity;
+    let sun_lobe = vec3<f32>(
+        wow_light.sh_c10_r.w + sun_dc.x
+            + intensity
+                * (dot(wow_light.sh_c10_r.xyz, n_lit) + dot(wow_light.sh_c13_r, quad)
+                    + wow_light.sh_c16.x * x2y2),
+        wow_light.sh_c10_g.w + sun_dc.y
+            + intensity
+                * (dot(wow_light.sh_c10_g.xyz, n_lit) + dot(wow_light.sh_c13_g, quad)
+                    + wow_light.sh_c16.y * x2y2),
+        wow_light.sh_c10_b.w + sun_dc.z
+            + intensity
+                * (dot(wow_light.sh_c10_b.xyz, n_lit) + dot(wow_light.sh_c13_b, quad)
+                    + wow_light.sh_c16.z * x2y2),
+    );
+    // Interior M2 props (WMO MODD doodads): the reference commits the prop's MODD colour through a
+    // fixed-axis diffuse lobe plus its group's MOLR lights as an order-2 SH probe, folded at spawn
+    // by `lighting::prop_probe_coeffs`. Its soft wrap (≈ 0.088·C side-on) is the reference's
+    // response, not a max(N·L, 0). The authored-rig lane (`ShadeSel::Rig`, glue scenes) reads the
+    // scene's lights folded into probe slot 0 of the material's own buffer (tag 0).
+    let probe = 7u * probe_slot;
+    let e_probe = vec3<f32>(
+        dot(wow_light.prop_probes[probe + 0u], n1)
+            + dot(wow_light.prop_probes[probe + 3u], quad)
+            + wow_light.prop_probes[probe + 6u].x * x2y2,
+        dot(wow_light.prop_probes[probe + 1u], n1)
+            + dot(wow_light.prop_probes[probe + 4u], quad)
+            + wow_light.prop_probes[probe + 6u].y * x2y2,
+        dot(wow_light.prop_probes[probe + 2u], n1)
+            + dot(wow_light.prop_probes[probe + 5u], quad)
+            + wow_light.prop_probes[probe + 6u].z * x2y2,
+    );
+    // The lobe needs the directional light on (`light_sun.w`); off, the FFP sum stands in.
+    let e_exterior = select(sum_nl, sun_lobe, wow_light.light_sun.w > 0.5);
+    let is_rig = m.sun_scale.x >= 1.5;
+    // MONKEY (lighting lanes): E before the point lights, which the fragment lanes add per fragment.
+    monkey_vertex_sky = select(e_exterior, e_probe, is_interior || is_rig);
+    var e = select(e_exterior, e_probe, is_interior || is_rig) + point_lit.rgb;
+    // `Model2.bls`, every lit program: with no point light bound it writes `c28·(E, 1) + c29`
+    // straight to `oD0`, which saturates; with one to four bound it clamps E to [0, 1] first
+    // (`MIN`/`MAX` before the `MAD` into `oD0`). The lobe's ringing (−0.037·D near μ ≈ −0.53)
+    // survives into the sum either way.
+    if (point_lit.w > 0.5) {
+        e = clamp(e, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    // `c28` is the model colour `[model+0x1a0]` (the body tint) × the batch's M2Color
+    // (`0x70c60a`-`0x70c654`), written at `0x70c712`; `c29` holds the highlight.
+    return clamp(c * e + highlight, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 // Bevy 0.18's `mesh.wgsl` vertex stage plus our skinning and point lights. A `MaterialExtension`
 // replaces the whole stage, so this must track Bevy's on upgrades.
 @vertex
@@ -1152,31 +1402,37 @@ fn vertex(vertex: WowVertex) -> WowVsOut {
     if (out.merged_fade <= 0.0) {
         out.position = vec4<f32>(0.0, 0.0, 2.0, 1.0);
     }
-#ifdef WOW_MERGED_SLOT
-    out.merged_slot = vertex.merged_slot;
-#endif
 #endif
 #endif
 
 #ifdef VERTEX_UVS_A
     out.uv = vertex.uv;
     // Env-mapped batches (`clutter_fade.z` bit 12; `texture_unit_lookup[texCoordSet] > 2` at
-    // `0x70b8bd`) generate their texcoord per vertex as `Model2.bls` does: in view space
-    // R = normalize(P − 2(P·N)N), uv = R.xy·0.5 + 0.5 (`0x70b8d0`). The reference view basis
-    // (`0x5c3e70`) and Bevy's −Z-forward one differ only in z, so R.xy needs no fixup.
+    // `0x70b8bd`) generate their texcoord per vertex (`wow_env_uv`).
 #ifdef VERTEX_POSITIONS
 #ifdef VERTEX_NORMALS
     if ((u32(m.clutter_fade.z) & 4096u) != 0u) {
-        let p_view = view_rot * p_cam;
-        let n_view = normalize(view_rot * out.world_normal);
-        let refl = normalize(p_view - 2.0 * dot(p_view, n_view) * n_view);
-        out.uv = refl.xy * 0.5 + vec2<f32>(0.5, 0.5);
+        out.uv = wow_env_uv(view_rot * p_cam, normalize(view_rot * out.world_normal));
     }
 #endif
 #endif
 #endif
+    // Stage 1's coordinate in its own interpolant: the generated one, as every stock two-texture
+    // unit's second entry (`0xffff`) asks, or with `stage1.w` the vertex's UV set 1, since every
+    // `Model2.bls` program passes `texcoord[k]` to stage `k`.
+    out.stage1_uv = vec2<f32>(0.0);
+#ifdef VERTEX_POSITIONS
+#ifdef VERTEX_NORMALS
+    if (m.stage1.x > 0.5 && m.stage1.w < 0.5) {
+        out.stage1_uv = wow_env_uv(view_rot * p_cam, normalize(view_rot * out.world_normal));
+    }
+#endif
+#endif
 #ifdef VERTEX_UVS_B
     out.uv_b = vertex.uv_b;
+    if (m.stage1.w > 0.5) {
+        out.stage1_uv = vertex.uv_b;
+    }
 #endif
 
 #ifdef VERTEX_COLORS
@@ -1220,6 +1476,23 @@ fn vertex(vertex: WowVertex) -> WowVsOut {
         // MONKEY (local-light consistency): match terrain/WMO fragment evaluation. Sparse prop
         // vertices otherwise spread a candle's near-field peak over the whole piece of furniture.
     }
+    // MONKEY (local-light consistency): the selected exterior lights are evaluated per fragment
+    // (the fragment's lighting lanes), so `primary` carries the sky alone: with a light selected
+    // the fragment re-lights from `sky_e`, and with none `point_lit` is the reference's zero.
+    let point_lit = vec4<f32>(0.0);
+    var vcol = vec4<f32>(1.0);
+#ifdef VERTEX_COLORS
+    vcol = vertex.color;
+#endif
+    let raw_tag = mesh_functions::get_tag(vertex.instance_index);
+#ifdef WOW_MERGED_SLOT
+    // A merged blob bakes the probe slot per vertex; its tag carries only fog and alpha.
+    let probe_slot = vertex.merged_slot;
+#else
+    let probe_slot = ((raw_tag & 0x3fffffffu) >> 6u) & 0x1fffu;
+#endif
+    out.primary = vertex_light(out.world_normal, point_lit, vcol, probe_slot, raw_tag);
+    out.sky_e = monkey_vertex_sky;
     return out;
 }
 
@@ -1256,9 +1529,8 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
         }
     }
 #endif
-    // Rebuild Bevy's `VertexOutput` with the M2 texture transform (in sync with
-    // `tex_anim::uv_transform`): uv' = R((uv + t − p) ⊙ s) + p, p = (½, ½), t = `sun_scale.zw`
-    // plus its mat-anim delta, R and s from the affine row `[cos − 1, sin, sx − 1, sy − 1]`.
+    // Rebuild Bevy's `VertexOutput` with the M2 texture transform (`wow_uv_affine`), t =
+    // `sun_scale.zw` plus its mat-anim delta, R and s from the `anim_slots.z` row.
     var vo: VertexOutput;
     vo.position = in.position;
     vo.world_position = in.world_position;
@@ -1270,17 +1542,16 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
         vo.uv = in.uv;
     } else {
         let uv_t = in.uv + m.sun_scale.zw + wow_light.matanim[u32(m.anim_slots.x)].xy;
-        let affine = wow_light.matanim[u32(m.anim_slots.z)];
-        let d = (uv_t - vec2<f32>(0.5, 0.5)) * vec2<f32>(1.0 + affine.z, 1.0 + affine.w);
-        let c = 1.0 + affine.x;
-        vo.uv = vec2<f32>(0.5 + d.x * c - d.y * affine.y, 0.5 + d.x * affine.y + d.y * c);
+        vo.uv = wow_uv_affine(uv_t, wow_light.matanim[u32(m.anim_slots.z)]);
     }
 #endif
 #ifdef VERTEX_UVS_B
     vo.uv_b = in.uv_b;
 #endif
 #ifdef VERTEX_COLORS
-    vo.color = in.color;
+    // The vertex colour is the lit material, inside the clamp (`vertex_light`), so Bevy folds
+    // only its alpha into the texel.
+    vo.color = vec4<f32>(1.0, 1.0, 1.0, in.color.a);
 #endif
 #ifdef VERTEX_OUTPUT_INSTANCE_INDEX
     vo.instance_index = in.instance_index;
@@ -1309,8 +1580,7 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
     // The detail-doodad LOD bias (`0x6813f4`): on the atlases whose alpha pyramid is binary below
     // mip 0 it keeps every fragment below full alpha, so the fade erodes per pixel, not per leaf.
     // wgpu has no sampler LOD bias and the sampler is shared with unbiased batches, so it goes on
-    // this sample. Clutter's tint is white and its vertex colour the MCSH grey, so `* vo.color`
-    // reproduces Bevy's fold.
+    // this sample. `* vo.color` reproduces Bevy's fold of the vertex alpha.
     if (m.clutter_fade.w > 0.5) {
 #ifdef VERTEX_UVS_A
         var biased = textureSampleBias(
@@ -1336,28 +1606,28 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
         base_color.a = base_color.a * ramp;
     }
 
-    // MONKEY (skybox): stage 1 multiplies in on UV set B, moved by its own texture transform
-    // (the stage-0 law above): colour ×1 (Mod) or ×2 (Mod2x), alpha ×1.
-#ifdef WOW_STAGE1
-#ifdef VERTEX_UVS_B
-    {
-        let t1 = wow_light.matanim[u32(m.stage1.z)];
-        let a1 = wow_light.matanim[u32(m.stage1.w)];
-        let d1 = (in.uv_b + t1.xy - vec2<f32>(0.5, 0.5)) * vec2<f32>(1.0 + a1.z, 1.0 + a1.w);
-        let c1 = 1.0 + a1.x;
-        let uv1 = vec2<f32>(0.5 + d1.x * c1 - d1.y * a1.y, 0.5 + d1.x * a1.y + d1.y * c1);
-        let s1 = textureSampleBias(stage1_texture, stage1_sampler, uv1, view.mip_bias);
-        let k1 = select(1.0, 2.0, m.stage1.x > 1.5);
-        base_color = vec4<f32>(base_color.rgb * s1.rgb * k1, base_color.a * s1.a);
+    // Stage 1 (`0x70b740` binds a stage per texture of the unit): its alpha joins the stage-0
+    // alpha the cutout reads (the blend's is `faded_alpha`, below); its colour combines after the light (below).
+    let stage1_on = m.stage1.x > 0.5;
+    let stage1_preset = u32(m.stage1.y);
+    let tex0_alpha = base_color.a;
+    var tex1 = vec4<f32>(1.0);
+    if (stage1_on) {
+        // A stage on its UV set moves by its own transform, the law stage 0's takes; the generated
+        // coordinate takes none, as stage 0's does not.
+        var st1_uv = in.stage1_uv;
+        if (m.stage1.w > 0.5) {
+            let st1_t = in.stage1_uv + m.stage1_uv.zw + wow_light.matanim[u32(m.stage1_uv.x)].xy;
+            st1_uv = wow_uv_affine(st1_t, wow_light.matanim[u32(m.stage1_uv.y)]);
+        }
+        tex1 = textureSampleBias(stage1_texture, stage1_sampler, st1_uv, view.mip_bias);
+        base_color.a = stage_alpha(stage1_preset, base_color.a, tex1.a);
     }
-#endif
-#endif
+
     // The MeshTag (mesh_tag.rs): bit 31 = highlight, bit 30 = interior fog; payload bits 0-5 = the
     // fade alpha (a zero payload is untagged, opaque), 19-29 = the rig slot, 6-13 = the ground
     // shade (0 lit, 255 MCSH-shadowed) or, on an interior-prop material, 6-18 = the SH-probe slot.
-    let interior_prop = m.model_flags.z > 0.5 && m.model_flags.x < 0.5;
     let raw_tag = mesh_functions::get_tag(in.instance_index);
-    let highlighted = (raw_tag & 0x80000000u) != 0u;
     let interior_fogged = (raw_tag & 0x40000000u) != 0u;
     let fade_tag = raw_tag & 0x3fffffffu;
     let alpha6 = f32(fade_tag & 0x3fu) / 63.0;
@@ -1366,19 +1636,7 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
     // A merged blob's per-vertex fade composes where the tag fade does, so it feathers the same.
     obj_fade = obj_fade * in.merged_fade;
 #endif
-    // The body tint (an aura colouring the whole model), by rig slot, 0 = identity: the material
-    // ambient+diffuse colour (gx SetState(1), GL_COLOR_MATERIAL), so it multiplies the light sum
-    // inside the clamp, never the emission.
-    let tint_word = wow_light.rig_tint[(fade_tag >> 19u) & 0x7ffu];
-    let inst_tint = select(
-        vec3<f32>(
-            f32((tint_word >> 16u) & 0xffu),
-            f32((tint_word >> 8u) & 0xffu),
-            f32(tint_word & 0xffu),
-        ) * (1.0 / 255.0),
-        vec3<f32>(1.0),
-        tint_word == 0u,
-    );
+    let inst_tint = body_tint(fade_tag);
     // The blend twin re-applies its source's cutout: the reference scales ALPHAREF with the fade,
     // so the cutoff stays tex.a < 224/255 on the unfaded alpha. Only for a source batch that
     // alpha-tests (bit 10): ALPHAREF keys on the stored blend mode.
@@ -1388,125 +1646,63 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
     // The depth-prime twin (`M2UseZFill`) masks colour writes, so only the discards above shape its
     // depth. No early return: naga's MSL backend miscompiles the dead tail ("redefinition of
     // '_tmp'").
-    let faded_alpha = base_color.a * obj_fade;
+    // The blended alpha is the stage chain on the instance alpha, the diffuse (`0x70c73a`, c28.w):
+    // stage 0 combines it with the texel by its preset's alpha op, so an opaque batch's preset 0
+    // (`0x811f8c`) blends by the fade alone and the texel's alpha never reaches the frame. Stage 1
+    // follows on that. `m.stage1.z` is the stage-0 preset + 1, 0 for a batch with none.
+    var faded_alpha = base_color.a * obj_fade;
+    if (m.stage1.z > 0.5) {
+        faded_alpha = stage_alpha(u32(m.stage1.z) - 1u, obj_fade, tex0_alpha);
+        if (stage1_on) {
+            faded_alpha = stage_alpha(stage1_preset, faded_alpha, tex1.a);
+        }
+    }
     let base = alpha_discard(pbr_input.material, base_color);
 
     // --- Lighting --------------------------------------------------------------------------------
-    let is_clutter = m.clutter_fade.w > 0.5;
-    let L = -normalize(wow_light.light_sun.xyz);
-    // `wow_normalize`: an authored zero normal reaches here on the unskinned lane.
-    let n_m2 = wow_normalize(pbr_input.world_normal);
-    // Bevy negates `world_normal` on back faces of double-sided materials (foliage, every WMO
-    // face); the reference never enables GL_LIGHT_MODEL_TWO_SIDE (`0x59ce30`), so undo it.
-    let n_lit = select(-n_m2, n_m2, is_front);
-    let ndotl = max(dot(n_lit, L), 0.0);
-    let lit_nl = clamp(wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb * ndotl, vec3<f32>(0.0), vec3<f32>(1.0));
-    // The order-2 SH basis, shared by the exterior lobe and the interior probes.
-    let quad = vec4<f32>(n_lit.x * n_lit.y, n_lit.y * n_lit.z, n_lit.z * n_lit.z, n_lit.x * n_lit.z);
-    let n1 = vec4<f32>(n_lit, 1.0);
-    let x2y2 = n_lit.x * n_lit.x - n_lit.y * n_lit.y;
-    // Exterior doodads and entities: the header's `Model2.bls` lobe at the per-instance intensity
-    // I, `[node+0xa4]` (animator targets 2.5 lit and 0.5 shadowed, `0x69e4ad`/`0x69e280`; 1.0
-    // indoors, `0x69e36b`). `sun_scale.x` picks the family:
-    //   ≥ 0.85: an entity M2, 2.5 mixed toward 0.5 by the tag's shade byte (ramped like `0x69e770`)
-    //   0.5..0.85: a doodad (ADT MDDF or WMO MODD, both `CMapDoodadDef`): 1.0, never 2.5
-    //   < 0.5: a doodad on MCSH-shadowed ground: 0.5
-    // Deviation: `min(I, 1)`. The reference bakes I into the SH unclamped (`0x71c4e0`), so a lit
-    // entity commits ×2.5 there and ×1.0 here; lifting the cap takes sun-facing surfaces past 1.0.
-    // `entity_shade::LIT_T` aims the lit ramp at 1.0 because of it: lift the cap and set `LIT_T`
-    // back to 0.0 together.
-    let inst_shade = select(f32((fade_tag >> 6u) & 0xffu) / 255.0, 0.0, interior_prop);
-    let mat_shade = select(0.0, 1.0, m.sun_scale.x < 0.5);
-    let shade_t = max(mat_shade, inst_shade);
-    let mid_band = m.sun_scale.x >= 0.5 && m.sun_scale.x < 0.85;
-    let intensity_ref = min(select(mix(2.5, 0.5, shade_t), 1.0, mid_band), 1.0);
-    // MONKEY (mcsh model shade): the 0.5 band is the MCSH bit under the model, the same baked
-    // shadow `terrain.wgsl` drops while the realtime world lane is on (`sh_c16.w > 0.5`, weighted
-    // by the sun lane so the bake returns at night). Keeping it here left a doodad standing on its
-    // own baked shadow (Lakeshire's gryphon roosts) dimmed twice, by the bake AND the realtime map,
-    // on ground that no longer shows the bake. Only that band is < 1, so lit, matte, interior and
-    // rig lanes are untouched; with the lane off this is the reference value bit for bit.
-    let mcsh_suppress = select(0.0, shadow_hook::sun_shadow_w(wow_light.fog_params.z),
-        wow_light.sh_c16.w > 0.5);
-    let intensity = select(intensity_ref, mix(intensity_ref, 1.0, mcsh_suppress),
-        mcsh_suppress > 0.0);
-    // One `intensity` multiply covers every sun band (never I²); the c10 `.w` ambient does not
-    // scale. `pack_model_core_rows` packs the same closed form.
-    let sun_dc = wow_light.grade.yzw * intensity;
-    let sun_lobe = vec3<f32>(
-        wow_light.sh_c10_r.w + sun_dc.x
-            + intensity
-                * (dot(wow_light.sh_c10_r.xyz, n_lit) + dot(wow_light.sh_c13_r, quad)
-                    + wow_light.sh_c16.x * x2y2),
-        wow_light.sh_c10_g.w + sun_dc.y
-            + intensity
-                * (dot(wow_light.sh_c10_g.xyz, n_lit) + dot(wow_light.sh_c13_g, quad)
-                    + wow_light.sh_c16.y * x2y2),
-        wow_light.sh_c10_b.w + sun_dc.z
-            + intensity
-                * (dot(wow_light.sh_c10_b.xyz, n_lit) + dot(wow_light.sh_c13_b, quad)
-                    + wow_light.sh_c16.z * x2y2),
-    );
-    // Clamp the sum, never a term: the lobe's own ringing dips to −0.037·C near μ ≈ −0.53, and a
-    // per-term clamp would erase it.
-    let lit_doodad = clamp(sun_lobe, vec3<f32>(0.0), vec3<f32>(1.0));
-    // WMO and clutter take the FFP N·L light with no terrain shade; the lobe needs the directional
-    // light on (`light_sun.w`).
+    // The stage-0 modulate: the texel times the lit colour `vertex_light` clamped per vertex.
     let is_wmo = m.model_flags.x > 0.5;
     let is_interior = m.model_flags.z > 0.5;
-    let use_doodad_shade = (wow_light.light_sun.w > 0.5) && !is_clutter && !is_wmo;
-    let lit_exterior = select(lit_nl, lit_doodad, use_doodad_shade);
-    // WMO interior groups (`groupFlags & 0x48 == 0`) by batch class (`tint.w`): INT (1) is unlit
-    // `tex × MOCV`; TRANS (2) is the reference's two passes, lit × MOCV.a + unlit × (1 − MOCV.a),
-    // as one lerp; EXT (0) is `lit_nl`. A WINDOW batch (MOMT 0x20) on the interior drawer lights
-    // with ambient = diffuse = the Direct/Ambient midpoint, ambient +16/255 (`0x6d37e0`).
-    var trans_a = 1.0;
+    var vcol = vec4<f32>(1.0);
 #ifdef VERTEX_COLORS
-    trans_a = in.color.a;
+    vcol = in.color;
 #endif
-    let window_mid = 0.5 * (wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb);
-    let lit_window = clamp(
-        window_mid + vec3<f32>(16.0 / 255.0) + window_mid * ndotl,
-        vec3<f32>(0.0),
-        vec3<f32>(1.0),
-    );
-    let lit_int_base = select(lit_nl, lit_window, m.sidn.w > 0.5);
-    var lit_wmo_interior = vec3<f32>(1.0);
-    if (m.tint.w > 1.5) {
-        lit_wmo_interior = mix(vec3<f32>(1.0), lit_int_base, trans_a);
-    } else if (m.tint.w < 0.5) {
-        lit_wmo_interior = lit_int_base;
+    // Gamma-space colours: lighting runs on the authored byte values. `m.tint` plus its mat-anim
+    // delta is the animated M2Color tint; `albedo` is a WMO's unlit `tex × MOCV`.
+    let anim_tint = m.tint.rgb + wow_light.matanim[u32(m.anim_slots.y)].xyz;
+    let albedo = base.rgb * vcol.rgb * anim_tint;
+    // An unlit batch replaces the lit path: fullbright, with only the highlight added (below).
+    let is_emissive = m.model_flags.w > 0.5;
+    let highlight = highlight_add(raw_tag);
+    var lit_rgb = base.rgb * in.primary;
+    if (is_wmo) {
+        lit_rgb = base.rgb * m.tint.rgb * in.primary;
+        if (is_interior && m.tint.w > 1.5) {
+            // TRANS: the lit pass by MOCV.a (blend 9, SRCALPHA/ZERO) under the unlit `tex × MOCV`
+            // by 1 − MOCV.a (blend 7, INVSRCALPHA/ONE), `0x6b5190`, as one lerp.
+            lit_rgb = base.rgb * m.tint.rgb * mix(vcol.rgb, in.primary, vcol.a);
+        }
+#ifdef VERTEX_COLORS
+        if (is_interior && m.tint.w > 0.5 && m.tint.w < 1.5) {
+            // INT: the reference's interior pixel shader, `tex·MOCV.rgb·(1 + 4·MOCV.a)` with only
+            // the framebuffer's final clamp.
+            lit_rgb = clamp(
+                base.rgb * m.tint.rgb * vcol.rgb * (1.0 + 4.0 * vcol.a),
+                vec3<f32>(0.0),
+                vec3<f32>(1.0),
+            );
+        }
+#endif
     }
-    // Interior M2 props (WMO MODD doodads): the reference commits the prop's MODD colour through a
-    // fixed-axis diffuse lobe plus its group's MOLR lights as an order-2 SH probe, folded at spawn
-    // by `lighting::prop_probe_coeffs` and evaluated here per fragment (the reference: per vertex).
-    // Its soft wrap (≈ 0.088·C side-on) is the reference's response, not a max(N·L, 0).
-#ifdef WOW_MERGED_SLOT
-    // A merged blob bakes the slot per vertex; its tag carries only fog and alpha.
-    let probe = 7u * in.merged_slot;
-#else
-    let probe = 7u * ((fade_tag >> 6u) & 0x1fffu);
-#endif
-    let lit_m2_interior = clamp(
-        vec3<f32>(
-            dot(wow_light.prop_probes[probe + 0u], n1)
-                + dot(wow_light.prop_probes[probe + 3u], quad)
-                + wow_light.prop_probes[probe + 6u].x * x2y2,
-            dot(wow_light.prop_probes[probe + 1u], n1)
-                + dot(wow_light.prop_probes[probe + 4u], quad)
-                + wow_light.prop_probes[probe + 6u].y * x2y2,
-            dot(wow_light.prop_probes[probe + 2u], n1)
-                + dot(wow_light.prop_probes[probe + 5u], quad)
-                + wow_light.prop_probes[probe + 6u].z * x2y2,
-        ),
-        vec3<f32>(0.0),
-        vec3<f32>(1.0),
-    );
-    let lit_interior = select(lit_m2_interior, lit_wmo_interior, is_wmo);
-    // The authored-rig lane (`ShadeSel::Rig`, glue scenes): the scene's lights are folded into
-    // probe slot 0 of the material's own buffer, which `lit_m2_interior` already evaluated (tag 0).
+
+    // MONKEY (lighting lanes): the exterior lanes that re-light the fragment on top of `primary`.
+    // `n_lit` is the SUBMITTED normal (the reference never enables GL_LIGHT_MODEL_TWO_SIDE), the
+    // one `vertex_light` lit; the moon, the point lights and the wet sheen read it per fragment.
+    let is_clutter = m.clutter_fade.w > 0.5;
+    // The authored-rig lane (`ShadeSel::Rig`, glue scenes): lit by its own probe in `vertex_light`.
     let is_rig = m.sun_scale.x >= 1.5;
-    let lit = select(select(lit_exterior, lit_interior, is_interior), lit_m2_interior, is_rig);
+    let L = -normalize(wow_light.light_sun.xyz);
+    let n_lit = wow_normalize(in.world_normal);
     // MONKEY (shadow hook): the realtime shadow (fetch + edge/night fade) is computed by
     // `benilla::shadow_hook`. This lane keeps only the rig-skin SAMPLE-POINT choice + the
     // interior/rig exclusion + ambient-preserving apply below.
@@ -1561,123 +1757,81 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
     player_moon = terms_frag.y;
     player_moon_lit = terms_frag.z;
 #endif
-    // The realtime map blocks only the directional sun. Preserve the authored ambient/probe
-    // contribution instead of multiplying the whole lighting result; the latter makes interiors,
-    // point-lit props, and shadow-side characters globally too dark.
-    //
-    // `is_rig` (the glue create-booth lane) is excluded DELIBERATELY: a booth scene's light is
-    // entirely its authored rig — there is no world sun to block. World units are `ShadeSel::Lit`
-    // and receive through the WOW_RIG_SKIN ground sample above. The `player_shadow < 0.999`
-    // arm keeps `worldShadows 0` (and a fully sunlit fragment) byte-identical: `ambient +
-    // (lit − ambient) × 1.0` is not guaranteed to round back to `lit`.
-    let shadow_term = mix(SHADOW_SUN_FLOOR, 1.0, player_shadow);
-    var lit_with_shadow = select(
-        lit,
-        clamp(
-            wow_light.light_ambient.rgb + (lit - wow_light.light_ambient.rgb) * shadow_term,
-            vec3<f32>(0.0),
-            vec3<f32>(1.0),
-        ),
-        !is_interior && !is_rig && player_shadow < 0.999,
-    );
-    // MONKEY (moon shadows): the night sky includes ambient AND the directional/SH lobe.
-    // Scale its UNCLAMPED value; points join below, then the combine saturates. A saturated
-    // torch must never lose energy to the moon. Interiors/authored rigs and the exact off path
-    // retain their old expressions; no multiply-by-one round trip on daylight or strength zero.
-    if (player_moon < 1.0 && !is_interior && !is_rig) {
-        let sky = select(wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb * ndotl,
-            sun_lobe, use_doodad_shade);
-        lit_with_shadow = sky * player_moon;
-    }
-    // GFX (moonlight): ADD the moon onto the exterior night (never interiors or the glue booth).
-    // `moon.w` is exactly 0 by day and with `moonLight 0`: the branch is not entered.
-    if (wow_light.monkey.moon.w > 0.0 && !is_interior && !is_rig) {
-        lit_with_shadow += moonlight_hook::moon_light(n_lit, wow_light.monkey.moon) * player_moon_lit;
-    }
-
-    // Gamma-space albedo: lighting runs on the authored byte values. `m.tint` plus its mat-anim
-    // delta is the animated M2Color tint.
-    let anim_tint = m.tint.rgb + wow_light.matanim[u32(m.anim_slots.y)].xyz;
-    let albedo = base.rgb * anim_tint;
-    // An unlit batch replaces the lit path: fullbright, with only the highlight added (below).
-    let is_emissive = m.model_flags.w > 0.5;
-    // SIDN night glow: the emissive × the night fraction (ramping 20:30→21:30, 06:00→07:00), a
-    // GL_EMISSION term inside the clamped lit sum, on lit lanes only.
-    var sidn_w = 1.0;
-    if (is_interior && is_wmo) {
-        if (m.tint.w > 1.5) {
-            sidn_w = trans_a; // TRANS: weighted by its lit pass
-        } else if (m.tint.w > 0.5) {
-            sidn_w = 0.0; // INT: unlit, so no emission
+    // Interiors and the glue booth's authored rig take none of these lanes (no world sun to block,
+    // no exterior light to add); an unlit batch replaces the lit path anyway. With every lane idle
+    // `lit_rgb` stays the reference's `tex × primary` above, bit for bit.
+    if (!is_interior && !is_rig && !is_emissive) {
+        // MONKEY (wmo surface lights): a city WMO spans many terrain cells. A flat vertex pick
+        // draws its lamp pool on whole triangles; a snapped cell pick moves the seam to the grid.
+        // Enhanced exterior WMO ranks at the receiving fragment, within the existing 48 yd reach.
+        // Props keep their placement pick, interior receivers their room lane, Classic its old pick.
+        var exterior_selection = in.ext_sel;
+        if (is_wmo && fract(wow_light.monkey.misc.x) > 0.0) {
+            exterior_selection = point_light_pick(in.world_position.xyz, 0.0);
         }
-    }
-    let sidn_e = m.sidn.rgb * (wow_light.grade.x * sidn_w);
-    // MONKEY (wmo surface lights): a city WMO spans many terrain cells. A flat vertex pick
-    // draws its lamp pool on whole triangles; a snapped cell pick moves the seam to the grid.
-    // Enhanced exterior WMO ranks at the receiving fragment, within the existing 48 yd reach.
-    // Props keep their placement pick, interior receivers their room lane, Classic its old pick.
-    var exterior_selection = in.ext_sel;
-    if (is_wmo && !is_interior && fract(wow_light.monkey.misc.x) > 0.0) {
-        exterior_selection = point_light_pick(in.world_position.xyz, 0.0);
-    }
-    var point_diffuse = point_light_eval(exterior_selection, in.world_position.xyz, n_lit);
-    let ext_night_w = select(0.0, clamp(1.0 - wow_light.fog_params.z, 0.0, 1.0), torch_ext_on());
-    if (ext_night_w > 0.0) {
-        point_diffuse = mix(
-            point_diffuse,
-            point_light_eval_shadowed(exterior_selection, in.world_position.xyz, n_lit),
-            ext_night_w,
-        );
-    }
-
-    // The hover/target highlight (tag bit 31): the scene's committed ambient
-    // (`0x614576`-`0x6145bd`), added to the batch colour inside the final clamp, lit or unlit
-    // (`c29`). Sampled live, where the reference holds the value sampled when the highlight
-    // began: a unit's tag has no slot to hold a colour, and the ambient moves slowly.
-    let highlight = select(vec3<f32>(0.0), wow_light.light_ambient.rgb, highlighted);
-    // The FFP combine: the light sum (lit, point lights, emission) clamps first and the texture
-    // modulates it, `tex × clamp(C·sum + emission)`, with C the GL_COLOR_MATERIAL colour (MOCV on
-    // WMO, the body tint on M2). The WMO branch divides Bevy's MOCV fold back out, guarded; a dim
-    // channel's product is ~0 either way.
-    var lit_rgb: vec3<f32>;
-#ifdef VERTEX_COLORS
-    if (is_wmo) {
-        let vc = in.color.rgb;
-        let primary = clamp(
-            vc * (lit_with_shadow + point_diffuse) + sidn_e + highlight,
-            vec3<f32>(0.0),
-            vec3<f32>(1.0),
-        );
-        let tex_rgb = base.rgb / max(vc, vec3<f32>(1.0 / 255.0));
-        lit_rgb = tex_rgb * m.tint.rgb * primary;
-        if (is_interior && m.tint.w > 0.5 && m.tint.w < 1.5) {
-            // INT: the reference's interior pixel shader, `tex·MOCV.rgb·(1 + 4·MOCV.a)` with only
-            // the framebuffer's final clamp.
-            lit_rgb = clamp(
-                tex_rgb * m.tint.rgb * vc * (1.0 + 4.0 * trans_a),
-                vec3<f32>(0.0),
-                vec3<f32>(1.0),
+        // MONKEY (local-light consistency): the selected exterior lights per fragment, never
+        // re-ranked; at night the torch-shadowed evaluation of the same entries blends in.
+        let points_bound = ext_sel_get(exterior_selection, 0u) != EXT_SEL_EMPTY;
+        var point_diffuse = vec3<f32>(0.0);
+        if (points_bound) {
+            point_diffuse = point_light_eval(exterior_selection, in.world_position.xyz, n_lit);
+            let ext_night_w = select(0.0, clamp(1.0 - wow_light.fog_params.z, 0.0, 1.0), torch_ext_on());
+            if (ext_night_w > 0.0) {
+                point_diffuse = mix(
+                    point_diffuse,
+                    point_light_eval_shadowed(exterior_selection, in.world_position.xyz, n_lit),
+                    ext_night_w,
+                );
+            }
+        }
+        // The lane colour by `vertex_light`'s own law (`monkey_lane_colour`): the material colour
+        // C (MOCV on WMO, `c28` = vertex colour × M2Color × body tint on M2 and clutter) on E, the
+        // emission (WMO SIDN, the highlight) inside the one clamp, E clamped first on an M2 with a
+        // point light bound.
+        let lane_c = select(vcol.rgb * anim_tint * inst_tint, vcol.rgb, is_wmo);
+        let lane_emission = select(highlight, m.sidn.rgb * wow_light.grade.x + highlight, is_wmo);
+        let lane_clamp_e = !is_wmo && !is_clutter && points_bound;
+        let moon_dim = player_moon < 1.0;
+        let moon_add = wow_light.monkey.moon.w > 0.0;
+        let sun_shadowed = player_shadow < 0.999;
+        var lane_rgb = in.primary;
+        if (points_bound || moon_dim || moon_add) {
+            // Re-light from the vertex's unclamped sum: the point lights join inside the clamp.
+            var e = in.sky_e;
+            // MONKEY (moon shadows): the night sky includes ambient AND the directional/SH lobe.
+            // Scale its UNCLAMPED value; points join below, then the combine saturates. A
+            // saturated torch must never lose energy to the moon.
+            if (moon_dim) {
+                e = e * player_moon;
+            }
+            // GFX (moonlight): ADD the moon onto the exterior night. `moon.w` is exactly 0 by day
+            // and with `moonLight 0`: the branch is not entered.
+            if (moon_add) {
+                e += moonlight_hook::moon_light(n_lit, wow_light.monkey.moon) * player_moon_lit;
+            }
+            lane_rgb = monkey_lane_colour(e + point_diffuse, lane_c, lane_emission, lane_clamp_e);
+        }
+        // The realtime map blocks only the directional sun. Preserve the authored ambient (and the
+        // point lights) instead of multiplying the whole lighting result; the latter makes
+        // point-lit props and shadow-side characters globally too dark. The lerp runs on the
+        // clamped colours, so a sun-saturated surface still darkens and `player_shadow` 1 is
+        // exactly the unshadowed colour: no seam where the map's edge crosses a triangle. The
+        // `player_shadow < 0.999` arm keeps `worldShadows 0` (and a fully sunlit fragment)
+        // byte-identical.
+        if (sun_shadowed) {
+            let shadow_term = mix(SHADOW_SUN_FLOOR, 1.0, player_shadow);
+            let shade_rgb = monkey_lane_colour(
+                wow_light.light_ambient.rgb + point_diffuse,
+                lane_c,
+                lane_emission,
+                lane_clamp_e,
             );
+            lane_rgb = mix(shade_rgb, lane_rgb, shadow_term);
         }
-    } else {
-        // An M2: the body tint multiplies the light terms as MOCV does above. A WMO surface has
-        // no tint slot, so the WMO branch leaves it out.
-        let primary = clamp(
-            inst_tint * (lit_with_shadow + point_diffuse) + sidn_e + highlight,
-            vec3<f32>(0.0),
-            vec3<f32>(1.0),
-        );
-        lit_rgb = albedo * primary;
+        if (points_bound || moon_dim || moon_add || sun_shadowed) {
+            lit_rgb = select(base.rgb, base.rgb * m.tint.rgb, is_wmo) * lane_rgb;
+        }
     }
-#else
-    // A WMO batch without MOCV lands here too; its tint slot is the identity slot 0.
-    let primary = clamp(
-        inst_tint * (lit_with_shadow + point_diffuse) + sidn_e + highlight,
-        vec3<f32>(0.0),
-        vec3<f32>(1.0),
-    );
-    lit_rgb = albedo * primary;
-#endif
     // MONKEY (dynamic interiors, `interiorLight` on): an INDOOR unit / GameObject / WMO prop — the
     // entity's OWN light-node classification (tag bit 30, `interior_fogged`), never a WMO surface,
     // never the create booth's authored rig — takes the fixture-lit room light
@@ -1751,16 +1905,9 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
     // `clamp(C·tint + highlight)`, C the M2Color. A WMO keeps the plain modulate.
     var unlit_rgb = albedo * inst_tint;
     if (!is_wmo) {
-#ifdef VERTEX_COLORS
-        // The constant M2Color rides the vertex colour, which Bevy folded into `base`.
-        let unlit_c = in.color.rgb * anim_tint;
-        let unlit_tex = base.rgb / max(in.color.rgb, vec3<f32>(1.0 / 255.0));
-#else
-        let unlit_c = anim_tint;
-        let unlit_tex = base.rgb;
-#endif
-        let unlit_sum = unlit_c * inst_tint + highlight;
-        unlit_rgb = unlit_tex * clamp(unlit_sum, vec3<f32>(0.0), vec3<f32>(1.0));
+        // The constant M2Color rides the vertex colour.
+        let unlit_sum = vcol.rgb * anim_tint * inst_tint + highlight;
+        unlit_rgb = base.rgb * clamp(unlit_sum, vec3<f32>(0.0), vec3<f32>(1.0));
     }
     var rgb = select(lit_rgb, unlit_rgb, is_emissive);
     // An M2 Mod or Mod2x batch draws the bare texel: the reference zeroes its tint·M2Color term and
@@ -1770,6 +1917,11 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
     let is_mod2x = (u32(m.clutter_fade.z) & 256u) != 0u;
     if ((is_mod || is_mod2x) && !is_wmo) {
         rgb = base.rgb;
+    }
+    // Stage 1 combines with the stage-0 result, the lit texel, before the fog.
+    if (stage1_on) {
+        // The diffuse alpha is the batch and instance alpha, the shader's `obj_fade`.
+        rgb = stage1_rgb(stage1_preset, rgb, tex1, obj_fade);
     }
 
     // MONKEY (wet): rain on sky-exposed WMO/M2 surfaces (wet_hook.wgsl); interior, glue booth, unlit,
@@ -1839,7 +1991,7 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
 
 
     var out: WowFragOut;
-    // Output alpha is tex × fade. Opaque intent (`clutter_fade.z` bit 3) pins it to 1: a no-op
+    // Output alpha is `faded_alpha`. Opaque intent (`clutter_fade.z` bit 3) pins it to 1: a no-op
     // under correct pipeline state, and a guard for macOS/Metal with an extra camera, where an
     // opaque draw can bind a blending pipeline and show the BLP's garbage alpha.
     let opaque_intent = (u32(m.clutter_fade.z) & 8u) != 0u;

@@ -37,7 +37,8 @@ pub(crate) struct DynamicInteriorPlugin;
 
 impl Plugin for DynamicInteriorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, bridge);
+        // MONKEY (sync 1108): after the UI lane drain, which can write `VideoConfig`.
+        app.add_systems(Update, bridge.after(crate::lanes::UiLanes));
     }
 }
 

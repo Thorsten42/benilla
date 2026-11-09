@@ -40,10 +40,11 @@ taken.
 A feature 1.12.1 does not have lives in a crate of its own that adds its Bevy plugins through
 `benilla_app::run_with`, as `crates/benilla-app/examples/extended_launcher.rs` shows, or in a
 fork. A client started through `run_with` says `extended` in its build line, so its reports read
-apart from stock benilla's. The crate keeps its own settings, never rows in benilla's CVar table,
-which every addon reads, and its files go under `benilla_app::config_dir()`, its own
-`benilla-config/`: an addon it ships is written into that folder's `AddOns/` and loads as any
-addon does.
+apart from stock benilla's. Its build script calls `benilla_buildstamp::emit()`, which stamps the
+commit that line names and gives its binary the 8 MB main-thread stack the app needs on Windows.
+The crate keeps its own settings, never rows in benilla's CVar table, which every addon reads,
+and its files go under `benilla_app::config_dir()`, its own `benilla-config/`: an addon it ships
+is written into that folder's `AddOns/` and loads as any addon does.
 
 Past `run_with` and that folder, benilla opens a piece of itself to such a crate only when its own
 1.12.1 work creates that piece, never for the crate alone, and promises no stable API: a crate
@@ -100,13 +101,14 @@ out of scope is closed with the reason.
 ## Setting up
 
 - **The toolchain.** Stable Rust (`rust-toolchain.toml` adds clippy and rustfmt) and a C
-  compiler, because the client's Lua is vendored and built from source. On macOS the Xcode
+  compiler, which some dependencies build with. On macOS the Xcode
   command line tools, which also supply libclang for the audio bindings; on Linux the ALSA and
   udev development packages and pkg-config. `python3` runs two of the gates.
 - **A 1.12.1 install of your own.** `WOW_DATA=<its Data folder>`, or a `WoW` link at the repo
   root, which only a dev build sees: the player build looks for `Data/` or `WoW/Data/` beside
   the binary. benilla reads the install and never writes into it. `WOW_DATA=` (set, empty)
-  means "no install", which is how the no-install boot is tested on a machine that has one.
+  means "no install": the client refuses to start (an error dialog, or stderr alone in an
+  unattended run) and the no-install tests run on a machine that has one.
 - **Without the install, green is hollow.** Well over a thousand tests read the install and skip
   when it is absent, and a few dozen more read a corpus of vanilla addons
   (`BENILLA_ADDON_CORPUS=<a folder of addons>`, or a `wow-addons-vanilla` link at the root),
@@ -117,8 +119,10 @@ out of scope is closed with the reason.
   `localhost:3724`). A scripted run has no default account: `WOW_USER`, `WOW_PASS` and
   `WOW_CHAR` name a test account on your server whose login kicks nobody, all three, either in
   the environment or in a `.probe-identity` file at the repo root (one per line, never
-  committed), and `scripts/smoke.sh` (the live login gate) refuses without them. `WOW_CHAR`
-  must already be on the account, since the client creates a character only when asked:
+  committed), and `scripts/smoke.sh` (the live login gate) refuses without them. A linked
+  worktree shares the main checkout's `benilla-config/`, unless it has a `.probe-identity`: then
+  it keeps its own, so no run from it touches your settings. `WOW_CHAR` must already be on the
+  account, since the client creates a character only when asked:
   `WOW_PROBE_CHARCREATE=<name> WOW_PROBE_CHARCREATE_KEEP=1`, run without `WOW_CHAR`, makes it.
   The probes drive the body with GM commands, so give that account the top GM level.
 - **Running it unattended.** The rules are `docs/METHOD.md`, "The local server"; these are the
@@ -126,6 +130,13 @@ out of scope is closed with the reason.
   - `WOW_UNATTENDED=1` reconnects instead of waiting at a dialog, and exits non-zero on a login
     it cannot pass. `WOW_NOSOUND=1` runs silent. A capture (`WOW_CAPTURE`) is both, and a rig
     (`WOW_RIG`) is unattended. `WOW_ALLOW_ACCOUNT=1` overrides the account guard.
+  - A PIN-protected account needs one more variable, which answers the keypad's prompt in place
+    of a key press. Set one: `WOW_PIN` is the PIN's 4 to 10 digits, sent as typed;
+    `WOW_PIN_TOTP` is a base32 secret, whose current RFC 6238 code (HMAC-SHA1, 30 s step,
+    6 digits) is the PIN, the scheme vmangos checks. vmangos reads a code as a number, so a code
+    with leading zeros goes without them (`081804` is the five digits `81804`). Both set is an
+    error: it is logged and the logon fails. Neither value is ever logged. The scripts under
+    `scripts/` clear inherited `WOW_*` variables and do not carry these.
   - An unattended run starts from defaults in a fresh state folder of its own, printed at boot
     (`state:`), so it never reads or overwrites your settings, layout or addons. `BENILLA_HOME`
     pins a folder, for a run that needs addons, seeded files or state kept across runs.
@@ -135,6 +146,8 @@ out of scope is closed with the reason.
     command and logs the reply as `net: server says`. An account named `probe` and digits is
     shielded: every world entry sends `.cheat god on`, `.die` clears it for a death test, and
     `WOW_GOD=off` leaves it off.
+  - A rig, `WOW_PROBE_CHARCREATE` and a glue capture drive the stock glue screens through their
+    own Lua, the calls a player's clicks make.
   - A trace is `WOW_MOVE_TRACE=<file>`, filtered with `WOW_MOVE_TRACE_TAGS` (`"move,snd,in"`) and
     ended by `WOW_PROBE_EXIT_AT=<seconds>`; grep it for the `rly` and `snd` lines.
   - To sniff the wire, trace the tags `in` and `out` (`WOW_MOVE_TRACE_TAGS="in,out"`): one line
@@ -150,11 +163,37 @@ out of scope is closed with the reason.
   - A capture runs through `scripts/visual.sh`, whose recipe is the header of
     `crates/benilla-app/src/capture/mod.rs`. Pixel questions go through `benilla-visual crop`,
     `series` and `hotspot`.
+- **Asking the UI without a server.** The addon harness's probe loads the interface into a VM
+  with no window, server or login, and answers in under a second. Build it once with
+  `cargo build --profile play -p benilla-app --example addon_harness`, then run
+  `target/play/examples/addon_harness`:
+  - `<folder> --probe <Name> [<step>]…` loads the stock FrameXML, benilla's layer and one addon
+    from a folder of addons, with its dependencies from the same folder.
+    `--probe-ui [<step>]…` loads the interface with no addon, for work on FrameXML or the layer.
+  - Each run seats one session: a level 60 Human Warrior named `Harness` with a target, a buff,
+    an action on cooldown, a spellbook and a quest log. It fires the addon's `ADDON_LOADED` (none
+    under `--probe-ui`), then `VARIABLES_LOADED`, `PLAYER_LOGIN` and `PLAYER_ENTERING_WORLD`,
+    then ticks one second. It reads and writes no saved variables.
+  - The steps run in the order given. `--eval <lua>` answers its first return value through
+    `tostring`, so return a string to read more than one value. `--event <NAME> [<arg>]…` fires
+    an engine event; an argument that reads as a number is a number, and `nil` is nil.
+    `--mouse <x>,<y>` hovers, `--click <x>,<y>[,<Button>]` presses and releases, and
+    `--tick <secs>` runs one `OnUpdate` frame. Points are UI units on a 1024×768 screen, from
+    the bottom left.
+  - An `--eval` answers `= <value>`, `ERROR: <message>` for a raise, or `SYNTAX: <message>`.
+    The other steps answer what their handlers raised, `= no errors` or `= RAISED: <message>`,
+    after the frame under the cursor for `--mouse` and `--click`. An event name 1.12 lacks
+    answers `ERROR`, since no frame can register for it. Load and session errors print first.
+  - A window that waits on server state (a bank, a mailbox, a raid) has nothing to show here.
+    Ask a live session with `WOW_PROBE_LUA` instead.
 - **The loop.** `cargo play` builds and runs the play profile. `cargo test -p <crate>` runs one
   crate's tests, the quickest loop. `scripts/check.sh` verifies a round of work: the crates your
   branch changed against main and their dependents, so on a clean clone it has nothing to check; `scripts/gates.sh` is the full chain, and it opens a window for the engine boot
   checks, so it needs a display. `WOW_STOCK_UI=1` boots a dev build on the stock interface
-  alone, without benilla's layer. Work on a branch.
+  alone, without benilla's layer. A dev build panics when a script call or an engine turn sends a
+  packet, or writes an item's lock or the cursor, while an event handler it raised has yet to
+  run, which 1.12.1 runs first (`crates/benilla-ui/src/script/census.rs`);
+  `BENILLA_SEND_CENSUS_PANIC=0` turns that off. Work on a branch.
 
 ## Reporting a bug
 

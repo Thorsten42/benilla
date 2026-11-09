@@ -14,10 +14,13 @@
 //! hides, so a hovered one gets its leave with its old link and a held press loses its capture, and
 //! goes to the free list's tail. Then each span takes the free list's head (`0x7a3880`, a new
 //! button when it is empty), which is placed on its line and shown (`0x7a3350`); nothing is ever
-//! freed. A ScrollingMessageFrame rebuilds from its update (`0x788595`) whenever its flag is up
-//! ([`crate::widget::ScrollingMessageState::links_dirty`]), and a change of its on-screen width
-//! or height relayouts it (`0x7882f0` → `0x788310` → `0x788750`), a rescale included, since the
-//! rect it compares is in screen units (`0x788342` scales the insets by `+0x7c`). The buttons hang
+//! freed. A SimpleHTML rebuilds from its update (`0x78a30b`) when `SetText` or an element
+//! font raised its flag, or its layout callback did on a width or height change of 1e-5 or more
+//! (`0x78a320`, `0x78a369`). A ScrollingMessageFrame rebuilds from its update (`0x788595`) whenever its
+//! flag is up ([`crate::widget::ScrollingMessageState::links_dirty`]), and a change of its
+//! on-screen width or height relayouts it (`0x7882f0` → `0x788310` → `0x788750`), a rescale
+//! included, since the rect it compares is in screen units (`0x788342` scales the insets by
+//! `+0x7c`). The buttons hang
 //! off their line (`0x7a3441`), so a frame that only moves carries them along with no rebuild.
 //! The app lays the text out, so its spans arrive here as screen rects every frame, and a frame
 //! not rebuilt has its buttons re-seated in place.
@@ -94,7 +97,7 @@ type Span = (Rect, String, String);
 
 /// A text frame's hyperlink buttons: the live ones in placement order, each over the span at its
 /// index, and the free list, taken from the head and released to the tail.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct LinkPool {
     live: Vec<FrameHandle>,
     free: VecDeque<FrameHandle>,
@@ -103,10 +106,10 @@ pub(crate) struct LinkPool {
 }
 
 /// Replace the spans on screen, `(text frame, y-up rect, link, text)`, a text frame's in the
-/// order its rebuild places them. Only a ScrollingMessageFrame's take buttons; a MessageFrame's
-/// stay text. A text frame due a rebuild ([`due`]) gets one: every live button hides, in order,
-/// its leave reading the link it still carries, then each span takes a free button, is placed,
-/// and shows. Any other has its live buttons re-seated on their spans with no hide and no show,
+/// order its rebuild places them. Only a ScrollingMessageFrame's and a SimpleHTML's take buttons;
+/// a MessageFrame's stay text. A text frame due a rebuild ([`due`]) gets one: every live button
+/// hides, in order, its leave reading the link it still carries, then each span takes a free
+/// button, is placed, and shows. Any other has its live buttons re-seated on their spans with no hide and no show,
 /// as buttons anchored to their lines follow a moved frame.
 pub(super) fn set_spans(lua: &Lua, spans: Vec<(FrameHandle, Rect, String, String)>) {
     let mut by_owner: Vec<(FrameHandle, Vec<Span>)> = Vec::new();
@@ -133,12 +136,13 @@ pub(super) fn set_spans(lua: &Lua, spans: Vec<(FrameHandle, Rect, String, String
             .map(|(owner, _)| *owner)
             .collect();
         emptied.sort_by_key(|h| h.fingerprint_bits());
-        // Only the SMF (`0x788ce7`) and SimpleHTML (`0x78b052`) take one; ours draws no links.
+        // Only the SMF (`0x788ce7`) and SimpleHTML (`0x78b052`) take one.
         by_owner.retain(|(owner, _)| {
-            model
-                .arena
-                .frame(*owner)
-                .is_some_and(|f| matches!(f.kind_state, KindState::ScrollingMessage(_)))
+            model.simple_html.contains_key(owner)
+                || model
+                    .arena
+                    .frame(*owner)
+                    .is_some_and(|f| matches!(f.kind_state, KindState::ScrollingMessage(_)))
         });
         by_owner.extend(emptied.into_iter().map(|owner| (owner, Vec::new())));
     }
@@ -156,24 +160,56 @@ pub(super) fn set_spans(lua: &Lua, spans: Vec<(FrameHandle, Rect, String, String
     }
 }
 
-/// Whether `owner`, a ScrollingMessageFrame, rebuilds this pass: when its flag is up, which this
-/// spends, or its on-screen size moved (`0x788394`, `0x7883b2`).
-/// Deviation: a span count that no longer matches the live set always rebuilds, so a state this
-/// model does not flag (a ring wiped by `SetMaxLines`, a hidden frame) leaves no stale button.
+/// Whether `owner` rebuilds this pass: when its flag is up, which this spends, or its on-screen
+/// size moved. A ScrollingMessageFrame compares its lines' box (`0x788394`, `0x7883b2`); a
+/// SimpleHTML's layout callback (`0x78a320`) raises the flag when the frame's width or height
+/// changed by [`HTML_RESIZE`] or more, or is NaN (`0x78a340`-`0x78a369`).
+/// Deviation: a span count that no longer matches the live set always rebuilds, because that way a
+/// state this model does not flag (a ring wiped by `SetMaxLines`, a hidden frame, a frame not yet
+/// laid out, which the reference's rebuild skips at `0x78af7b`) leaves no stale button.
 fn due(lua: &Lua, owner: FrameHandle, list: &[Span]) -> bool {
     let mut model = lua.app_data_mut::<Model>().expect("model");
     let model = &mut *model;
-    let size = model
-        .resolved
-        .get(&owner)
-        .map(|r| (r.right - r.left, r.top - r.bottom));
+    let is_smf = matches!(
+        model.arena.frame(owner).map(|f| &f.kind_state),
+        Some(KindState::ScrollingMessage(_))
+    );
+    // A message frame's lines' box, which `0x788384`-`0x7883b2` compares; a SimpleHTML's rect.
+    let size = if is_smf {
+        super::messageframe::message_rect(model, owner)
+    } else {
+        model.frame_rect(owner)
+    }
+    .map(|r| (r.right - r.left, r.top - r.bottom));
     let flagged = match model.arena.frame_mut(owner).map(|f| &mut f.kind_state) {
         Some(KindState::ScrollingMessage(smf)) => std::mem::take(&mut smf.links_dirty),
-        _ => false,
+        _ => model
+            .simple_html
+            .get_mut(&owner)
+            .is_some_and(|st| std::mem::take(&mut st.links_dirty)),
     };
     let pool = model.link_buttons.entry(owner).or_default();
-    let resized = std::mem::replace(&mut pool.size, size).is_some_and(|was| Some(was) != size);
+    let was = std::mem::replace(&mut pool.size, size);
+    let resized = match (was, size) {
+        (Some(was), Some(now)) if is_smf => was != now,
+        (Some(was), Some(now)) => html_resized(was, now),
+        _ => false,
+    };
     flagged || resized || pool.live.len() != list.len()
+}
+
+/// The width or height change below which a SimpleHTML keeps its link buttons (`0x80c5c8`).
+const HTML_RESIZE: f32 = 1e-5;
+
+/// `0x78a320`'s test on the `(width, height)` before and after: a change of [`HTML_RESIZE`] or
+/// more, which a NaN counts as too (`fabs(d) < 1e-5` is false for it, `test ah,5` and `jp` at
+/// `0x78a348`, `0x78a367`).
+fn html_resized(was: (f32, f32), now: (f32, f32)) -> bool {
+    let moved = |a: f32, b: f32| {
+        let d = (a - b).abs();
+        d.is_nan() || d >= HTML_RESIZE
+    };
+    moved(was.0, now.0) || moved(was.1, now.1)
 }
 
 /// Re-seat `owner`'s live buttons on `list`, one each, with no hide and no show. True when a
@@ -277,16 +313,33 @@ fn place(model: &mut Model, h: FrameHandle, rect: Rect, link: &str, text: &str) 
     let pin = Anchors::from([Anchor::new(Point::TopLeft, SCREEN, Point::TopLeft, x, y)]);
     let input = model.layout_inputs.entry(h).or_default();
     let changed = !input.anchors.bits_eq(&pin)
-        || input.width.to_bits() != w.to_bits()
-        || input.height.to_bits() != ht.to_bits();
+        || input.width.bits() != crate::layout::Len::Script(w).bits()
+        || input.height.bits() != crate::layout::Len::Script(ht).bits();
     if changed {
         input.anchors = pin;
-        input.width = w;
-        input.height = ht;
+        input.width = crate::layout::Len::Script(w);
+        input.height = crate::layout::Len::Script(ht);
         model.note_authored_size(h);
     }
     // The points are cleared (`0x7a3415`), one set with the invalidate flag (`0x7a3441`), and the
     // size set through the setters, which invalidate (`0x7a3457`, `0x7a346b`).
     model.invalidate_frame(h, changed);
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::html_resized;
+
+    /// A width or height change of 1e-5 or more, or a NaN, raises the SimpleHTML's flag; less
+    /// leaves it down (`0x78a340`-`0x78a369`).
+    #[test]
+    fn a_simple_html_resize_is_a_change_of_1e_5_or_a_nan() {
+        assert!(!html_resized((4.0, 4.0), (4.0, 4.0)));
+        assert!(!html_resized((4.0, 4.0), (4.000_004, 3.999_996)));
+        assert!(html_resized((4.0, 4.0), (4.000_02, 4.0)));
+        assert!(html_resized((4.0, 4.0), (4.0, 3.999_98)));
+        assert!(html_resized((4.0, 4.0), (f32::NAN, 4.0)));
+        assert!(html_resized((4.0, f32::NAN), (4.0, 4.0)));
+    }
 }

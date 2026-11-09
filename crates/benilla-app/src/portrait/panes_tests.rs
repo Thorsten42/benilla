@@ -11,6 +11,8 @@ fn turning_model() -> benilla_assets::ModelAnimations {
         anim_id,
         seq_index: 0,
         node: AnimationNodeIndex::new(node),
+        // The blend slot's own track of each, nodes 5 to 8.
+        blend_node: Some(AnimationNodeIndex::new(node + 4)),
         looping: true,
         duration: 0.5,
         move_speed: 0.0,
@@ -269,6 +271,116 @@ fn a_set_sequence_arm_cuts_over_a_fade_in_flight() {
     );
 }
 
+// ── A glue model's Stand chain ────────────────────────────────────────────────────────────
+
+/// Two Stands of 0.5 s, weighted so `AnimRng::default()`'s rolls, one in two of its draws (41,
+/// 6334, 19169), land on the head, then on the other, then on the other again.
+fn fidgeting_model() -> benilla_assets::ModelAnimations {
+    let mut anims = turning_model();
+    anims.clips[0].frequency = 5000;
+    anims.clips[1].frequency = 27767;
+    anims
+}
+
+fn step_chain(c: &mut Copy, chain: &mut StandChain, now: f64) {
+    step_stand_chain(&mut c.player, &c.anims, &c.catalog, &mut c.rng, chain, now);
+}
+
+/// The select build arms Stand with a roll (`0x472bb6`-`0x472bda`), blending from the load's idle,
+/// and each window's end replays it with a fresh pick (`0x473090`): a new variation blends from
+/// the one that ended, and the same one is written again as the primary alone (`0x712553`).
+#[test]
+fn a_select_model_replays_stand_with_a_fresh_pick_at_each_windows_end() {
+    let mut c = Copy::spawned(fidgeting_model());
+    let mut chain = StandChain::armed(&c.anims, Some(&c.catalog));
+    assert_eq!(chain.turn.playing, Some(node(1)), "the load's idle");
+
+    // The roll lands on the head, the idle's own sequence, so it runs on the head's other track.
+    step_chain(&mut c, &mut chain, 0.0);
+    assert_eq!(chain.turn.playing, Some(node(5)));
+    assert_eq!(
+        chain.turn.fade.map(|f| (f.node, f.until)),
+        Some((node(1), 0.5)),
+        "fading out of the idle over Stand's own 0.5 s"
+    );
+
+    // The window has not closed.
+    step_chain(&mut c, &mut chain, 0.49);
+    assert_eq!(chain.turn.playing, Some(node(5)), "inside the window");
+
+    // It closes: the next roll lands on the other variation, which blends from the one that ended.
+    step_chain(&mut c, &mut chain, 0.5);
+    assert_eq!(chain.turn.playing, Some(node(2)), "a fresh pick, at once");
+    assert_eq!(
+        chain.turn.fade.map(|f| (f.node, f.until)),
+        Some((node(5), 1.0))
+    );
+    assert_eq!(weight(&c.player, 2), Some(0.0), "the pose does not jump");
+    assert_eq!(weight(&c.player, 5), Some(1.0));
+
+    // The same variation again: the sequence that ran to its end is written as the primary alone.
+    c.player.animation_mut(node(2)).unwrap().seek_to(0.25);
+    step_chain(&mut c, &mut chain, 1.0);
+    assert_eq!(chain.turn.playing, Some(node(2)));
+    assert!(chain.turn.fade.is_none(), "nothing to blend from");
+    assert_eq!(weight(&c.player, 2), Some(1.0));
+    assert_eq!(
+        c.player.animation(node(2)).unwrap().seek_time(),
+        0.0,
+        "from the top"
+    );
+}
+
+/// An arm's track takes the stage clock's rate off the track it replaces, as `pace_glue_clock` ran
+/// ahead of it this frame; a stage that stands still arms nothing.
+#[test]
+fn a_chains_arm_keeps_the_stage_clocks_rate() {
+    let mut c = Copy::spawned(fidgeting_model());
+    let mut chain = StandChain::armed(&c.anims, None);
+    c.player.animation_mut(node(1)).unwrap().set_speed(0.75);
+    step_chain(&mut c, &mut chain, 0.0);
+    assert_eq!(c.player.animation(node(5)).unwrap().speed(), 0.75);
+
+    // Hidden, the pane's clock stops (`0x76d7f0`), and the window never closes.
+    for _ in 0..3 {
+        step_chain(&mut c, &mut chain, 0.25);
+    }
+    assert_eq!(chain.serial, 0, "the chain is on its first arm");
+}
+
+/// The pane pass runs a chain on its root's scene clock, whatever panes stand.
+#[test]
+fn the_pane_pass_runs_a_select_models_chain_on_its_stage_clock() {
+    use benilla_world::rig_anim::SceneClock;
+
+    let mut h = Harness::new("");
+    let catalog = benilla_formats::AnimDataCatalog::from_rows([]);
+    let data = crate::creature_anim::AnimData(catalog);
+    h.app.insert_resource(data);
+    let anims = fidgeting_model();
+    let chain = StandChain::armed(&anims, None);
+    let mut player = AnimationPlayer::default();
+    player.play(node(1)).repeat();
+    let root = h
+        .app
+        .world_mut()
+        .spawn((player, anims, chain, SceneClock(0.0)))
+        .id();
+    let playing = |h: &Harness| {
+        h.app
+            .world()
+            .get::<StandChain>(root)
+            .and_then(|c| c.turn.playing)
+    };
+    h.pass();
+    assert_eq!(playing(&h), Some(node(5)), "the first arm");
+    h.pass();
+    assert_eq!(playing(&h), Some(node(5)), "its clock stands");
+    h.app.world_mut().entity_mut(root).insert(SceneClock(0.5));
+    h.pass();
+    assert_eq!(playing(&h), Some(node(2)), "its window closed");
+}
+
 /// The completion callback runs at the play window's end, `start + span·R` (`0x712692`), loops
 /// included, once per arm; `SetSequenceTime`'s offset starts the window that far in.
 #[test]
@@ -316,11 +428,12 @@ fn an_arm_reports_its_natural_end_once() {
 }
 
 /// `0x7121a0` resolves an id the model lacks through its fallback (`0x711bf0`, default Stand),
-/// so a pet with no shuffles plays Stand for one; the paint's Stand return then re-arms the
-/// running sequence with the latch clear, which blends (`0x71255f`) rather than snapping the idle
-/// back to its first frame.
+/// so a pet with no shuffles plays Stand for one. That re-arm of the running Stand, latch clear,
+/// copies it to the secondary on its own clock (`0x71255f` → `0x7125d6`) and restarts the primary
+/// on the clip's other track; the paint's Stand return, inside that blend's first half, is refused
+/// (`0x7125d4`) and restarts the primary alone while the idle fades on.
 #[test]
-fn a_display_with_no_shuffle_turns_on_stand_and_returns_without_a_snap() {
+fn a_display_with_no_shuffle_turns_on_stand_and_fades_from_the_idles_own_clock() {
     let mut anims = turning_model();
     anims.clips.retain(|c| c.anim_id == ANIM_STAND);
     // The model's own baked resolution: both shuffles fall back to Stand.
@@ -340,17 +453,131 @@ fn a_display_with_no_shuffle_turns_on_stand_and_returns_without_a_snap() {
     c.step(arm(ANIM_STAND, 1, true), 0.6); // the idle's fade done
     c.player.play(node(2)).seek_to(0.3);
     c.step(arm(ANIM_SHUFFLE_LEFT, 2, true), 1.0);
-    assert_eq!(c.turn.playing, Some(node(2)), "the substitute plays");
+    assert_eq!(
+        c.turn.playing,
+        Some(node(6)),
+        "the substitute restarts on Stand's second track"
+    );
     assert!(c.turn.ends.is_some(), "an arm that played owes its end");
-    // The paint's return, 100 ms on.
+    assert_eq!(c.turn.fade.map(|f| (f.node, f.until)), Some((node(2), 1.5)));
+    // The paint's return, 110 ms on.
     c.step(arm(ANIM_STAND, 3, true), 1.11);
-    assert!(c.turn.fade.is_none(), "nothing else to fade from");
-    assert_eq!(weight(&c.player, 2), Some(1.0));
+    assert_eq!(c.turn.playing, Some(node(6)));
+    assert_eq!(
+        c.turn.fade.map(|f| (f.node, f.until)),
+        Some((node(2), 1.5)),
+        "the refused arm keeps the window"
+    );
     assert_eq!(
         c.player.animation(node(2)).map(|a| a.seek_time()),
         Some(0.3),
-        "the idle runs on, no snap to frame 0"
+        "the idle fades out on its own clock, no snap to frame 0"
     );
+    assert_eq!(
+        c.player.animation(node(6)).map(|a| a.seek_time()),
+        Some(0.0)
+    );
+    let (out, inc) = (weight(&c.player, 2).unwrap(), weight(&c.player, 6).unwrap());
+    assert!((out + inc - 1.0).abs() < 1e-5 && out > 0.5, "{out} / {inc}");
+}
+
+/// A held arrow, frame by frame: the shuffle runs to its end, the callback arms Stand (`0x5062e4`),
+/// which copies the shuffle to the secondary (`0x7125d6`), and the next `SetRotation` re-arms the
+/// shuffle inside Stand's first half, refused (`0x7125d4`). The secondary keeps the old shuffle on
+/// its clock while the new one runs from 0 on the clip's other track.
+fn held_turn() -> Copy {
+    let mut c = Copy::standing();
+    let first = arm(ANIM_SHUFFLE_RIGHT, 2, true);
+    c.step(first, 1.0);
+    c.step(first, 1.3); // the shuffle's own fade done
+    c.player.play(node(4)).seek_to(0.45);
+    assert_eq!(c.step(first, 1.5), Some(2), "its window closes");
+    c.step(arm(ANIM_STAND, 3, true), 1.517);
+    c.step(arm(ANIM_SHUFFLE_RIGHT, 4, true), 1.533);
+    c
+}
+
+#[test]
+fn a_held_turns_rearm_inside_stands_blend_keeps_the_old_shuffle_on_its_own_clock() {
+    let c = held_turn();
+    let fade = c.turn.fade.expect("Stand's fade still runs");
+    assert_eq!(fade.node, node(4), "fading the old shuffle");
+    assert!(
+        (fade.until - 2.017).abs() < 1e-9,
+        "on Stand's window, untouched"
+    );
+    assert_eq!(
+        c.player.animation(node(4)).map(|a| a.seek_time()),
+        Some(0.45),
+        "the old shuffle is not seeked back"
+    );
+    assert_eq!(c.turn.playing, Some(node(8)), "the new one is on the twin");
+    assert_eq!(
+        c.player.animation(node(8)).map(|a| a.seek_time()),
+        Some(0.0)
+    );
+    let (out, inc) = (weight(&c.player, 4).unwrap(), weight(&c.player, 8).unwrap());
+    assert!(
+        out > 0.99 && (out + inc - 1.0).abs() < 1e-5,
+        "{out} / {inc}"
+    );
+    assert_eq!(
+        weight(&c.player, 2),
+        None,
+        "the overwritten Stand is dropped"
+    );
+}
+
+/// At the window's end (`0x7147b1`) the secondary slot alone is emptied; the primary runs on.
+#[test]
+fn the_fade_window_ends_the_secondary_alone() {
+    let mut c = held_turn();
+    c.player.play(node(8)).seek_to(0.3);
+    c.step(arm(ANIM_SHUFFLE_RIGHT, 4, true), 2.02);
+    assert!(c.turn.fade.is_none());
+    assert_eq!(weight(&c.player, 4), None, "the old shuffle is stopped");
+    let primary = c
+        .player
+        .animation(node(8))
+        .expect("the primary still plays");
+    assert_eq!(
+        (primary.seek_time(), primary.weight(), primary.repeat_mode()),
+        (0.3, 1.0, RepeatAnimation::Forever),
+        "on its clock, whole, still looping"
+    );
+}
+
+/// The shortcut (`0x712553` → `0x71262d`) writes the primary alone: a fade in flight keeps its
+/// slot, clock and window.
+#[test]
+fn a_latched_same_sequence_rearm_leaves_a_live_fade_alone() {
+    let mut c = Copy::standing();
+    // 400 ms in, the shuffle's window closes before its own 0.25 s fade from Stand does.
+    let late = PaneArm {
+        offset_ms: 400,
+        ..arm(ANIM_SHUFFLE_LEFT, 2, true)
+    };
+    c.step(late, 1.0);
+    c.player.play(node(2)).seek_to(0.2);
+    assert_eq!(c.step(late, 1.1), Some(2));
+    c.step(arm(ANIM_SHUFFLE_LEFT, 3, true), 1.15);
+    assert_eq!(
+        c.turn.fade.map(|f| (f.node, f.until)),
+        Some((node(2), 1.25)),
+        "the secondary slot is left as it is"
+    );
+    assert_eq!(
+        c.player.animation(node(2)).map(|a| a.seek_time()),
+        Some(0.2)
+    );
+    assert_eq!(c.turn.playing, Some(node(3)));
+    assert_eq!(
+        c.player.animation(node(3)).map(|a| a.seek_time()),
+        Some(0.0),
+        "restarted"
+    );
+    let (out, inc) = (weight(&c.player, 2).unwrap(), weight(&c.player, 3).unwrap());
+    assert!(out > 0.0 && (out + inc - 1.0).abs() < 1e-5, "{out} / {inc}");
 }
 
 // ── The composite ─────────────────────────────────────────────────────────────────────────
@@ -385,11 +612,10 @@ fn a_drawn_pane_composites_its_own_target_at_its_own_rect() {
                 layer: 1,
                 camera: Entity::PLACEHOLDER,
                 size: UVec2::ONE,
-                aimed: None,
+                view: None,
                 built: None,
                 stand_in: None,
                 turn: Turn::default(),
-                pose: None,
             },
         );
         requests.insert(
@@ -400,6 +626,7 @@ fn a_drawn_pane_composites_its_own_target_at_its_own_rect() {
                 alpha: 0.6,
                 clip: Some(Rect::new(0.0, 0.0, 100.0, 100.0)),
                 size_px: UVec2::new(233, 224),
+                units: Default::default(),
             },
         );
     }
@@ -430,11 +657,15 @@ struct Harness {
     app: App,
     me_mesh: Handle<Mesh>,
     other_mesh: Handle<Mesh>,
+    /// The unit ladder every pane's request carries.
+    units: PaneUnits,
 }
 
 impl Harness {
     fn new(lua: &str) -> Self {
         let mut script = UiScript::new().unwrap();
+        // A dressing-room pane's `SetUnit` is a call no host takes here.
+        script.keep_calls();
         script.set_screen_size(1024.0, 768.0);
         script.set_unit_guids(&benilla_ui::script::UnitGuids {
             player: ME,
@@ -493,6 +724,7 @@ impl Harness {
             app,
             me_mesh,
             other_mesh,
+            units: PaneUnits::default(),
         }
     }
 
@@ -532,6 +764,7 @@ impl Harness {
             .clear();
         let script = self.app.world().non_send_resource::<UiScript>();
         let (session, panes) = (script.session(), script.character_panes());
+        let units = self.units;
         let mut requests = self.app.world_mut().resource_mut::<PaneRequests>();
         requests.reset(session);
         for (i, p) in panes.iter().enumerate() {
@@ -544,6 +777,7 @@ impl Harness {
                     alpha: 1.0,
                     clip: None,
                     size_px: UVec2::new(233, 224),
+                    units,
                 },
             );
         }
@@ -624,6 +858,125 @@ fn each_pane_draws_its_own_subject_named_or_not() {
     assert_eq!(h.meshes(anon), Some(vec![h.me_mesh.clone()]));
     assert_ne!(h.target(inspect), h.target(anon), "a target each");
     assert_eq!(h.drawn().len(), 2);
+}
+
+/// The camera spawns through `Commands` with the pane, and the pass that builds the copy aims it
+/// with that spawn, so the frame the pane opens on already composites an aimed view, not the
+/// spawn pose.
+#[test]
+fn a_pane_is_aimed_on_the_frame_it_opens() {
+    let mut h =
+        Harness::new(r#"m = CreateFrame("PlayerModel", "Doll", UIParent) m:SetUnit("player")"#);
+    let pane = h.handle(Some("Doll"));
+    h.pass();
+    let world = h.app.world_mut();
+    let booth = &world.resource::<PaneBooths>().panes[&pane];
+    let (entity, aimed) = (booth.camera, booth.view.is_some());
+    assert!(aimed, "the opening pass records the aim");
+    assert!(
+        matches!(world.get::<Projection>(entity), Some(Projection::Custom(_))),
+        "the camera wears the body frame on the opening frame, not its spawn pose"
+    );
+}
+
+/// The leg pane `h`'s booth camera draws through: orthographic or not.
+fn ortho_leg(h: &mut Harness, pane: FrameHandle) -> bool {
+    let world = h.app.world_mut();
+    let camera = world.resource::<PaneBooths>().panes[&pane].camera;
+    match world.get::<Projection>(camera) {
+        Some(Projection::Orthographic(_)) => true,
+        Some(Projection::Custom(_)) => false,
+        other => panic!("not an aimed camera: {other:?}"),
+    }
+}
+
+/// `SetCamera(n)` after `SetUnit` installs raw camera `n` on the copy (`0x76cec0`); past the
+/// copy's table (this one has none) there is no camera, so the booth takes the orthographic leg
+/// (`0x76d5f0`). `RefreshUnit`'s build installs the pane's own camera again (`0x505890`).
+#[test]
+fn set_camera_aims_the_booth_through_the_copys_camera_until_the_next_build() {
+    let mut h = Harness::new(
+        r#"m = CreateFrame("PlayerModel", "Portrait3D", UIParent) m:SetUnit("player") m:SetCamera(99)"#,
+    );
+    let pane = h.handle(Some("Portrait3D"));
+    h.frame();
+    assert!(
+        ortho_leg(&mut h, pane),
+        "no camera 99: the orthographic leg"
+    );
+
+    h.run("m:RefreshUnit()");
+    h.frame();
+    assert!(!ortho_leg(&mut h, pane), "the build's own camera");
+
+    h.run("m:SetCamera(0)");
+    h.frame();
+    assert!(ortho_leg(&mut h, pane), "on the copy that stands, at once");
+}
+
+/// A particle's half-extent is in eye space (`0x7b2a50`): the orthographic leg's is the pane's
+/// pixels per model unit, a perspective leg's is 1.0, and an emitter on the pane's layer follows
+/// the leg the pane draws through, whenever it was spawned.
+#[test]
+fn a_panes_emitters_take_the_half_extent_unit_of_the_leg_it_draws_through() {
+    let mut h = Harness::new(
+        r#"m = CreateFrame("PlayerModel", "Portrait3D", UIParent) m:SetUnit("player")"#,
+    );
+    h.units.star_px_per_unit = 2000.0;
+    let pane = h.handle(Some("Portrait3D"));
+    h.frame();
+    let layer = h.app.world().resource::<PaneBooths>().panes[&pane].layer;
+    let em = benilla_assets::ModelEmitter {
+        def: benilla_world::testing::plain_particle_def(),
+        texture: Some(Handle::default()),
+        bone_pivot: [0.0; 3],
+        billboard: None,
+        recursion: None,
+        geometry: None,
+        owner_reach: 0.0,
+        water_bound: (Vec3::ZERO, 0.0),
+        idle_seq: 0,
+    };
+    let world = h.app.world_mut();
+    let e = {
+        let mut commands = world.commands();
+        let e = benilla_world::particles::spawn_emitter(
+            &mut commands,
+            &em,
+            Transform::IDENTITY,
+            benilla_world::particles::EmitterFrames {
+                owner: None,
+                anchor: None,
+                alpha: None,
+                light_node: None,
+                on_owner_loss: benilla_world::particles::OwnerLoss::Free,
+            },
+            benilla_world::particles::EmitClock::Pinned,
+        )
+        .expect("an emitter");
+        commands.entity(e).insert(RenderLayers::layer(layer));
+        e
+    };
+    world.flush();
+    let star = |h: &mut Harness| {
+        h.app
+            .world()
+            .get::<benilla_world::particles::ParticleEmitter>(e)
+            .unwrap()
+            .size_scale()
+    };
+    h.frame();
+    assert_eq!(star(&mut h), 1.0, "the pane's own camera is a perspective");
+
+    h.run("m:SetCamera(99)");
+    h.frame();
+    assert!(ortho_leg(&mut h, pane));
+    assert_eq!(star(&mut h), 2000.0, "the orthographic leg's px per unit");
+
+    h.run("m:RefreshUnit()");
+    h.frame();
+    assert!(!ortho_leg(&mut h, pane));
+    assert_eq!(star(&mut h), 1.0, "and back under a perspective");
 }
 
 /// The hide hook drops the copy (`0x505ce0`) and the booth with it; the show hook builds again

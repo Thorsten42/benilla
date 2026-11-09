@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # The land gate chain: every gate in order, stopping at the first failure.
 #
-# fmt, clippy, reference, test, test-no-install, doc-links, message-catalog, pass-span-lint,
-# player-tests, enforcer, enforcer-no-install. A failure prints the gate's log tail and exits
-# nonzero; a green run stamps the tree, which then re-greens without running. GATES_FORCE=1 runs
-# the chain anyway,
+# fmt, clippy, reference, test, test-no-install, vm-parity, doc-links, message-catalog,
+# pass-span-lint, player-clippy, player-tests, enforcer, enforcer-no-install. A failure prints the
+# gate's log tail and exits nonzero; a green run stamps the tree, which then re-greens without
+# running. GATES_FORCE=1 runs the chain anyway,
 # WOW_DATA picks the install (set and empty: none) and TMPDIR holds the scratch files; the script
 # sets BENILLA_REQUIRE_DATA, BENILLA_ADDON_CORPUS, BENILLA_SKIP_LOG and WOW_WORLDVIEW_CHECK for
 # its gates. BENILLA_RE names the benilla-re checkout the reference gate compares `reference/` with.
@@ -44,10 +44,24 @@ tree_key() {
 resolve_wow() { cargo run -q -p benilla-formats --example where 2>/dev/null || true; }
 # A delta only under docs/, in top-level *.md files or in the issue and PR templates keeps the
 # stamped verdict, since no gate reads those paths; a gate that starts to read one must narrow
-# this pattern.
+# this pattern. So does a release bump beside them: a change of only `[workspace.package]
+# version` in Cargo.toml and the lock's entries for the workspace's own crates (those without a
+# `source`), since the version reaches only the launchers' `env!("CARGO_PKG_VERSION")`.
+version_blind() { # $1 = Cargo.toml | Cargo.lock; stdin -> the file with the workspace's own versions blanked
+    case "$1" in
+        Cargo.toml) sed -E '/^\[workspace\.package\]/,/^\[/ s/^version = "[^"]*"$/version = ""/' ;;
+        Cargo.lock) awk 'BEGIN { RS = ""; ORS = "\n\n" } /^\[\[package\]\]/ && !/\nsource = / { sub(/\nversion = "[^"]*"/, "\nversion = \"\"") } { print }' ;;
+    esac
+}
 docs_only_delta() { # $1 = stamped tree, $2 = current tree
     git cat-file -e "$1^{tree}" 2>/dev/null && git cat-file -e "$2^{tree}" 2>/dev/null || return 1
-    [ -z "$(git diff-tree -r --name-only "$1" "$2" 2>/dev/null | grep -vE '^(docs/|[^/]*\.md$|\.github/(ISSUE_TEMPLATE/|pull_request_template\.md$))' || true)" ]
+    local paths p
+    paths="$(git diff-tree -r --name-only "$1" "$2" 2>/dev/null)" || return 1
+    [ -z "$(printf '%s\n' "$paths" | grep -vxE 'Cargo\.(toml|lock)' | grep -vE '^(docs/|[^/]*\.md$|\.github/(ISSUE_TEMPLATE/|pull_request_template\.md$))' || true)" ] || return 1
+    for p in Cargo.toml Cargo.lock; do
+        printf '%s\n' "$paths" | grep -qx "$p" || continue
+        [ "$(git show "$1:$p" | version_blind "$p")" = "$(git show "$2:$p" | version_blind "$p")" ] || return 1
+    done
 }
 key_start="$(tree_key || true)"
 if [ "${GATES_FORCE:-}" != "1" ] && [ -n "$key_start" ] && [ -f "$stamp" ]; then
@@ -57,7 +71,7 @@ if [ "${GATES_FORCE:-}" != "1" ] && [ -n "$key_start" ] && [ -f "$stamp" ]; then
     if [ "$old_key" = "$key_start" ]; then
         memo="this exact tree already passed"
     elif [ "${old_key#*|}" = "${key_start#*|}" ] && docs_only_delta "${old_key%%|*}" "${key_start%%|*}"; then
-        memo="this tree differs from one that passed only under docs/ or in top-level *.md, which no gate reads"
+        memo="this tree differs from one that passed only in docs or the workspace version, which no gate reads"
     fi
     if [ -n "$memo" ] && [ "${old##*|}" = "$(resolve_wow)$corpus" ]; then
         echo "ALL GATES GREEN (memoized — $memo; GATES_FORCE=1 re-runs)"
@@ -101,7 +115,7 @@ run() {
         echo "GATE FAILED: $name ($((SECONDS - t0)) s)"
         note_timing "$name" "$((SECONDS - t0))" "FAILED"
         # The failing test or error first: a test gate's tail is the doc-test noise after it.
-        grep -E 'panicked at|^---- .* ----$|^test .* FAILED$|^error(\[E[0-9]+\])?:' "$log" | head -40
+        grep -E 'panicked at|^---- .* ----$|^test .* FAILED$|^ +(FAIL|SIGSEGV|SIGABRT|SIGKILL|TIMEOUT) \[|^error(\[E[0-9]+\])?:' "$log" | head -40
         tail -30 "$log"
         exit 1
     fi
@@ -110,6 +124,8 @@ run() {
 }
 
 run fmt cargo fmt --all -- --check
+# deviation-why: every `Deviation:` comment and `Deviates` row names its reason (`scripts/genmap.sh --check`).
+run deviation-why scripts/genmap.sh --check
 run clippy cargo clippy --workspace --all-targets -- -D warnings
 
 # test: where the install resolves and the `wow-addons-vanilla` corpus link exists,
@@ -147,12 +163,13 @@ else
     note_timing reference 0 SKIPPED
 fi
 
-run test env ${require_data:+BENILLA_REQUIRE_DATA=1} BENILLA_SKIP_LOG="$skips" cargo test --no-fail-fast --workspace
+run test env ${require_data:+BENILLA_REQUIRE_DATA=1} BENILLA_SKIP_LOG="$skips" "$root/scripts/unit-tests.sh" --workspace
+run doctest "$root/scripts/doc-tests.sh" --workspace
 report_skips test
 
 # test-no-install: refuses a test that reads the install without `wow_data_or_skip!`. `WOW_DATA=`
 # (set, empty) is the resolver's "no install"; no build reads it, so the test binaries are reused.
-run test-no-install env -u BENILLA_REQUIRE_DATA WOW_DATA= cargo test --no-fail-fast --workspace
+run test-no-install env -u BENILLA_REQUIRE_DATA WOW_DATA= "$root/scripts/unit-tests.sh" --workspace
 
 # doc-links: refuses a doc link to a `crate::`, `super::`, `self::` or `Self::` path whose leaf is
 # declared nowhere in the workspace. Narrow on purpose: every other unresolved link is a convention.
@@ -166,6 +183,12 @@ run message-catalog scripts/gen-message-catalog.py --check
 # wgpu validation error on Vulkan and a silent no-op on Metal and DX12, which no macOS run sees.
 run pass-span-lint scripts/pass-span-lint.py
 
+# player-clippy: the player build's own lints, which no other gate sees. `clippy` runs the dev
+# feature set and player-tests compiles under `cfg(test)`, where test code uses imports and items
+# the shipped library does not; this lints the shipped library and the launcher, with no
+# `--all-targets`, so a warning confined to the player graph fails here.
+run player-clippy cargo clippy -p benilla -p benilla-app --no-default-features -- -D warnings
+
 # player-tests: the player build, `benilla-app` without `dev`, which compiles out the debug panel,
 # perf HUD, inspector, capture harness and probes, so it fails when any other code names one of
 # them. Its test build compiles every line of the player graph but the `benilla` launcher, a shim
@@ -178,7 +201,7 @@ run pass-span-lint scripts/pass-span-lint.py
 run player-tests env ${wow_data:+WOW_DATA="$wow_data"} \
     ${corpus:+BENILLA_ADDON_CORPUS="$root/wow-addons-vanilla"} \
     ${require_data:+BENILLA_REQUIRE_DATA=1} BENILLA_SKIP_LOG="$skips" \
-    cargo test -p benilla-formats -p benilla-app --no-default-features --lib
+    "$root/scripts/unit-tests.sh" -p benilla-formats -p benilla-app --no-default-features --lib
 report_skips player-tests
 
 # enforcer: `benilla-worldview` boots the engine plugins with no server, login, UI or player, in a

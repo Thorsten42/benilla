@@ -1338,6 +1338,180 @@ fn shell_candle_add(
     return clamp(sky_rgb + texture_rgb * candle * far, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+// MONKEY (lighting lanes): `vertex_light`'s unclamped light sum E without the point lights, for the
+// vertex stage to hand the fragment as `sky_e`; written on every path `vertex_light` returns by.
+var<private> monkey_vertex_sky: vec3<f32>;
+
+// MONKEY (lighting lanes): a WMO batch's SIDN emission, `vertex_light`'s term at the weight
+// `sidn_w`, with the window bloom gain (MONKEY fix-post; the exact identity with bloom off).
+fn gx_sidn_e(word: u32, sidn_w: f32) -> vec3<f32> {
+    let rec = recs[word & 0xffffu];
+    let sidn_rgb = vec3<f32>(
+        f32(rec.z & 0xffu),
+        f32((rec.z >> 8u) & 0xffu),
+        f32((rec.z >> 16u) & 0xffu),
+    ) / 255.0;
+    var sidn_e = sidn_rgb * (wow_light.grade.x * sidn_w);
+    if ((word & WORD_WINDOW) != 0u) {
+        sidn_e = emissive_hook::emissive_boost(
+            sidn_e, emissive_hook::EMISSIVE_WMO_WINDOW, wow_light.light_diffuse.w, 1.0);
+    }
+    return sidn_e;
+}
+
+// MONKEY (lighting lanes): a fragment lane's lit colour from its light sum `e`, by the law
+// `vertex_light` writes `primary` with: MOCV on E beside the SIDN emission on a WMO, the baked
+// colour on E on a doodad, E clamped first there with a point light bound.
+fn gx_lane_colour(word: u32, e: vec3<f32>, vc: vec4<f32>, points_bound: bool) -> vec3<f32> {
+    if ((word & WORD_WMO) != 0u) {
+        let int_class = (word & WORD_INTERIOR) != 0u && (word & WORD_CLASS_INT) != 0u;
+        let sidn_e = gx_sidn_e(word, select(1.0, 0.0, int_class));
+        return clamp(vc.rgb * e + sidn_e, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    let e_c = select(e, clamp(e, vec3<f32>(0.0), vec3<f32>(1.0)), points_bound);
+    return clamp(vc.rgb * e_c, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// MONKEY (shadow hook): the part of `vertex_light`'s sum a shadow keeps — the ambient a blocked
+// directional light leaves: the scene ambient on the FFP lanes (the window's own +16/255 ambient
+// on a WINDOW batch, the whole unlit 1.0 on INT), and the SH lobe's own ambient rows (the .w
+// column) on the doodad lobe.
+fn gx_shade_sum(word: u32) -> vec3<f32> {
+    if ((word & WORD_WMO) != 0u) {
+        if ((word & WORD_INTERIOR) != 0u) {
+            if ((word & WORD_CLASS_INT) != 0u) {
+                return vec3<f32>(1.0);
+            }
+            if ((word & WORD_WINDOW) != 0u) {
+                let window_mid = 0.5 * (wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb);
+                return min(window_mid + vec3<f32>(16.0 / 255.0), vec3<f32>(1.0));
+            }
+        }
+        return wow_light.light_ambient.rgb;
+    }
+    let sun_ambient = vec3<f32>(wow_light.sh_c10_r.w, wow_light.sh_c10_g.w, wow_light.sh_c10_b.w);
+    return select(wow_light.light_ambient.rgb, sun_ambient, wow_light.light_sun.w > 0.5);
+}
+
+// MONKEY (wet): the wet sheen of a fragment, the sun its highlight.
+fn gx_wet_sheen(boost: f32, n_lit: vec3<f32>, P: vec3<f32>, shadow: f32) -> vec3<f32> {
+    let L = -normalize(wow_light.light_sun.xyz);
+    return wet_hook::wet_sheen(boost, n_lit, normalize(view.world_position - P), L,
+        wow_light.light_diffuse.rgb, wow_light.fog_color.rgb, shadow);
+}
+
+// The lit colour at one vertex, `wow_model.wgsl`'s `vertex_light` over the flag words: the
+// reference lights per vertex and interpolates the clamped colour, the vertex colour inside the
+// clamp as the lit material. Both faces light from the submitted normal (no
+// GL_LIGHT_MODEL_TWO_SIDE in the reference). `vc` is the vertex colour, white where the batch
+// authors none; `point_lit.w` counts the bound point lights.
+fn vertex_light(normal: vec3<f32>, point_lit: vec4<f32>, vc: vec4<f32>, word: u32) -> vec3<f32> {
+    let n_lit = wow_normalize(normal);
+    let L = -normalize(wow_light.light_sun.xyz);
+    let ndotl = max(dot(n_lit, L), 0.0);
+    // The FFP light sum, unclamped: GL clamps the lit colour once, after the material colour.
+    let sum_nl = wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb * ndotl;
+    let rec = recs[word & 0xffffu];
+    if ((word & WORD_WMO) != 0u) {
+        // ---- WMO surfaces: wow_model.wgsl's is_wmo lane ----
+        // Interior batch classes: INT is unlit (the bake is the room's light), TRANS's lit pass
+        // and EXT take the FFP sum. Exterior groups take it at sun scale 1, no terrain shade and
+        // no SH lobe (prog 198/VS 151). WINDOW (MOMT 0x20), interior drawer only: GL_LIGHT0
+        // becomes the Direct/Ambient midpoint as diffuse and it +16/255 as ambient, that byte
+        // add saturating on its own (0x6d37e0).
+        let window_mid = 0.5 * (wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb);
+        let sum_window = min(window_mid + vec3<f32>(16.0 / 255.0), vec3<f32>(1.0))
+            + window_mid * ndotl;
+        var sum_wmo = sum_nl;
+        // SIDN night glow (MOMT 0x10): authored emissive × night fraction, an emission term
+        // inside the clamp and never MOCV-multiplied; zero on INT, and TRANS's blend weights it.
+        var sidn_w = 1.0;
+        if ((word & WORD_INTERIOR) != 0u) {
+            sum_wmo = select(sum_nl, sum_window, (word & WORD_WINDOW) != 0u);
+            if ((word & WORD_CLASS_INT) != 0u) {
+                sum_wmo = vec3<f32>(1.0);
+                sidn_w = 0.0;
+            }
+        }
+        let sidn_rgb = vec3<f32>(
+            f32(rec.z & 0xffu),
+            f32((rec.z >> 8u) & 0xffu),
+            f32((rec.z >> 16u) & 0xffu),
+        ) / 255.0;
+        var sidn_e = sidn_rgb * (wow_light.grade.x * sidn_w);
+        // MONKEY (fix-post): the bloom window gain lifts only this light term, before fog (it used
+        // to multiply the whole fogged batch, so fogged buildings glowed as fog x 2.35 at night).
+        if ((word & WORD_WINDOW) != 0u) {
+            sidn_e = emissive_hook::emissive_boost(
+                sidn_e, emissive_hook::EMISSIVE_WMO_WINDOW, wow_light.light_diffuse.w, 1.0);
+        }
+        // MONKEY (lighting lanes): the FFP sum, before MOCV and the clamp.
+        monkey_vertex_sky = sum_wmo;
+        // GL_COLOR_MATERIAL: MOCV multiplies the light sum inside the clamp; emission adds beside.
+        return clamp(vc.rgb * sum_wmo + sidn_e, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    // Order-2 SH basis terms of the vertex normal, for the doodad lobe and the probe lane.
+    let quad = vec4<f32>(n_lit.x * n_lit.y, n_lit.y * n_lit.z, n_lit.z * n_lit.z, n_lit.x * n_lit.z);
+    let x2y2 = n_lit.x * n_lit.x - n_lit.y * n_lit.y;
+    var e: vec3<f32>;
+    if ((word & WORD_INTERIOR) != 0u) {
+        // ---- interior M2 props: wow_model.wgsl's interior-prop lane ----
+        // The spawn-folded SH probe (MODD ambient, fixed-axis diffuse, the group's MOLR lobes)
+        // over the vertex normal; its soft wrap is the reference's, not a hard max(N·L, 0).
+        let probe = 7u * ((rec.w >> 1u) & 0x1fffu);
+        let n1 = vec4<f32>(n_lit, 1.0);
+        e = vec3<f32>(
+            dot(wow_light.prop_probes[probe + 0u], n1)
+                + dot(wow_light.prop_probes[probe + 3u], quad)
+                + wow_light.prop_probes[probe + 6u].x * x2y2,
+            dot(wow_light.prop_probes[probe + 1u], n1)
+                + dot(wow_light.prop_probes[probe + 4u], quad)
+                + wow_light.prop_probes[probe + 6u].y * x2y2,
+            dot(wow_light.prop_probes[probe + 2u], n1)
+                + dot(wow_light.prop_probes[probe + 5u], quad)
+                + wow_light.prop_probes[probe + 6u].z * x2y2,
+        );
+    } else {
+        // ---- exterior ADT doodads and exterior MODD props ----
+        // Model2.bls order-2 SH sun lobe at intensity 0.5 Shaded (MCSH), 1.0 Matte, 2.5 Lit,
+        // baked unclamped as wow_model.wgsl's (`0x71c4e0`); only the per-vertex sum clamps.
+        let shade_ref = select(1.0, 0.0, (word & WORD_SHADE_LIT) != 0u);
+        // MONKEY (mcsh model shade): the MCSH 0.5 band steps aside with terrain's MCSH while the
+        // world shadow lane is on, lifted to the lit band; see `wow_model.wgsl` (same gate).
+        let mcsh_suppress = select(0.0, shadow_hook::sun_shadow_w(wow_light.fog_params.z),
+            wow_light.sh_c16.w > 0.5);
+        let shade_t = select(shade_ref, mix(shade_ref, 0.0, mcsh_suppress), mcsh_suppress > 0.0);
+        let intensity = select(mix(2.5, 0.5, shade_t), 1.0, (word & WORD_MATTE) != 0u);
+        let sun_dc = wow_light.grade.yzw * intensity;
+        let sun_lobe = vec3<f32>(
+            wow_light.sh_c10_r.w + sun_dc.x
+                + intensity
+                    * (dot(wow_light.sh_c10_r.xyz, n_lit) + dot(wow_light.sh_c13_r, quad)
+                        + wow_light.sh_c16.x * x2y2),
+            wow_light.sh_c10_g.w + sun_dc.y
+                + intensity
+                    * (dot(wow_light.sh_c10_g.xyz, n_lit) + dot(wow_light.sh_c13_g, quad)
+                        + wow_light.sh_c16.y * x2y2),
+            wow_light.sh_c10_b.w + sun_dc.z
+                + intensity
+                    * (dot(wow_light.sh_c10_b.xyz, n_lit) + dot(wow_light.sh_c13_b, quad)
+                        + wow_light.sh_c16.z * x2y2),
+        );
+        // Sun disabled (light_sun.w) falls back to the FFP sum, like the entity path.
+        e = select(sum_nl, sun_lobe, wow_light.light_sun.w > 0.5);
+    }
+    // MONKEY (lighting lanes): E before the point lights, which the fragment lanes add per fragment.
+    monkey_vertex_sky = e;
+    // `Model2.bls`: with a point light bound the program clamps E to [0, 1] before `c28`
+    // multiplies it, with none it writes `c28·E` to the saturating `oD0`.
+    e += point_lit.rgb;
+    if (point_lit.w > 0.5) {
+        e = clamp(e, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+    // `c28`: the vertex colour, the M2Color baked constant, is the lit material.
+    return clamp(vc.rgb * e, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 // ---- the pass ----
 
 struct GxVertex {
@@ -1356,6 +1530,8 @@ struct GxVsOut {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) @interpolate(flat) word: u32,
+    // The lit colour from `vertex_light`, clamped at the vertex and interpolated.
+    @location(4) primary: vec3<f32>,
     @location(5) color: vec4<f32>,
     // MONKEY (outdoor torch shadows; ext light k8): WHICH ≤`EXT_SEL_K` exterior table entries
     // the fragment evaluates, packed 8 bits each across FOUR u32s (see `EXT_SEL_NONE` /
@@ -1363,10 +1539,13 @@ struct GxVsOut {
     // would produce a different, meaningless one. `EXT_SEL_NONE` on every lane that takes no
     // exterior point term (interior WMO surfaces, interior props, the collapsed exile vertex),
     // which makes the fragment lane a no-op there by construction. Widened from ONE u32 of three
-    // 10-bit ranks to TWO u32s of eight 8-bit ranks and then to FOUR u32s of twelve — three extra
-    // interstage components in all (21 for this struct, against a 60-component limit) — see
+    // 10-bit ranks to TWO u32s of eight 8-bit ranks and then to FOUR u32s of twelve — see
     // `EXT_SEL_K`.
     @location(6) @interpolate(flat) ext_sel: vec4<u32>,
+    // MONKEY (lighting lanes): the vertex's light sum E before the point lights and the clamp
+    // (`monkey_vertex_sky`), which the fragment re-lights from where a lane is active. 24
+    // interstage components for this struct, against a 60-component limit.
+    @location(7) sky_e: vec3<f32>,
 }
 
 @vertex
@@ -1380,8 +1559,10 @@ fn vertex(v: GxVertex) -> GxVsOut {
         out.world_normal = vec3<f32>(0.0, 1.0, 0.0);
         out.uv = vec2<f32>(0.0);
         out.word = v.word;
+        out.primary = vec3<f32>(0.0);
         out.color = vec4<f32>(1.0);
         out.ext_sel = EXT_SEL_NONE;
+        out.sky_e = vec3<f32>(0.0);
         return out;
     }
     // Camera-relative for f32 precision: the recentred vertex plus (cell origin - camera).
@@ -1437,6 +1618,14 @@ fn vertex(v: GxVertex) -> GxVsOut {
         out.ext_sel = sel;
         // MONKEY (local-light consistency): sum at the fragment, matching terrain and entities.
     }
+    // MONKEY (local-light consistency): the selected exterior lights are evaluated per fragment
+    // (the fragment's lighting lanes), so `primary` carries the sky alone: with a light selected
+    // the fragment re-lights from `sky_e`, and with none `point_lit` is the reference's zero.
+    let point_lit = vec4<f32>(0.0);
+    // A colour-less batch takes a constant 1.0 (WORD_HAS_VC).
+    let vc = select(vec4<f32>(1.0), v.color, (v.word & WORD_HAS_VC) != 0u);
+    out.primary = vertex_light(v.normal, point_lit, vc, v.word);
+    out.sky_e = monkey_vertex_sky;
     return out;
 }
 
@@ -1448,25 +1637,28 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
         discard;
     }
     // The sampler follows the wrap flags; a mixed batch clamps its clamped axis a half texel in.
-    // Every sample runs unconditionally: implicit derivatives need uniform control flow.
-    var base = vec4<f32>(1.0);
+    // Every sample runs unconditionally, then `textured` selects: implicit derivatives need
+    // uniform control flow, and `word` is a per-primitive fragment input. An untextured item
+    // samples layer 0, whose result the select drops.
+    let textured = (in.word & WORD_TEXTURED) != 0u;
     let wrap_x = (in.word & WORD_WRAP_X) != 0u;
     let wrap_y = (in.word & WORD_WRAP_Y) != 0u;
-    if ((in.word & WORD_TEXTURED) != 0u) {
-        let layer = i32(recs[in.word & 0xffffu].x);
-        let dims = vec2<f32>(textureDimensions(tex_array).xy);
-        let inset = 0.5 / dims;
-        var uv_mixed = in.uv;
-        if (!wrap_x) {
-            uv_mixed.x = clamp(uv_mixed.x, inset.x, 1.0 - inset.x);
-        }
-        if (!wrap_y) {
-            uv_mixed.y = clamp(uv_mixed.y, inset.y, 1.0 - inset.y);
-        }
-        // The render-scale LOD bias: bevy's material path applies it for free, this lane by hand.
-        let c_repeat = textureSampleBias(tex_array, samp_repeat, in.uv, layer, view.mip_bias);
-        let c_clamp = textureSampleBias(tex_array, samp_clamp, in.uv, layer, view.mip_bias);
-        let c_mixed = textureSampleBias(tex_array, samp_repeat, uv_mixed, layer, view.mip_bias);
+    let layer = select(0, i32(recs[in.word & 0xffffu].x), textured);
+    let dims = vec2<f32>(textureDimensions(tex_array).xy);
+    let inset = 0.5 / dims;
+    var uv_mixed = in.uv;
+    if (!wrap_x) {
+        uv_mixed.x = clamp(uv_mixed.x, inset.x, 1.0 - inset.x);
+    }
+    if (!wrap_y) {
+        uv_mixed.y = clamp(uv_mixed.y, inset.y, 1.0 - inset.y);
+    }
+    // The render-scale LOD bias: bevy's material path applies it for free, this lane by hand.
+    let c_repeat = textureSampleBias(tex_array, samp_repeat, in.uv, layer, view.mip_bias);
+    let c_clamp = textureSampleBias(tex_array, samp_clamp, in.uv, layer, view.mip_bias);
+    let c_mixed = textureSampleBias(tex_array, samp_repeat, uv_mixed, layer, view.mip_bias);
+    var base = vec4<f32>(1.0);
+    if (textured) {
         if (wrap_x && wrap_y) {
             base = c_repeat;
         } else if (!wrap_x && !wrap_y) {
@@ -1480,8 +1672,33 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
         discard;
     }
 #endif
-    // Both faces light from the submitted normal (no GL_LIGHT_MODEL_TWO_SIDE in the reference);
-    // this pipeline never negates back faces, so it has no front-face select like wow_model.wgsl.
+    // A colour-less batch takes a constant 1.0, not interpolated white: interpolating a constant
+    // attribute gives 1.0±ε, and base × 0.99999994 rounds about half the pixels one byte down.
+    let has_vc = (in.word & WORD_HAS_VC) != 0u;
+    let vc = select(vec4<f32>(1.0), in.color, has_vc);
+    let folded = select(base.rgb, base.rgb * vc.rgb, has_vc);
+    // The stage-0 modulate: the texel times the lit colour `vertex_light` clamped per vertex,
+    // whose vertex colour is inside its clamp.
+    var rgb = base.rgb * in.primary;
+    if ((in.word & WORD_WMO) != 0u && (in.word & WORD_INTERIOR) != 0u) {
+        if ((in.word & WORD_CLASS_TRANS) != 0u) {
+            // TRANS: the lit pass by MOCV.a (blend 9) under the unlit `tex × MOCV` by 1 − MOCV.a
+            // (blend 7), `0x6b5190`, as one lerp.
+            rgb = base.rgb * mix(vc.rgb, in.primary, vc.a);
+        } else if ((in.word & WORD_CLASS_INT) != 0u && has_vc) {
+            // INT self-illumination, the reference's interior pixel shader (literal 4.0):
+            // tex·MOCV·(1 + 4·MOCV.a), clamped once. A colour-less INT batch keeps tex × lit.
+            rgb = clamp(
+                base.rgb * vc.rgb * (1.0 + 4.0 * vc.a),
+                vec3<f32>(0.0),
+                vec3<f32>(1.0),
+            );
+        }
+    }
+
+    // MONKEY (lighting lanes): the lanes that re-light the fragment on top of `primary`. Both faces
+    // light from the submitted normal (no GL_LIGHT_MODEL_TWO_SIDE in the reference); this pipeline
+    // never negates back faces. With every lane idle `rgb` stays the reference's above, bit for bit.
     let n_lit = wow_normalize(in.world_normal);
     // MONKEY (wmo surface lights): a city WMO spans many terrain cells. A flat vertex pick
     // draws its lamp pool on whole triangles; a snapped cell pick moves the seam to the grid.
@@ -1491,22 +1708,21 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
     if ((in.word & WORD_WMO) != 0u && (in.word & WORD_INTERIOR) == 0u && fract(wow_light.monkey.misc.x) > 0.0) {
         exterior_selection = point_light_pick(in.world_position.xyz, 0.0);
     }
-    var point_lit = point_light_eval(exterior_selection, in.world_position.xyz, n_lit);
-    let ext_night_w = select(0.0, clamp(1.0 - wow_light.fog_params.z, 0.0, 1.0), torch_ext_on());
-    if (ext_night_w > 0.0) {
-        point_lit = mix(
-            point_lit,
-            point_light_eval_shadowed(exterior_selection, in.world_position.xyz, n_lit),
-            ext_night_w,
-        );
+    // MONKEY (local-light consistency): the selected exterior lights per fragment, never
+    // re-ranked; at night the torch-shadowed evaluation of the same entries blends in.
+    let points_bound = ext_sel_get(exterior_selection, 0u) != EXT_SEL_EMPTY;
+    var point_lit = vec3<f32>(0.0);
+    if (points_bound) {
+        point_lit = point_light_eval(exterior_selection, in.world_position.xyz, n_lit);
+        let ext_night_w = select(0.0, clamp(1.0 - wow_light.fog_params.z, 0.0, 1.0), torch_ext_on());
+        if (ext_night_w > 0.0) {
+            point_lit = mix(
+                point_lit,
+                point_light_eval_shadowed(exterior_selection, in.world_position.xyz, n_lit),
+                ext_night_w,
+            );
+        }
     }
-    let L = -normalize(wow_light.light_sun.xyz);
-    let ndotl = max(dot(n_lit, L), 0.0);
-    let lit_nl = clamp(
-        wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb * ndotl,
-        vec3<f32>(0.0),
-        vec3<f32>(1.0),
-    );
     // The retained path uses the same Bevy directional shadow map as terrain and entity models.
     // `static_gx` used to have no mesh-view shadow bindings, which made every Stormwind WMO act
     // as if shadows were disabled even though the caster map was populated.
@@ -1543,83 +1759,63 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
         world_shadow = shadow_hook::torch_shadow(in.world_position, n_lit);
     }
     let shadow_term = mix(SHADOW_SUN_FLOOR, 1.0, world_shadow);
-    // Keep ambient energy when the realtime map blocks the sun. The retained pass also carries
-    // authored fixture/probe lighting, which must not be darkened by a directional shadow. The
-    // `world_shadow < 0.999` arm keeps `worldShadows 0` (no shadow-mapped light) and a fully
-    // sunlit fragment byte-identical: `ambient + (lit − ambient) × 1.0` is not guaranteed to
-    // round back to `lit`.
-    var lit_nl_shadowed = select(
-        lit_nl,
-        clamp(
-            wow_light.light_ambient.rgb + (lit_nl - wow_light.light_ambient.rgb) * shadow_term,
-            vec3<f32>(0.0),
-            vec3<f32>(1.0),
-        ),
-        world_shadow < 0.999,
-    );
-    // MONKEY (moon shadows): shadow the unclamped exterior SKY, ambient AND directional.
-    // Points join later, before the final saturation, so a hot torch stays hot beneath a canopy.
-    // world_moon is exactly one indoors and when off; leave those arithmetic paths untouched.
-    if (world_moon < 1.0) {
-        lit_nl_shadowed = (wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb * ndotl)
-            * world_moon;
+    // Re-light an EXTERIOR fragment from the vertex's unclamped sum where the moon or a point
+    // light joins it: both ride inside the one clamp.
+    var lane_primary = in.primary;
+    var lane_on = false;
+    if ((in.word & WORD_INTERIOR) == 0u
+        && (points_bound || world_moon < 1.0 || wow_light.monkey.moon.w > 0.0)) {
+        var e = in.sky_e;
+        // MONKEY (moon shadows): shadow the unclamped exterior SKY, ambient AND directional.
+        // Points join after, before the final saturation, so a hot torch stays hot beneath a
+        // canopy. world_moon is exactly one indoors and when off; leave those paths untouched.
+        if (world_moon < 1.0) {
+            e = e * world_moon;
+        }
+        // GFX (moonlight): the moon adds onto the exterior night; `moon_add` is exactly zero
+        // otherwise.
+        if (wow_light.monkey.moon.w > 0.0) {
+            e += moon_add;
+        }
+        lane_primary = gx_lane_colour(in.word, e + point_lit, vc, points_bound);
+        lane_on = true;
     }
-    // GFX (moonlight): the moon adds onto the exterior night; `moon_add` is exactly zero otherwise.
-    if (wow_light.monkey.moon.w > 0.0) {
-        lit_nl_shadowed += moon_add;
+    // Keep ambient energy when the realtime map blocks the sun (or, on an interior WMO surface, a
+    // promoted torch's map blocks its light): the lerp runs from the colour the blocked light leaves
+    // (`gx_shade_sum`, the point lights kept) to the lit one, on the clamped colours, so a
+    // saturated surface still darkens and `world_shadow` 1 is exactly the unshadowed colour. The
+    // `world_shadow < 0.999` arm keeps `worldShadows 0` and a fully lit fragment byte-identical.
+    // Interior props keep their probe: no shadow reaches it.
+    if (world_shadow < 0.999
+        && ((in.word & WORD_WMO) != 0u || (in.word & WORD_INTERIOR) == 0u)) {
+        let shade_rgb = gx_lane_colour(in.word, gx_shade_sum(in.word) + point_lit, vc, points_bound);
+        lane_primary = mix(shade_rgb, lane_primary, shadow_term);
+        lane_on = true;
+    }
+    if (lane_on) {
+        rgb = base.rgb * lane_primary;
+        if ((in.word & WORD_WMO) != 0u && (in.word & WORD_INTERIOR) != 0u) {
+            if ((in.word & WORD_CLASS_TRANS) != 0u) {
+                rgb = base.rgb * mix(vc.rgb, lane_primary, vc.a);
+            } else if ((in.word & WORD_CLASS_INT) != 0u && has_vc) {
+                rgb = clamp(
+                    base.rgb * vc.rgb * (1.0 + 4.0 * vc.a),
+                    vec3<f32>(0.0),
+                    vec3<f32>(1.0),
+                );
+            }
+        }
     }
 
-    // The order-2 SH basis products over the fragment normal — shared by the exterior
-    // doodad lobe and the interior-prop probe lane (wow_model.wgsl computes them once too).
-    let quad = vec4<f32>(n_lit.x * n_lit.y, n_lit.y * n_lit.z, n_lit.z * n_lit.z, n_lit.x * n_lit.z);
-    let x2y2 = n_lit.x * n_lit.x - n_lit.y * n_lit.y;
-    // A colour-less batch takes a constant 1.0, not interpolated white: interpolating a constant
-    // attribute gives 1.0±ε, and base × 0.99999994 rounds about half the pixels one byte down.
-    let has_vc = (in.word & WORD_HAS_VC) != 0u;
-    let vc = select(vec4<f32>(1.0), in.color, has_vc);
-    let folded = select(base.rgb, base.rgb * vc.rgb, has_vc);
-    var rgb: vec3<f32>;
     if ((in.word & WORD_WMO) != 0u) {
-        // ---- WMO surfaces: wow_model.wgsl's is_wmo branch ----
+        // ---- WMO surfaces: the MONKEY room lanes on top of the lit `rgb` above ----
         let interior = (in.word & WORD_INTERIOR) != 0u;
         let class_int = (in.word & WORD_CLASS_INT) != 0u;
         let class_trans = (in.word & WORD_CLASS_TRANS) != 0u;
         let trans_a = vc.a; // 1.0 where no MOCV is authored
-        // WINDOW (MOMT 0x20), interior drawer only: GL_LIGHT0 becomes the Direct/Ambient
-        // midpoint pair, ambient +16/255 saturating (0x6d37e0).
-        let window_mid = 0.5 * (wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb);
-        // The window's directional half rides the sun, so it takes the shadow term (×1.0 exact
-        // when the caster is off — no identity guard needed on a pure multiply).
-        let lit_window_shadowed = clamp(
-            window_mid + vec3<f32>(16.0 / 255.0) + window_mid * ndotl * shadow_term,
-            vec3<f32>(0.0),
-            vec3<f32>(1.0),
-        );
-        let lit_int_base = select(lit_nl_shadowed, lit_window_shadowed, (in.word & WORD_WINDOW) != 0u);
-        // The interior BATCH-CLASS lanes (trace-forensics-abbey-interior-d3d §2): INT = unlit
-        // (the bake IS the room's light), TRANS = the per-vertex MOCV-alpha lit↔bake lerp,
-        // EXT = plain lit_nl. Exterior groups take lit_nl at sun-scale 1 (prog 198/VS 151 —
-        // no terrain shade, no SH lobe).
-        var lit_wmo_interior = vec3<f32>(1.0);
-        if (class_trans) {
-            lit_wmo_interior = mix(vec3<f32>(1.0), lit_int_base, trans_a);
-        } else if (!class_int) {
-            lit_wmo_interior = lit_int_base;
-        }
-        // EXTERIOR surfaces are the ones the realtime map can shadow (the fetch above is
-        // gated on !interior, so `lit_nl_shadowed` collapses to `lit_nl` for interior
-        // fragments anyway). Taking plain `lit_nl` here left every Stormwind street and
-        // wall unshadowed while the caster map was fully populated.
-        let lit_wmo = select(lit_nl_shadowed, lit_wmo_interior, interior);
-        // SIDN night glow (MOMT 0x10): the authored emissive × the live night fraction, an
-        // EMISSION term — inside the clamped sum, never MOCV-multiplied; dead on the unlit
-        // INT lane, TRANS-weighted by the lit-pass alpha (wmo-interior-night-light §4).
         let rec = recs[in.word & 0xffffu];
-        let sidn_rgb = vec3<f32>(
-            f32(rec.z & 0xffu),
-            f32((rec.z >> 8u) & 0xffu),
-            f32((rec.z >> 16u) & 0xffu),
-        ) / 255.0;
+        // SIDN night glow (MOMT 0x10), `vertex_light`'s emission term: dead on the unlit INT lane,
+        // TRANS-weighted by the lit-pass alpha (wmo-interior-night-light §4) for the room law.
         var sidn_w = 1.0;
         if (interior) {
             if (class_trans) {
@@ -1628,18 +1824,14 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
                 sidn_w = 0.0;
             }
         }
-        var sidn_e = sidn_rgb * (wow_light.grade.x * sidn_w);
-        // MONKEY (fix-post): the bloom window gain lifts only this light term, before fog (it used
-        // to multiply the whole fogged batch, so fogged buildings glowed as fog x 2.35 at night).
-        if ((in.word & WORD_WINDOW) != 0u) {
-            sidn_e = emissive_hook::emissive_boost(
-                sidn_e, emissive_hook::EMISSIVE_WMO_WINDOW, wow_light.light_diffuse.w, 1.0);
-        }
+        let sidn_e = gx_sidn_e(in.word, sidn_w);
+        // The texel the room law lights, before the MOCV fold.
+        let tex_rgb = base.rgb;
         // MONKEY (ext-class night law): plenty of geometry INSIDE a building is authored
         // EXTERIOR-class — the Goldshire inn's whole 57.7 yd shell is one group (`upstairs`,
         // MOGP 0x0a09, and it holds the stair down to the cellar), its east stairwell annex is
-        // another — and the exterior law is the DAY/NIGHT SKY law: after dark that is `light_ambient`
-        // + `light_diffuse`, which the night sky makes GREEN. A fragment of one of those groups
+        // another — and the exterior law is the DAY/NIGHT SKY law: after dark that is the scene's
+        // ambient + diffuse, which the night sky makes GREEN. A fragment of one of those groups
         // therefore renders sky-green one plank away from a candle-lit interior group, which is the
         // reported hard break at the cellar stair and (with the shell's outer face) on the floors
         // above it. The claim-gated `ext_room` term below already reaches those surfaces, but it
@@ -1707,19 +1899,6 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
             );
             ext_room_far = 1.0 - smoothstep(EXT_ROOM_FADE_START, EXT_ROOM_FADE_END, ext_room_d);
         }
-        // GL_COLOR_MATERIAL: MOCV multiplies the lit terms INSIDE the clamp, emission adds
-        // beside. MONKEY (wmo exterior points): `point_lit` is zero on INTERIOR groups (their
-        // EXT_SEL_NONE — they light from the room lane below) and carries the
-        // exterior nearest-3 point term on EXTERIOR-class ones, which is what makes a street
-        // torch reach the cobbles. The clamp is why it costs nothing in daylight.
-        let primary = clamp(
-            vc.rgb * (lit_wmo + point_lit) + sidn_e,
-            vec3<f32>(0.0),
-            vec3<f32>(1.0),
-        );
-        // The entity path's algebra: (tex×vc)/max(vc, 1/255) is not tex in floats; keep it.
-        let tex_rgb = folded / max(vc.rgb, vec3<f32>(1.0 / 255.0));
-        rgb = tex_rgb * primary;
         rgb = shell_candle_add(rgb, base.rgb, ext_room_raw, ext_room_far);
         // MONKEY (shell candle add): only actual interior groups enter the room-law blend. Shells
         // keep the sky plus the strictly claimed texture addition above, without a room ambient
@@ -1981,28 +2160,7 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
             }
         }
     } else if ((in.word & WORD_INTERIOR) != 0u) {
-        // ---- interior M2 props: wow_model.wgsl's interior-prop branch ----
-        // The spawn-folded SH probe (MODD ambient, fixed-axis diffuse, the group's MOLR lobes)
-        // over the fragment normal; its soft wrap is the reference's, not a hard max(N·L, 0).
-        let probe = 7u * ((recs[in.word & 0xffffu].w >> 1u) & 0x1fffu);
-        let n1 = vec4<f32>(n_lit, 1.0);
-        let lit_prop = clamp(
-            vec3<f32>(
-                dot(wow_light.prop_probes[probe + 0u], n1)
-                    + dot(wow_light.prop_probes[probe + 3u], quad)
-                    + wow_light.prop_probes[probe + 6u].x * x2y2,
-                dot(wow_light.prop_probes[probe + 1u], n1)
-                    + dot(wow_light.prop_probes[probe + 4u], quad)
-                    + wow_light.prop_probes[probe + 6u].y * x2y2,
-                dot(wow_light.prop_probes[probe + 2u], n1)
-                    + dot(wow_light.prop_probes[probe + 5u], quad)
-                    + wow_light.prop_probes[probe + 6u].z * x2y2,
-            ),
-            vec3<f32>(0.0),
-            vec3<f32>(1.0),
-        );
-        let primary = clamp(lit_prop + point_lit, vec3<f32>(0.0), vec3<f32>(1.0));
-        rgb = folded * primary;
+        // ---- interior M2 props: the probe-lit `rgb` above ----
         // MONKEY (dynamic interiors #A): interior props take the SAME live room light as the
         // surfaces around them (`interior_room_light`) instead of the baked probe — on the probe a
         // tavern's tables and barrels stayed bake-bright inside a torch-lit room ("the .m2s ignore
@@ -2027,71 +2185,6 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
                 rgb = shadow_hook::interior_debug_override(idbg, rgb, in.world_position, n_lit);
             }
         }
-    } else {
-        // ---- exterior ADT doodads and exterior MODD props ----
-        // Model2.bls order-2 SH sun lobe at intensity 0.5 Shaded (MCSH), 1.0 Matte, 2.5 Lit.
-        // Deviation: the `min(I, 1)` cap, as in wow_model.wgsl, since lifting it takes sun-facing
-        // surfaces past 1.0; Matte keeps its own bit so it stays 1.0 if the cap goes.
-        let shade_t = select(1.0, 0.0, (in.word & WORD_SHADE_LIT) != 0u);
-        let intensity_ref = min(
-            select(mix(2.5, 0.5, shade_t), 1.0, (in.word & WORD_MATTE) != 0u),
-            1.0,
-        );
-        // MONKEY (mcsh model shade): the MCSH 0.5 steps aside with terrain's MCSH while the world
-        // shadow lane is on; see `wow_model.wgsl` (same expression, same gate).
-        let mcsh_suppress = select(0.0, shadow_hook::sun_shadow_w(wow_light.fog_params.z),
-            wow_light.sh_c16.w > 0.5);
-        let intensity = select(intensity_ref, mix(intensity_ref, 1.0, mcsh_suppress),
-            mcsh_suppress > 0.0);
-        let sun_dc = wow_light.grade.yzw * intensity;
-        let sun_lobe = vec3<f32>(
-            wow_light.sh_c10_r.w + sun_dc.x
-                + intensity
-                    * (dot(wow_light.sh_c10_r.xyz, n_lit) + dot(wow_light.sh_c13_r, quad)
-                        + wow_light.sh_c16.x * x2y2),
-            wow_light.sh_c10_g.w + sun_dc.y
-                + intensity
-                    * (dot(wow_light.sh_c10_g.xyz, n_lit) + dot(wow_light.sh_c13_g, quad)
-                        + wow_light.sh_c16.y * x2y2),
-            wow_light.sh_c10_b.w + sun_dc.z
-                + intensity
-                    * (dot(wow_light.sh_c10_b.xyz, n_lit) + dot(wow_light.sh_c13_b, quad)
-                        + wow_light.sh_c16.z * x2y2),
-        );
-        // The SH lobe's own ambient rows (the .w column) are the doodad lane's ambient share:
-        // subtract-and-restore around the shadow term so only the directional part of the lobe
-        // dims. Guarded like `lit_nl_shadowed` so the no-shadow state stays byte-identical.
-        let sun_ambient = vec3<f32>(
-            wow_light.sh_c10_r.w,
-            wow_light.sh_c10_g.w,
-            wow_light.sh_c10_b.w,
-        );
-        let lit_doodad_plain = clamp(sun_lobe, vec3<f32>(0.0), vec3<f32>(1.0));
-        var lit_doodad = select(
-            lit_doodad_plain,
-            clamp(
-                sun_ambient + (sun_lobe - sun_ambient) * shadow_term,
-                vec3<f32>(0.0),
-                vec3<f32>(1.0),
-            ),
-            world_shadow < 0.999,
-        );
-        // MONKEY (moon shadows): retained ADT doodads and exterior MODD props select this SH
-        // branch, not lit_nl_shadowed. Shadow the whole sky lobe before points/clamp here too.
-        if (world_moon < 1.0) {
-            lit_doodad = sun_lobe * world_moon;
-        }
-        // GFX (moonlight): and the retained doodads take the moon term too.
-        if (wow_light.monkey.moon.w > 0.0) {
-            lit_doodad += moon_add;
-        }
-        // Sun disabled (light_sun.w) falls back to the FFP matte, like the entity path.
-        let lit = select(lit_nl_shadowed, lit_doodad, wow_light.light_sun.w > 0.5);
-        // FFP combine: the light sum saturates FIRST, the texture (× the baked constant
-        // tint, when authored) modulates the clamped result. Statics: inst_tint identity,
-        // no highlight, no SIDN.
-        let primary = clamp(lit + point_lit, vec3<f32>(0.0), vec3<f32>(1.0));
-        rgb = folded * primary;
     }
     // Unlit (M2 UNLIT 0x01, WMO UNLIT on an exterior group): texture × vertex colour, no light.
     if ((in.word & WORD_UNLIT) != 0u) {
@@ -2115,8 +2208,8 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
         wow_light.monkey);
     rgb = wet.albedo;
     if (wet.boost > 0.0) {
-        rgb = min(rgb + wet_hook::wet_sheen(wet.boost, n_lit, normalize(view.world_position - in.world_position.xyz),
-            L, wow_light.light_diffuse.rgb, wow_light.fog_color.rgb, world_shadow), vec3<f32>(1.0));
+        rgb = min(rgb + gx_wet_sheen(wet.boost, n_lit, in.world_position.xyz, world_shadow),
+            vec3<f32>(1.0));
     }
     // Planar eye-Z fog; other fog modes belong to blends never admitted here. The interior triple
     // keys on the per-frame record bit, not `WORD_INTERIOR`: the client sets it per group under

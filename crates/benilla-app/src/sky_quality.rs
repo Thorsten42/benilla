@@ -16,7 +16,10 @@ impl Plugin for SkyQualityPlugin {
         app.init_resource::<SkyQuality>().add_systems(
             Update,
             // MONKEY (integration): the tier lands before the sky and cloud readers.
-            bridge.before(benilla_world::lighting::LightingConsumeSet),
+            // MONKEY (sync 1108): and after the UI lane drain, which can write `VideoConfig`.
+            bridge
+                .after(crate::lanes::UiLanes)
+                .before(benilla_world::lighting::LightingConsumeSet),
         );
     }
 }

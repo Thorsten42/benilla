@@ -80,8 +80,8 @@ impl M2BatchMaterials<'_> {
     }
 
     /// One steady, sky-lit material for a batch drawn in the world. `order` is the authored batch
-    /// index + 1 (`0` = unordered), the sort bias that keeps a model's coplanar layers in file
-    /// order ([`super::BATCH_ORDER_SORT_EPS`]).
+    /// index + 1 (`0` = unordered), which keys the batch's own material; the transparent order
+    /// sorts it ([`super::order`]).
     pub fn steady(
         &mut self,
         sub: &ModelSubmesh,
@@ -117,6 +117,7 @@ impl M2BatchMaterials<'_> {
         &mut self,
         sub: &benilla_formats::RenderSubmesh,
         texture: Option<Handle<Image>>,
+        stage1: Option<&benilla_assets::Stage1>,
         order: u16,
         uv: Option<&std::sync::Arc<benilla_formats::UvAnim>>,
         tint: Option<&std::sync::Arc<benilla_formats::RgbAnim>>,
@@ -139,8 +140,11 @@ impl M2BatchMaterials<'_> {
                 false, // …and never skips the test
                 sub.fog_policy,
                 sub.env_map,
+                stage1, // no shipped skybox unit has a second texture
+                Some(sub.combine),
                 ShadeSel::Lit, // unread: every shipped skybox batch is UNLIT (0x01)
                 order,
+                None, // the sky keeps its own band
                 // MONKEY (skybox): the loops' `Arc`s, which the material key identifies them by.
                 uv,
                 tint,
@@ -185,8 +189,11 @@ impl M2BatchMaterials<'_> {
             false, // …and always tests it
             benilla_formats::FogPolicy::Off,
             false,
+            None, // no second stage
+            None,
             ShadeSel::Lit,
             order,
+            None, // the sky keeps its own band
             None,
             None,
             None,
@@ -201,8 +208,8 @@ impl M2BatchMaterials<'_> {
 
     /// One steady material lit by a render target's own light buffer (a portrait booth, the model
     /// pane, char-select), which [`super::MatKey::light`] keys apart from the world. `rig` lights
-    /// by the scene's authored M2 rig ([`ShadeSel::Rig`]) and plays the UV animation. `order` must
-    /// be the batch index + 1: a glue scene's batches share one root, so equal biases flicker.
+    /// by the scene's authored M2 rig ([`ShadeSel::Rig`]) and plays the UV animation. `order` is the
+    /// batch index + 1, which keys the batch's own material.
     pub fn off_world(
         &mut self,
         sub: &ModelSubmesh,
@@ -401,8 +408,11 @@ impl M2BatchMaterials<'_> {
                 benilla_formats::FogPolicy::Scene,
                 // No env map: ArmorReflect reaches a character through its held items' batches.
                 false,
+                None,                                        // …and one texture stage
+                Some(u8::from(blend != ModelBlend::Opaque)), // …the preset its blend names (`0x811f8c`)
                 shade,
                 0,     // a composite is one sheet, not a batch in an authored order
+                None,  // …whose batches' keys ride their pick geometry
                 None,  // …with no texture transform
                 None,  // …and no animated M2Color tint
                 None,  // worn/held part: light selection anchors at the instance origin
@@ -426,6 +436,8 @@ impl M2BatchMaterials<'_> {
                 &mut self.cache.0,
                 &mut self.materials,
                 Some(texture),
+                false, // a composite sheet reads its UVs
+                None,
                 two_sided,
                 blend == ModelBlend::AlphaTest,
                 &light,
@@ -466,6 +478,8 @@ impl M2BatchMaterials<'_> {
                 &mut self.cache.0,
                 &mut self.materials,
                 texture,
+                sub.env_map,
+                sub.stage1.as_ref(),
                 sub.two_sided,
                 b == ModelBlend::AlphaTest,
                 light,
@@ -525,8 +539,11 @@ impl M2BatchMaterials<'_> {
             sub.no_depth_test,
             sub.fog_policy,
             sub.env_map,
+            sub.stage1.as_ref(),
+            sub.combine,
             shade,
             order,
+            sub.geometry.order,
             play_uv.then_some(sub.uv_anim.as_ref()).flatten(),
             sub.rgb_anim.as_ref(),
             sub.wmo_batch,

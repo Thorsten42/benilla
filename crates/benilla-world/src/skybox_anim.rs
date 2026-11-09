@@ -415,24 +415,21 @@ impl SkyMatLane {
                 lane.tint = Some((slot, seed, tint));
             }
         }
-        // Stage 1: rows only where it moves; row 0 is the identity.
+        // Stage 1: rows only where it moves; row 0 is the identity. Upstream's `stage1_uv`
+        // carries the rows (`x` UV scroll, `y` affine) the shader reads with `stage1.w` set.
         if let Some(st) = &sub.stage1 {
-            if let Some(uv) = st.uv_anim.clone() {
+            if let Some(uv) = st.uv_anim.as_deref().cloned() {
                 if let Some(slot) = table.alloc() {
-                    write(materials, &|m| m.extension.stage1.z = f32::from(slot));
+                    write(materials, &|m| m.extension.stage1_uv.x = f32::from(slot));
                     lane.stage1_uv = Some((slot, uv));
                 }
             }
-            if st.uv_rot.is_some() || st.uv_scale.is_some() {
+            let rot = st.uv_rot_seq.as_ref().and_then(|s| s.seq(None)).cloned();
+            let scale = st.uv_scale_seq.as_ref().and_then(|s| s.seq(None)).cloned();
+            if rot.is_some() || scale.is_some() {
                 if let Some(slot) = table.alloc() {
-                    write(materials, &|m| m.extension.stage1.w = f32::from(slot));
-                    lane.stage1_affine = Some((
-                        slot,
-                        AffineLoops {
-                            rot: st.uv_rot.clone(),
-                            scale: st.uv_scale.clone(),
-                        },
-                    ));
+                    write(materials, &|m| m.extension.stage1_uv.y = f32::from(slot));
+                    lane.stage1_affine = Some((slot, AffineLoops { rot, scale }));
                 }
             }
         }

@@ -17,7 +17,6 @@ impl Plugin for ZoneSkyboxPlugin {
             .and_then(|v| v.trim().parse::<u8>().ok())
             .map(|v| v != 0);
         app.insert_resource(ZoneSkyboxOverride(forced))
-            .add_observer(on_cvar)
             .add_systems(Startup, apply_override);
     }
 }
@@ -31,10 +30,11 @@ fn apply_override(
     }
 }
 
+/// MONKEY (skybox): the `zoneSkyboxes` callback, run by `cvars::callbacks::CvarCallbacks`.
 pub(crate) fn on_cvar(
-    ev: On<crate::cvars::CvarChanged>,
-    forced: Res<ZoneSkyboxOverride>,
-    zone: Option<ResMut<benilla_world::skybox::ZoneSkyboxes>>,
+    ev: &crate::cvars::CvarChanged,
+    forced: &ZoneSkyboxOverride,
+    zone: Option<Mut<'_, benilla_world::skybox::ZoneSkyboxes>>,
 ) {
     if !ev.is("zoneSkyboxes") || forced.0.is_some() {
         return;

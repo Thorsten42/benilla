@@ -4,8 +4,9 @@
 //! The copy duplicates a unit's model (`0x5059a0` → `0x707400`) or a creature display (`0x505a70`).
 //! The engine keeps the pane's state ([`benilla_ui::widget::CharacterPane`]) and the feed lists the
 //! panes ([`crate::ui_panes`]); [`sync_panes`] builds each copy, plays its arms and answers.
-//! The camera is the pane's own (`0x505b30` → `0x505890`, [`super::framing::body_frame`]), the light
-//! its `CGLight` and fog ([`crate::ui_models::PaneLights`]), the target its size in device pixels.
+//! The camera is the one the copy holds (`0x505b30` → `0x505890`, `SetCamera`,
+//! [`super::framing::body_view`]), the light its `CGLight` and fog
+//! ([`crate::ui_models::PaneLights`]), the target its size in device pixels.
 
 use std::collections::HashMap;
 
@@ -24,7 +25,7 @@ use super::booth::{
     spawn_booth_effects, spawn_booth_model, BoothBillboardSpec, BoothEffects, BoothInstance,
     BoothMotion, BoothPart, BoothRider, BoothTwins,
 };
-use super::framing::{body_frame, pane_root_scale, PortraitAnchors, PORTRAIT_FOV};
+use super::framing::{body_view, BodyView, PaneUnits, PortraitAnchors, PORTRAIT_FOV};
 use super::{
     booth_anchors, hand_grip, log_bake, new_target_image_sized, wake_booth, Booth, BoothCam,
     BoothPanes, Booths, DressUpBake, DressedLook, GxAspect, PortraitStandIn, SnapKey,
@@ -63,6 +64,8 @@ pub(crate) struct PaneRequest {
     pub(crate) clip: Option<Rect>,
     /// The rect in whole device pixels: the target's size.
     pub(crate) size_px: UVec2,
+    /// The model-unit ladder the live and orthographic legs place the root by.
+    pub(crate) units: PaneUnits,
 }
 
 /// The extract-to-booth bridge for the character panes, and the VM whose handles key it: a new
@@ -128,15 +131,13 @@ struct PaneBooth {
     camera: Entity,
     /// The target's size in device pixels.
     size: UVec2,
-    /// The aspect the camera is aimed at.
-    aimed: Option<f32>,
+    /// The root's pose and the camera's aim, as last applied.
+    view: Option<BodyView>,
     /// The copy standing in the booth.
     built: Option<Built>,
     /// The display stand-in a display subject is mirrored from.
     stand_in: Option<StandIn>,
     turn: Turn,
-    /// The root's applied `(yaw, scale)`.
-    pose: Option<(f32, f32)>,
 }
 
 /// What a booth's copy was built from.
@@ -177,7 +178,8 @@ struct StandIn {
 pub(super) struct Turn {
     /// The serial of the engine arm last played.
     played: Option<u64>,
-    /// The node the primary runs; the spawn's idle Stand until the first arm (`0x70ebd0`).
+    /// The node the primary runs, either of its clip's two tracks; the spawn's idle Stand until
+    /// the first arm (`0x70ebd0`).
     pub(super) playing: Option<AnimationNodeIndex>,
     pub(super) fade: Option<Fade>,
     /// When the primary's window closes, `start + span·R` (`0x712692`); `None` once reported.
@@ -186,7 +188,8 @@ pub(super) struct Turn {
     completed: bool,
 }
 
-/// The secondary blend slot (`[blk+0xc4]`, `0x7125d6`): the pose an arm replaced, faded out by λ.
+/// The secondary blend slot (`[blk+0xc4]`, `0x7125d6`): the pose an arm replaced, on its own clock
+/// and a track the primary is not using, faded out by λ.
 #[derive(Clone, Copy)]
 pub(super) struct Fade {
     pub(super) node: AnimationNodeIndex,
@@ -199,6 +202,13 @@ pub(super) struct Fade {
 /// The fade still to run, 1 to 0: `(blendEnd − now) · blendRate`, recomputed every frame.
 fn fade_frac(fade: &Fade, now: f64) -> f32 {
     ((fade.until - now) / f64::from(fade.span)) as f32
+}
+
+/// Empty the secondary slot, stopping its track.
+fn clear_fade(player: &mut AnimationPlayer, turn: &mut Turn) {
+    if let Some(old) = turn.fade.take() {
+        player.stop(old.node);
+    }
 }
 
 /// One engine arm, `0x7121a0(bone −1, id, variation −1, offset, 1.0, blend, 1)`. The id resolves
@@ -221,100 +231,81 @@ fn play_arm(
         return false;
     };
     let replays = rng.replay_count(clip.replay);
-    let (node, looping, blend_time) = (clip.node, clip.looping, clip.blend_time.max(0.0));
-    let same = outgoing == Some(node);
-    // The shortcut (`0x712553`): a blended arm of the sequence that already ran to its end
-    // restarts it with no blend slot.
-    let shortcut = blend && same && turn.completed;
-    if !blend || shortcut {
+    let blend_time = clip.blend_time.max(0.0);
+    // The primary's record (`[blk+0xa4]`), on either of its clip's tracks.
+    let same = outgoing.is_some_and(|n| n == clip.node || Some(n) == clip.blend_node);
+    if !blend {
         // No blend: the secondary slot is cleared (`0x712635`, `[blk+0xd0] = −1`).
-        if let Some(old) = turn.fade.take() {
-            if old.node != node {
-                player.stop(old.node);
-            }
-        }
-    }
-    // The half-blend refusal (`0x7125c9`/`0x7125d4`): a running blend with λ > 0.5 keeps its
-    // secondary and window, and the outgoing primary is dropped.
-    let refused = blend
-        && !shortcut
-        && turn
-            .fade
-            .is_some_and(|f| crate::creature_anim::select::blend_lambda(fade_frac(&f, now)) > 0.5);
-    if refused {
-        if let Some(out) = outgoing.filter(|o| *o != node) {
-            player.stop(out);
-        }
-    } else if blend && !shortcut {
-        // One secondary slot: a fade in flight is displaced, unless it is the node replaying.
-        if let Some(old) = turn.fade.take() {
-            if old.node != node && Some(old.node) != outgoing {
-                player.stop(old.node);
-            }
-        }
-    }
-    let fade = if refused {
-        turn.fade
-    } else if blend && !shortcut && !same && blend_time > 0.0 {
-        outgoing.map(|node| Fade {
+        clear_fade(player, turn);
+    } else if same && turn.completed {
+        // The shortcut (`0x712553` → `0x71262d`): the sequence that ran to its end is written
+        // again as the primary alone; the secondary and its window stay as they are.
+    } else if turn
+        .fade
+        .is_none_or(|f| crate::creature_anim::select::blend_lambda(fade_frac(&f, now)) <= 0.5)
+    {
+        // The copy (`0x7125d6`): the outgoing primary becomes the secondary, its clock kept, over
+        // the incoming clip's blendTime (`0x7125f2`). A zero blendTime ends it on the next pass.
+        clear_fade(player, turn);
+        turn.fade = outgoing.filter(|_| blend_time > 0.0).map(|node| Fade {
             node,
             until: now + f64::from(blend_time),
             span: blend_time,
-        })
-    } else {
-        None
-    };
-    // A blended re-arm of the running sequence, latch clear, fades from that sequence on its own
-    // clock (`0x71255f` → `0x7125d6`). The player holds one track per clip, so the track runs on
-    // through the window instead: no restart, no jump.
-    let continues = blend && same && !shortcut && !refused;
-    {
-        // Set explicitly: `play` is idempotent on a live node, which would keep its old clock and
-        // weight.
-        let active = player.play(node);
-        active.set_repeat(if looping {
-            RepeatAnimation::Forever
-        } else {
-            RepeatAnimation::Never
         });
-        active.set_speed(1.0);
-        if !continues {
-            active.seek_to(offset);
-        }
-        // λ = 1 on a blended arm's first frame, so the pose does not move on the frame it lands.
-        active.set_weight(if fade.is_some() { 0.0 } else { 1.0 });
     }
-    if fade.is_none() {
-        if let Some(out) = outgoing.filter(|o| *o != node) {
-            player.stop(out);
+    // Else the half-blend refusal (`0x7125c9`/`0x7125d4`): λ > 0.5 keeps the secondary and its
+    // window, and the primary alone is written.
+    // The primary runs on the clip's track the secondary is not on, so a re-arm of the sequence
+    // the secondary holds leaves that clock alone.
+    let node = match (turn.fade, clip.blend_node) {
+        (Some(f), Some(twin)) if f.node == clip.node => twin,
+        (Some(f), None) if f.node == clip.node => {
+            // A model built with one track per clip: the arm takes it, and the secondary ends.
+            turn.fade = None;
+            clip.node
         }
+        _ => clip.node,
+    };
+    // The primary write replaces the outgoing primary (`0x712692`), unless the copy kept it.
+    if let Some(out) = outgoing.filter(|&o| o != node && turn.fade.is_none_or(|f| f.node != o)) {
+        player.stop(out);
     }
+    let active = player.start(node);
+    active.set_repeat(if clip.looping {
+        RepeatAnimation::Forever
+    } else {
+        RepeatAnimation::Never
+    });
+    active.set_speed(1.0);
+    active.seek_to(offset);
+    // λ = 1 on a blended arm's first frame, so the pose does not move on the frame it lands.
+    active.set_weight(if turn.fade.is_some() { 0.0 } else { 1.0 });
     turn.playing = Some(node);
-    turn.fade = fade;
     turn.completed = false;
     turn.ends = Some(now - f64::from(offset) + f64::from(clip.duration) * f64::from(replays));
     true
 }
 
-/// Advance the fade: λ, smoothstep of the window still to run (`0x714880`), weights the outgoing
-/// pose and the incoming takes `1 − λ`.
+/// Advance the fade: λ, smoothstep of the window still to run (`0x714880`), weights the secondary
+/// and the primary takes `1 − λ`. At the window's end (`0x7147b1`) the secondary alone stops.
 fn advance_fade(player: &mut AnimationPlayer, turn: &mut Turn, now: f64) {
     let Some(fade) = turn.fade else {
         return;
     };
     let frac = fade_frac(&fade, now);
-    if frac <= 0.0 {
+    let lambda = if frac <= 0.0 {
         turn.fade = None;
         player.stop(fade.node);
-        if let Some(cur) = turn.playing {
-            player.play(cur).set_weight(1.0);
-        }
+        0.0
     } else {
         let lambda = crate::creature_anim::select::blend_lambda(frac);
-        player.play(fade.node).set_weight(lambda);
-        if let Some(cur) = turn.playing {
-            player.play(cur).set_weight(1.0 - lambda);
+        if let Some(out) = player.animation_mut(fade.node) {
+            out.set_weight(lambda);
         }
+        lambda
+    };
+    if let Some(cur) = turn.playing.and_then(|n| player.animation_mut(n)) {
+        cur.set_weight(1.0 - lambda);
     }
 }
 
@@ -357,6 +348,75 @@ fn step_copy(
     })
 }
 
+/// A glue model's Stand chain, on its root: the completion callback its build registers through
+/// `0x711bb0`, `0x473090` on a select character (`0x472b87`) and pet (`0x472e99`), and `0x470c90`,
+/// the same body, on the create character (`0x470bfa`).
+#[derive(Component, Default)]
+pub(super) struct StandChain {
+    turn: Turn,
+    /// The arm it runs, one more at each completion.
+    serial: u64,
+}
+
+impl StandChain {
+    /// The chain of a model as its spawn leaves it, on the idle its load arms, Stand variation 0
+    /// (`0x70ebd0`), which the build's first arm blends from (`0x472bda`, `0x472eea`, `0x470c22`).
+    pub(super) fn armed(
+        anims: &benilla_assets::ModelAnimations,
+        catalog: Option<&benilla_formats::AnimDataCatalog>,
+    ) -> Self {
+        let stand = catalog.map_or(ANIM_STAND, |c| anims.resolve(ANIM_STAND, c).id);
+        StandChain {
+            turn: Turn {
+                playing: anims.find(stand).map(|c| c.node),
+                ..Turn::default()
+            },
+            serial: 0,
+        }
+    }
+
+    /// Its current arm: `0x7121a0(-1, 0, -1, 0, 1.0, 1, 1)`, a rolled Stand, blended.
+    fn arm(&self) -> PaneArm {
+        PaneArm {
+            anim_id: ANIM_STAND,
+            serial: self.serial,
+            blend: true,
+            offset_ms: 0,
+        }
+    }
+}
+
+/// One frame of a glue model's chain, at its stage's clock `now`.
+fn step_stand_chain(
+    player: &mut AnimationPlayer,
+    anims: &benilla_assets::ModelAnimations,
+    catalog: &benilla_formats::AnimDataCatalog,
+    rng: &mut benilla_assets::AnimRng,
+    chain: &mut StandChain,
+    now: f64,
+) {
+    // A track's rate is the stage clock's, which `pace_glue_clock` wrote before this pass.
+    let speed = chain
+        .turn
+        .playing
+        .and_then(|n| player.animation(n))
+        .map(|a| a.speed());
+    let arm = chain.arm();
+    if step_copy(player, anims, catalog, rng, &mut chain.turn, arm, now).is_some() {
+        // The window's end calls back with reason 0 (`0x7194fd`), drained in its frame
+        // (`0x7074b0`), and the callback replays Stand with a fresh pick (`0x47309a`, `0x470c9a`).
+        chain.serial += 1;
+        let arm = chain.arm();
+        step_copy(player, anims, catalog, rng, &mut chain.turn, arm, now);
+    }
+    if let (Some(speed), Some(cur)) = (
+        speed,
+        chain.turn.playing.and_then(|n| player.animation_mut(n)),
+    ) {
+        cur.set_speed(speed);
+    }
+}
+
 /// The subjects' world: who a GUID is, what a unit wears, the dressing room's assembly.
 #[derive(SystemParam)]
 pub(super) struct PaneWorld<'w, 's> {
@@ -396,7 +456,31 @@ pub(super) fn sync_panes(
     mut render: PaneRender,
     mut cams: Query<(&mut Transform, &mut Projection, &mut RenderTarget), With<BoothCam>>,
     mut rigs: Query<(&mut AnimationPlayer, &benilla_assets::ModelAnimations)>,
+    mut emitters: Query<(
+        &mut benilla_world::particles::ParticleEmitter,
+        &RenderLayers,
+    )>,
+    mut stands: Query<(
+        Entity,
+        &mut StandChain,
+        &benilla_world::rig_anim::SceneClock,
+    )>,
 ) {
+    // The glue models' Stand chains, each on its stage's clock.
+    if let Some(anim_data) = render.anim_data.as_deref() {
+        for (root, mut chain, clock) in &mut stands {
+            if let Ok((mut player, anims)) = rigs.get_mut(root) {
+                step_stand_chain(
+                    &mut player,
+                    anims,
+                    &anim_data.0,
+                    &mut render.rng,
+                    &mut chain,
+                    clock.0,
+                );
+            }
+        }
+    }
     let state = &mut *state;
     state.drawn.clear();
     let (session, panes) = (feed.session, &feed.rows);
@@ -482,6 +566,20 @@ pub(super) fn sync_panes(
             booth.wake = booth.wake.max(BOOTH_SETTLE_FRAMES);
         }
         let aspect = size.x as f32 / size.y as f32;
+        // The view through the copy's camera; the target's pixels per device pixel scale the
+        // orthographic ladder of a capped target.
+        let display_aspect = render.gx.0;
+        let view_of = move |anchors: &PortraitAnchors| {
+            body_view(
+                anchors,
+                pane.camera,
+                pane.facing,
+                display_aspect,
+                &req.units,
+                size.as_vec2(),
+                size.x as f32 / req.size_px.x as f32,
+            )
+        };
 
         // ── The subject the latest request names ────────────────────────────────────────
         let subject = if pane.guid != 0 {
@@ -541,14 +639,14 @@ pub(super) fn sync_panes(
                     &source,
                     scene,
                 ) {
-                    aim(&mut cams, booth_pane, &anchors, aspect);
+                    booth_pane.view = None;
+                    place(&mut commands, booth_pane, booth, view_of(&anchors));
                     booth_pane.built = Some(Built {
                         build: pane.builds,
                         look,
                         scene,
                         anchors,
                     });
-                    booth_pane.pose = None;
                     spawned = true;
                     // The copy goes to `+0x318` with Stand armed (`0x5059a0`). A re-dress or a
                     // new light keeps the engine's copy, whose arm the fresh player replays.
@@ -560,30 +658,18 @@ pub(super) fn sync_panes(
         }
 
         // ── Draw: the copy the engine holds, posed, played and composited ───────────────────
-        let Some((built_for, anchors)) = booth_pane
+        let Some((built_for, view)) = booth_pane
             .built
             .as_ref()
-            .map(|b| (b.build, b.anchors.clone()))
+            .map(|b| (b.build, view_of(&b.anchors)))
         else {
             continue;
         };
         let Some(copy) = pane.copy.filter(|c| c.build <= built_for) else {
             continue; // the engine holds no copy (`ClearModel`): nothing at `+0x318`
         };
-        if booth_pane.aimed != Some(aspect) {
-            aim(&mut cams, booth_pane, &anchors, aspect);
-        }
-        // The root, the widget's `T(pos)·R(facing)·S(s)` with `pos` at the origin; `s` is the 4:3
-        // renormalizer on the fixed camera ([`pane_root_scale`]).
-        let scale = pane_root_scale(&anchors, render.gx.0);
-        if booth_pane.pose != Some((pane.facing, scale)) {
-            commands.entity(booth.root).insert(
-                Transform::from_rotation(Quat::from_rotation_y(pane.facing))
-                    .with_scale(Vec3::splat(scale)),
-            );
-            booth_pane.pose = Some((pane.facing, scale));
-            booth.wake = booth.wake.max(BOOTH_SETTLE_FRAMES);
-        }
+        // The root, the widget's `T(pos)·R(facing)·S(s)`, and the camera it is seen through.
+        place(&mut commands, booth_pane, booth, view);
         // The arms, once the copy's player is up (the frame after its spawn).
         if let (false, Ok((mut player, anims)), Some(anim_data)) = (
             spawned,
@@ -610,6 +696,24 @@ pub(super) fn sync_panes(
     for (h, pane) in &state.panes {
         if !state.drawn.contains(h) {
             marks.0.remove(&pane.key);
+        }
+    }
+    // A particle's half-extent unit follows the leg its pane draws through, for the emitters of
+    // the copy that stands and of any spawned since (`0x7b2a50`).
+    let stars: Vec<(usize, f32)> = state
+        .panes
+        .values()
+        .filter_map(|p| Some((p.layer, p.view.as_ref()?.star)))
+        .collect();
+    if !stars.is_empty() {
+        for (mut emitter, layers) in &mut emitters {
+            let star = stars
+                .iter()
+                .find(|(layer, _)| layers.intersects(&RenderLayers::layer(*layer)))
+                .map(|&(_, star)| star);
+            if let Some(star) = star.filter(|&s| s != emitter.size_scale()) {
+                emitter.set_size_scale(star);
+            }
         }
     }
     wanted_displays.sort_unstable();
@@ -684,11 +788,10 @@ fn open(
         layer,
         camera,
         size,
-        aimed: None,
+        view: None,
         built: None,
         stand_in: None,
         turn: Turn::default(),
-        pose: None,
     }
 }
 
@@ -1023,19 +1126,19 @@ fn build(
     Some(anchors)
 }
 
-/// Aim a pane's camera through its copy's rig at the pane's aspect.
-fn aim(
-    cams: &mut Query<(&mut Transform, &mut Projection, &mut RenderTarget), With<BoothCam>>,
-    pane: &mut PaneBooth,
-    anchors: &PortraitAnchors,
-    aspect: f32,
-) {
-    let (tf, proj) = body_frame(anchors, aspect);
-    if let Ok((mut t, mut p, _)) = cams.get_mut(pane.camera) {
-        *t = tf;
-        *p = proj;
+/// Pose a pane's root and aim its camera at `view`, unless they hold it. The aim goes in as a
+/// command, so a camera spawned through `Commands` this pass takes it with its spawn and the pane's
+/// first frame composites an aimed view; `try_insert` leaves a camera already despawned alone.
+fn place(commands: &mut Commands, pane: &mut PaneBooth, booth: &mut Booth, view: BodyView) {
+    if pane.view.as_ref() == Some(&view) {
+        return;
     }
-    pane.aimed = Some(aspect);
+    commands.entity(booth.root).insert(view.root);
+    commands
+        .entity(pane.camera)
+        .try_insert((view.camera, view.bevy_projection()));
+    booth.wake = booth.wake.max(BOOTH_SETTLE_FRAMES);
+    pane.view = Some(view);
 }
 
 /// The composite: each drawn pane's target at the pane's rect, premultiplied, at the frame's own

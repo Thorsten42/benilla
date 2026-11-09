@@ -6,7 +6,7 @@
 
 use std::ops::RangeInclusive;
 
-use benilla_ui::script::UiScript;
+use bevy::prelude::*;
 use bevy_egui::egui;
 
 use crate::cvars::REGISTERED;
@@ -260,7 +260,7 @@ const GROUPS: &[(&str, &[Knob])] = &[
     ),
 ];
 
-fn reset(script: &mut UiScript, knobs: &[Knob]) {
+fn reset(script: &mut LightingBridge, knobs: &[Knob]) {
     for knob in knobs {
         let registered = REGISTERED
             .iter()
@@ -270,7 +270,7 @@ fn reset(script: &mut UiScript, knobs: &[Knob]) {
     }
 }
 
-fn row(ui: &mut egui::Ui, video: &VideoConfig, script: &mut UiScript, knob: &Knob) {
+fn row(ui: &mut egui::Ui, video: &VideoConfig, script: &mut LightingBridge, knob: &Knob) {
     let mut value = (knob.read)(video);
     // MONKEY (lighting debug panel): stack the label over numeric controls so even the longest
     // CVar fits the existing 280 px panel. Sliders retain their editable current-value readout;
@@ -314,11 +314,52 @@ fn row(ui: &mut egui::Ui, video: &VideoConfig, script: &mut UiScript, knob: &Kno
     }
 }
 
-pub(super) fn section(ui: &mut egui::Ui, video: &VideoConfig, script: Option<&mut UiScript>) {
-    let Some(script) = script else {
+/// MONKEY (sync 1108): the panel's window onto the VM. Upstream's `script_calls` rule is that a
+/// system that writes the VM holds its call host, and `debug_panel_ui` cannot (the host's appliers
+/// conflict with its own `ResMut`s), so the egui pass only reads `label` and queues `writes` here,
+/// and [`lighting_bridge_sync`] — a `VmWith` system — owns the VM: it publishes the label and applies the writes
+/// through `UiScript::set_cvar_engine`, the queue Lua `SetCVar` feeds.
+#[derive(Resource, Default)]
+pub(crate) struct LightingBridge {
+    available: bool,
+    label: String,
+    writes: Vec<(String, String)>,
+}
+
+impl LightingBridge {
+    fn set_cvar_engine(&mut self, name: &str, value: &str) {
+        self.writes.push((name.to_string(), value.to_string()));
+    }
+}
+
+/// Per frame: publish the VM mirror's `lightingQuality` for the panel and apply what it queued.
+pub(crate) fn lighting_bridge_sync(
+    mut vm: crate::script_calls::VmWith<ResMut<'static, LightingBridge>>,
+) {
+    vm.turn(|script, mut bridge| {
+        let Some(script) = script else {
+            bridge.available = false;
+            bridge.writes.clear();
+            return;
+        };
+        let label = script.cvar("lightingQuality").unwrap_or_default();
+        if bridge.label != label || !bridge.available {
+            bridge.available = true;
+            bridge.label = label;
+        }
+        if !bridge.writes.is_empty() {
+            for (name, value) in std::mem::take(&mut bridge.writes) {
+                script.set_cvar_engine(&name, &value);
+            }
+        }
+    });
+}
+
+pub(super) fn section(ui: &mut egui::Ui, video: &VideoConfig, script: &mut LightingBridge) {
+    if !script.available {
         ui.weak("Lighting controls are available once the UI session is ready.");
         return;
-    };
+    }
     // MONKEY (advanced graphics): the `lightingQuality` ladder — the same row the player reaches
     // on the Advanced Graphics page, so this panel and that window cannot show different answers.
     // The rungs are `cvars::LIGHTING_PRESETS`, never a second table here; the CURRENT name is read
@@ -328,7 +369,7 @@ pub(super) fn section(ui: &mut egui::Ui, video: &VideoConfig, script: Option<&mu
         ui.label("Lighting quality").on_hover_text(
             "Writes the member rows below; reads back Custom when they match no rung.",
         );
-        let current = script.cvar("lightingQuality").unwrap_or_default();
+        let current = script.label.clone();
         for (name, _) in crate::cvars::LIGHTING_PRESETS {
             if ui
                 .selectable_label(current.eq_ignore_ascii_case(name), *name)

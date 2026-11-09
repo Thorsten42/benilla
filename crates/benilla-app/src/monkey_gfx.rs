@@ -16,15 +16,17 @@ use benilla_world::weather::RainSurfaces;
 use benilla_world::wind::{FoliageWind, FoliageWindStrength};
 use bevy::prelude::*; // MONKEY (wet)
 
-/// The programme's cvar observer (registered by [`MonkeyGfxPlugin`]).
+/// The programme's cvar callback, run by `cvars::callbacks::CvarCallbacks` like every row's (the
+/// registry's single settings path: a write runs its callback in the call or the frame's sync, so
+/// this is not an observer).
 pub(crate) fn on_cvar(
-    ev: On<crate::cvars::CvarChanged>,
-    mut dither: ResMut<SkyDither>,
-    mut foliage_wind: ResMut<FoliageWind>,
-    mut wind_strength: ResMut<FoliageWindStrength>, // MONKEY (fix-wind)
+    ev: &crate::cvars::CvarChanged,
+    mut dither: Mut<'_, SkyDither>,
+    mut foliage_wind: Mut<'_, FoliageWind>,
+    mut wind_strength: Mut<'_, FoliageWindStrength>, // MONKEY (fix-wind)
     // MONKEY (fog)
-    mut fog_model: ResMut<FogModelSetting>,
-    mut rain: ResMut<RainSurfaces>, // MONKEY (wet)
+    mut fog_model: Mut<'_, FogModelSetting>,
+    mut rain: Mut<'_, RainSurfaces>, // MONKEY (wet)
 ) {
     match ev.key().as_str() {
         "skydither" => {
@@ -87,7 +89,6 @@ impl Plugin for MonkeyGfxPlugin {
             ))
             .init_resource::<FoliageWindStrength>() // MONKEY (fix-wind)
             .init_resource::<FogModelSetting>()
-            .init_resource::<RainSurfaces>() // MONKEY (wet)
-            .add_observer(on_cvar);
+            .init_resource::<RainSurfaces>(); // MONKEY (wet)
     }
 }

@@ -73,7 +73,7 @@ use benilla_world::rig_palette::{RigPalettes, RigPart, RigSkin};
 use benilla_world::static_gx::{torch_flame_inside_bounds, LightOwner, StaticGx, TorchShadowViews};
 use benilla_world::view::WorldCamera;
 
-use crate::char_select::ClientState;
+use crate::client_state::ClientState;
 use crate::net::SelfPlayer;
 use crate::shadow_core::{
     empty_shadow_mesh, restore_mesh_buffers, take_mesh_buffers, ShadowDemand, ShadowFrame,

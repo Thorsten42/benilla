@@ -2,7 +2,7 @@
 // four tiled layers by a per-chunk alpha map, lit as the reference's fixed-function terrain:
 //   diffuse  = clamp(ambient (row 1) + diffuse (row 0)·max(N·L, 0) + Σ point·att·N·L), evaluated
 //     sun/ambient interpolates from the vertices; local points evaluate per pixel, then the sum
-//     clamps and modulates the texture. Deviation: sparse MCNK geometry must not miss candle pools;
+//     clamps and modulates the texture. Deviation, because sparse MCNK geometry must not miss candle pools;
 //   specular = clamp(row 9 · max(N·H, 0)^20) per vertex (local viewer), times the sheen mask (the
 //     `_s` texture's per-texel alpha, blended like the colour), added after the modulate.
 // Evaluated per pixel, or unmasked, the near-white row 9 would wash lit ground to cream.
@@ -709,12 +709,11 @@ fn fragment(in: TerrainVsOut) -> @location(0) vec4<f32> {
     // `terrainp_s.bls`, which reads the MCSH bit from the blend texture's alpha (1 lit, 0 shadowed)
     // and uses it twice, below; with them off the reference draws a separate ambient-tint overlay.
     // Our `shadow_array` is 255 shadowed, 0 lit; a chunk with no MCSH map (`uv_b.y < 0`) is lit.
-    var shadow_lit = 1.0;
+    // The sample runs unconditionally, at layer 0 for a chunk with none, and `si` selects after:
+    // implicit derivatives need uniform control flow, and `si` is a varying.
     let si = in.uv_b.y;
-    if (si >= 0.0) {
-        let mcsh = textureSample(shadow_array, splat_samp, auv, i32(round(si))).r;
-        shadow_lit = 1.0 - mcsh;
-    }
+    let mcsh = textureSample(shadow_array, splat_samp, auv, max(i32(round(si)), 0)).r;
+    let shadow_lit = select(1.0, 1.0 - mcsh, si >= 0.0);
     // MONKEY (world shadows): when the realtime WORLD-shadow lane is active (`worldShadows` on), the
     // BAKED MCSH terrain shadows are redundant — the realtime map now shadows the static world
     // (trees + buildings) too — and keeping both double-shadows. So drop MCSH then. This keys on the
