@@ -1222,12 +1222,19 @@ pub(crate) fn apply_lighting_preset(cvars: &mut Cvars, name: &str) -> bool {
 /// Derive after all ordered writes, before the mirror/observer flush. File loading bypasses
 /// `set`, so saved members remain authoritative even when the saved preset name disagrees.
 fn lighting_quality(cvars: &mut Cvars) {
+    // tortoise: a derived label follows the other rows, so moving it alone is no change of the
+    // player's: a malformed `config.toml` stays unsaved until a real edit, which carries the
+    // label with it.
+    let unchanged = (cvars.dirty, cvars.last_change);
     let derived = derive_lighting_quality(cvars);
     // A derived label is a mirror, never another request to apply a preset.
     cvars.mirror("lightingQuality", derived);
     // MONKEY (presets): after the lighting label, which the graphics ladder reads as a member.
     let graphics = derive_graphics_quality(cvars);
     cvars.mirror("graphicsQuality", graphics);
+    if !unchanged.0 {
+        (cvars.dirty, cvars.last_change) = unchanged;
+    }
 }
 
 // ─── MONKEY (presets): the Graphics Preset ladder ─────────────────────────────────────────────
@@ -4482,7 +4489,6 @@ mod tests {
                 "gxApi",
                 "gxResolution",
                 "lightingQuality",
-
                 "realmList",
                 "realmName"
             ]
@@ -4917,7 +4923,6 @@ mod tests {
                  writes and derives it here in cvars.rs",
             ),
             (
-
                 "useUiScale",
                 "UIOptionsFrame.lua and OptionsFrame.lua branch on it to gate the uiScale slider",
             ),
