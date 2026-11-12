@@ -593,7 +593,7 @@ fn the_version_is_the_classicapi_addons_once_it_has_loaded() {
     );
     script
         .run(
-            "assert(CLASSIC_API_VERSION == 11805 and BenillaClassicAPICompatibility.apiVersion == '1.18.5'
+            "assert(CLASSIC_API_VERSION == 12309 and BenillaClassicAPICompatibility.apiVersion == '1.23.9'
                and BenillaClassicAPICompatibility.fullClassicAPI == false)",
         )
         .unwrap();
