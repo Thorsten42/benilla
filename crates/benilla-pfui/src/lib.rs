@@ -7,6 +7,7 @@
 
 mod attributes;
 pub mod bags;
+mod baselib;
 pub mod clock;
 pub mod combat_log;
 pub mod creature;
@@ -247,6 +248,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         })?)?;
     lua.set_named_registry_value(benilla_ui::script::pfui_host::TIMER_PASS, timer_pass)?;
     widgets::install(lua)?;
+    baselib::install(lua)?;
     benilla_ui::script::pfui_host::install(lua)?;
     let engine = lua.create_table()?;
     engine.set(
