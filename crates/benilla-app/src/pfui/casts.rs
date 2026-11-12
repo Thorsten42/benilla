@@ -49,6 +49,7 @@ impl State {
     ) -> Observed {
         self.serial = self.serial.wrapping_add(1);
         let display = spells.and_then(|spells| spells.catalog.get(spell));
+        let silenceable = display.is_some_and(super::interrupts::silenceable);
         Observed {
             start: now,
             end: now + Duration::from_millis(u64::from(duration)),
@@ -64,6 +65,7 @@ impl State {
                 cast_guid: format!("Cast-{guid:016X}-{}", self.serial),
                 delay_ms: 0,
                 channel,
+                silenceable,
             },
         }
     }
