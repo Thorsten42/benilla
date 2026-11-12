@@ -176,7 +176,8 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
         let h = frame_handle_of(lua, &this)?;
         Ok(size_read(lua, h, true))
     })?;
-    // ClassicAPI's `GetWidth([ignoreRect])`.
+    // ClassicAPI's `GetWidth([ignoreRect])`: 1.12's read, scale and all; with `ignoreRect` only
+    // the set size, 0 without one.
     #[cfg(feature = "pfui")]
     set_shared(
         lua,
@@ -185,19 +186,19 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
         "GetWidth",
         |lua, (this, ignore_rect): (Table, Option<bool>)| {
             let h = frame_handle_of(lua, &this)?;
-            Ok(classicapi_size_read(
-                lua,
-                h,
-                true,
-                ignore_rect == Some(true),
-            ))
+            Ok(if ignore_rect == Some(true) {
+                classicapi_size_read(lua, h, true, true)
+            } else {
+                size_read(lua, h, true)
+            })
         },
     )?;
     set_shared(lua, m, Side::Frame, "GetHeight", |lua, this: Table| {
         let h = frame_handle_of(lua, &this)?;
         Ok(size_read(lua, h, false))
     })?;
-    // ClassicAPI's `GetHeight([ignoreRect])`.
+    // ClassicAPI's `GetHeight([ignoreRect])`: 1.12's read, scale and all; with `ignoreRect` only
+    // the set size, 0 without one.
     #[cfg(feature = "pfui")]
     set_shared(
         lua,
@@ -206,12 +207,11 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
         "GetHeight",
         |lua, (this, ignore_rect): (Table, Option<bool>)| {
             let h = frame_handle_of(lua, &this)?;
-            Ok(classicapi_size_read(
-                lua,
-                h,
-                false,
-                ignore_rect == Some(true),
-            ))
+            Ok(if ignore_rect == Some(true) {
+                classicapi_size_read(lua, h, false, true)
+            } else {
+                size_read(lua, h, false)
+            })
         },
     )?;
 
@@ -364,7 +364,12 @@ fn size_read(lua: &Lua, h: FrameHandle, width: bool) -> f64 {
 /// ClassicAPI's size: a set size, or the anchored span over the scale, in `GetTop`'s units; with
 /// `ignore_rect` a size that is not set answers 0.
 #[cfg(feature = "pfui")]
-fn classicapi_size_read(lua: &Lua, h: FrameHandle, width: bool, ignore_rect: bool) -> f64 {
+pub(crate) fn classicapi_size_read(
+    lua: &Lua,
+    h: FrameHandle,
+    width: bool,
+    ignore_rect: bool,
+) -> f64 {
     let (units, stored) = {
         let model = lua.app_data_ref::<Model>().expect("model");
         let units = model.layout_units();
