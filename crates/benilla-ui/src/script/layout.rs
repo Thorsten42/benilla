@@ -182,7 +182,25 @@ pub(super) fn region_node_hash(data: &RegionData, owner: Option<u32>) -> u64 {
         }
         None => node.feed(u64::MAX),
     }
+    #[cfg(feature = "pfui")]
+    match data.fill_cut {
+        Some(cut) => cut.into_iter().for_each(|v| node.f32(v)),
+        None => node.feed(u64::MAX),
+    }
     node.finish()
+}
+
+/// [`super::types::RegionData::fill_cut`] applied to a resolved rect: from the bottom-left, the
+/// width times the coordinates' span across and the height times their span down, as
+/// `0x770570` cuts the drawn rect.
+#[cfg(feature = "pfui")]
+fn cut_to_fill(r: Rect, [left, right, top, bottom]: [f32; 4]) -> Rect {
+    Rect::new(
+        r.bottom,
+        r.left,
+        r.bottom + r.height() * (bottom - top).abs(),
+        r.left + r.width() * (right - left).abs(),
+    )
 }
 
 /// A texture's content-derived span in FrameXML units. `CSimpleTexture::GetWidth` (`0x770720`,
@@ -1594,6 +1612,8 @@ impl UiScript {
                     continue;
                 };
                 let rect = Rect::new(bottom, left, top, right);
+                #[cfg(feature = "pfui")]
+                let rect = data.fill_cut.map_or(rect, |cut| cut_to_fill(rect, cut));
                 // The keep test, as for a frame: the same `0x768d20` resolves regions.
                 let rect = solver
                     .entry(region_id)
