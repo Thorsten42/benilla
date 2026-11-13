@@ -428,6 +428,11 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     lua.load(include_str!("autocomplete.lua"))
         .set_name("@benilla-pfui/autocomplete.lua")
         .exec()?;
+    lua.load(include_str!("bagsort.lua"))
+        .set_name("@benilla-pfui/bagsort.lua")
+        .call::<()>(lua.named_registry_value::<mlua::Table>(
+            benilla_ui::script::pfui_host::items::BAG_ENGINE,
+        )?)?;
     attributes::install(lua)?;
     lua.set_named_registry_value("benilla.pfui.addon_privates", lua.create_table()?)?;
     lua.load("function UnitClassBase(unit) local _, token = UnitClass(unit); return token end")
