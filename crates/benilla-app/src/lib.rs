@@ -324,6 +324,33 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
             "executor: PostUpdate -> single-threaded (the default; WOW_MT_POSTUPDATE=1 for MT)"
         );
     }
+    // The frame's other schedules too. Under the multi-threaded executor the main thread parks
+    // for each of their systems while a worker wakes to run it. On a laptop's balanced power
+    // profile a frame measured 12.9 ms that way and 11.2 ms single-threaded; at full clock the
+    // two are level. `WOW_MT_REST=1` restores them.
+    if std::env::var_os("WOW_MT_REST").is_none() {
+        use bevy::app::{
+            FixedFirst, FixedLast, FixedPostUpdate, FixedPreUpdate, FixedUpdate, RunFixedMainLoop,
+        };
+        use bevy::ecs::schedule::{ExecutorKind, ScheduleLabel};
+        for label in [
+            First.intern(),
+            PreUpdate.intern(),
+            StateTransition.intern(),
+            RunFixedMainLoop.intern(),
+            FixedFirst.intern(),
+            FixedPreUpdate.intern(),
+            FixedUpdate.intern(),
+            FixedPostUpdate.intern(),
+            FixedLast.intern(),
+            SpawnScene.intern(),
+            Last.intern(),
+        ] {
+            app.edit_schedule(label, |s| {
+                s.set_executor_kind(ExecutorKind::SingleThreaded);
+            });
+        }
+    }
     // The build banner ships in every build: which build produced a log is the first thing a report
     // from another machine must establish.
     app.add_systems(Startup, benilla_world::build_id::banner);
