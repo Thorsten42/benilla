@@ -103,6 +103,12 @@ function M:SetCountdownFormatter(formatter)
   self.benillaCountdownFormatter = formatter
 end
 function M:GetCountdownFormatter() return self.benillaCountdownFormatter end
+-- A ClassicAPI client has the type itself, and its CooldownFrame_SetTimer hands a frame that is one
+-- to SetCooldown; for every other type the frame stays the Model it is built as.
+function M:IsObjectType(kind)
+  if kind == "Cooldown" then return true end
+  return getmetatable(self).__index.IsObjectType(self, kind)
+end
 function M:SetSwipeColor() end
 function M:SetEdgeColor() end
 function M:SetSwipeTexture() end
