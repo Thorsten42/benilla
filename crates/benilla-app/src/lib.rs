@@ -246,6 +246,41 @@ fn main_apartment() {
 }
 
 /// The one body behind [`run`] and [`run_with`], not generic, so a launcher compiles none of it.
+/// The frame's schedules besides `Update`, `PostUpdate` and extract, single-threaded: under the
+/// multi-threaded executor the main thread parks for each of their systems while a worker wakes
+/// to run it. `WOW_MT_REST=1` keeps them multi-threaded.
+///
+/// Only a schedule that exists is touched, so this runs after the plugins: `edit_schedule` creates
+/// a missing one, and a `StateTransition` created ahead of `StatesPlugin` keeps that plugin from
+/// chaining its transition sets, so `OnEnter` could run a frame after the state changed.
+fn single_thread_frame_schedules(app: &mut App) {
+    use bevy::app::{
+        FixedFirst, FixedLast, FixedPostUpdate, FixedPreUpdate, FixedUpdate, RunFixedMainLoop,
+    };
+    use bevy::ecs::schedule::{ExecutorKind, ScheduleLabel};
+    for label in [
+        First.intern(),
+        PreUpdate.intern(),
+        StateTransition.intern(),
+        RunFixedMainLoop.intern(),
+        FixedFirst.intern(),
+        FixedPreUpdate.intern(),
+        FixedUpdate.intern(),
+        FixedPostUpdate.intern(),
+        FixedLast.intern(),
+        SpawnScene.intern(),
+        Last.intern(),
+    ] {
+        match app.get_schedule_mut(label) {
+            Some(schedule) => {
+                schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+            }
+            // Nothing has added a system to it: nothing to run either way.
+            None => debug!("executor: no {label:?} schedule, left as it is"),
+        }
+    }
+}
+
 fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     #[cfg(windows)]
     main_apartment();
@@ -479,6 +514,11 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
         }
     }
 
+    // After the plugins, which create `StateTransition` and `SpawnScene` (see the function).
+    if std::env::var_os("WOW_MT_REST").is_none() {
+        single_thread_frame_schedules(&mut app);
+    }
+
     // A crate on top of benilla adds its plugins here ([`run_with`]).
     if let Some(extend) = extend {
         extend(&mut app);
@@ -491,4 +531,94 @@ fn launch(build: BuildId, extend: Option<Extension<'_>>) -> AppExit {
     // Returns the app's exit status: a failed capture sets `AppExit::error()`
     // (`capture::drive_capture`), which must not exit 0 with no PNG on disk.
     app.run()
+}
+
+#[cfg(test)]
+mod executor_tests {
+    use bevy::ecs::schedule::{ExecutorKind, Schedules};
+    use bevy::prelude::*;
+    use bevy::state::app::StatesPlugin;
+
+    use super::single_thread_frame_schedules;
+
+    #[derive(States, Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+    enum Screen {
+        #[default]
+        Glue,
+        World,
+    }
+
+    /// The frame the state changed on and the frame its `OnEnter` ran on.
+    #[derive(Resource, Default)]
+    struct Entered(Vec<u32>);
+
+    #[derive(Resource, Default)]
+    struct Frame(u32);
+
+    fn app_entering_the_world(flip_first: bool) -> App {
+        let mut app = App::new();
+        if flip_first {
+            single_thread_frame_schedules(&mut app);
+        }
+        app.add_plugins(StatesPlugin)
+            .insert_state(Screen::Glue)
+            .init_resource::<Entered>()
+            .init_resource::<Frame>()
+            .add_systems(First, |mut frame: ResMut<Frame>| frame.0 += 1)
+            .add_systems(
+                OnEnter(Screen::World),
+                |frame: Res<Frame>, mut entered: ResMut<Entered>| entered.0.push(frame.0),
+            );
+        if !flip_first {
+            single_thread_frame_schedules(&mut app);
+        }
+        app.update();
+        app.world_mut()
+            .resource_mut::<NextState<Screen>>()
+            .set(Screen::World);
+        app
+    }
+
+    /// A schedule that does not exist yet is left alone, so a plugin that creates it later sets
+    /// it up whole.
+    #[test]
+    fn the_flip_creates_no_schedule() {
+        let mut app = App::new();
+        app.add_systems(PreUpdate, || {});
+        single_thread_frame_schedules(&mut app);
+        let schedules = app.world().resource::<Schedules>();
+        assert!(!schedules.contains(StateTransition));
+        assert!(!schedules.contains(SpawnScene));
+        assert_eq!(
+            schedules.get(PreUpdate).map(Schedule::get_executor_kind),
+            Some(ExecutorKind::SingleThreaded),
+            "one that exists is flipped"
+        );
+    }
+
+    /// `OnEnter` runs in the frame the state changes, with `StateTransition` single-threaded and
+    /// whichever side of `StatesPlugin` the flip lands on: the in-game UI's entry load is armed
+    /// there, and the login burst is held until it is.
+    #[test]
+    fn on_enter_runs_in_the_frame_the_state_changes() {
+        for flip_first in [false, true] {
+            let mut app = app_entering_the_world(flip_first);
+            app.update();
+            let world = app.world();
+            assert_eq!(*world.resource::<State<Screen>>().get(), Screen::World);
+            assert_eq!(
+                world.resource::<Entered>().0,
+                vec![world.resource::<Frame>().0],
+                "flip first: {flip_first}"
+            );
+        }
+        let app = app_entering_the_world(false);
+        assert_eq!(
+            app.world()
+                .resource::<Schedules>()
+                .get(StateTransition)
+                .map(Schedule::get_executor_kind),
+            Some(ExecutorKind::SingleThreaded)
+        );
+    }
 }
