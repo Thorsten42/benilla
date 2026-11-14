@@ -434,7 +434,8 @@ fn a_cooldown_frame_is_the_indicator_model_with_the_modern_methods() {
         .run(
             r#"
         local cd = CreateFrame("Cooldown", nil, UIParent, "CooldownFrameTemplate")
-        assert(cd:IsObjectType("Model"))
+        assert(cd:IsObjectType("Model") and cd:IsObjectType("Cooldown"))
+        assert(not cd:IsObjectType("Button"))
         cd:SetReverse(true); cd:SetDrawBling(false)
         assert(cd:GetReverse() and not cd:GetDrawBling() and cd:GetDrawSwipe())
         cd:SetCooldown(100, 10)
