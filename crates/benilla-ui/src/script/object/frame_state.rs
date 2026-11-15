@@ -277,9 +277,14 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
             if was_visible {
                 visibility::hide(lua, h);
             }
+            // Under the ClassicAPI extension the subtree follows the frame's new level, as that
+            // client's patched SetParent moves it (`reparent_finish_levels`).
+            let children_follow = crate::script::pfui_host::xml::active(lua);
             {
                 let mut model = lua.app_data_mut::<Model>().expect("model");
-                model.arena.reparent_finish(h, new_parent);
+                model
+                    .arena
+                    .reparent_finish_levels(h, new_parent, children_follow);
                 // A reparent moves the subtree's effective scale, a layout input and part of every
                 // descendant FontString's measure key.
                 model.touch_layout_subtree(h);
