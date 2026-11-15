@@ -1487,3 +1487,40 @@ fn sort_bags_combines_stacks_orders_items_and_leaves_locked_ones() {
     script.tick(0.05);
     assert!(items::take_bag_moves(script.lua()).is_empty());
 }
+
+/// pfUI raises a target's engine plate by level and re-parents its overlay through nil to move
+/// it; under ClassicAPI the overlay's subtree follows, so the health bar, set to level 4 under a
+/// level-2 overlay, stays above the overlay's own glow. A plain 1.12 VM keeps the children's
+/// levels, as the reference's SetParent does.
+#[test]
+fn set_parent_moves_the_subtree_under_classicapi() {
+    let chunk = r#"
+        local engine = CreateFrame("Button", nil, UIParent)
+        local overlay = CreateFrame("Button", nil, engine)
+        local health = CreateFrame("StatusBar", nil, overlay)
+        health:SetFrameLevel(4)
+        engine:SetFrameLevel(engine:GetFrameLevel() + 20)
+        overlay:SetParent(nil)
+        overlay:SetParent(engine)
+        return engine:GetFrameLevel(), overlay:GetFrameLevel(), health:GetFrameLevel()
+    "#;
+    let script = extended();
+    script
+        .run("UIParent = CreateFrame('Frame', 'UIParent')")
+        .unwrap();
+    let (engine, overlay, health) = script.eval::<(i64, i64, i64)>(chunk).unwrap();
+    assert_eq!(overlay, engine + 1);
+    assert!(
+        health > overlay,
+        "the bar stays above the overlay: {health} <= {overlay}"
+    );
+    assert_eq!(health - overlay, 2, "the subtree keeps its layering");
+
+    let plain = UiScript::new().unwrap();
+    plain
+        .run("UIParent = CreateFrame('Frame', 'UIParent')")
+        .unwrap();
+    let (_, overlay, health) = plain.eval::<(i64, i64, i64)>(chunk).unwrap();
+    assert_eq!(health, 4, "1.12 keeps the child's level");
+    assert!(health < overlay);
+}
