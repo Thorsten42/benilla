@@ -493,6 +493,44 @@ fn a_cooldown_counts_down_in_retails_units_while_the_cvar_is_on() {
         .unwrap();
 }
 
+/// The indicator model is 36 units at model scale 1, so its flash is scaled to the frame's larger
+/// side and fills a pfUI button of any size, as a ClassicAPI client's does.
+#[test]
+fn a_cooldowns_sweep_is_scaled_to_its_frame() {
+    let script = extended();
+    script
+        .run("UIParent = CreateFrame('Frame', 'UIParent')")
+        .unwrap();
+    load(
+        &script,
+        r#"<Ui><Model name="CooldownFrameTemplate" setAllPoints="true" hidden="true" virtual="true"/></Ui>"#,
+    );
+    script
+        .run(
+            r#"
+        local cd = CreateFrame("Cooldown", nil, UIParent, "CooldownFrameTemplate")
+        local scale
+        cd.SetModelScale = function(self, s) scale = s end
+        cd.SetSequenceTime = function() end
+        local function step() this = cd; cd:GetScript("OnUpdateModel")() end
+        GetTime = function() return 102 end
+        cd:SetWidth(54); cd:SetHeight(72)
+        cd:SetCooldown(100, 10)
+        step()
+        assert(scale and math.abs(scale - 2) < 1e-4, tostring(scale))
+        scale = nil
+        step()
+        assert(scale == nil, "an unchanged size sets nothing")
+        cd:SetWidth(36); cd:SetHeight(36)
+        step()
+        assert(scale and math.abs(scale - 1) < 1e-4, tostring(scale))
+    "#,
+        )
+        .unwrap();
+}
+
+/// The swipe covers what is left, clockwise from twelve, or with Reverse what has passed, as a
+/// ClassicAPI client's does; the model is held clear meanwhile, and a pause holds it all.
 #[test]
 fn a_cooldowns_flags_steer_its_sweep() {
     let script = extended();
@@ -510,19 +548,40 @@ fn a_cooldowns_flags_steer_its_sweep() {
         local at
         cd.SetSequenceTime = function(self, sequence, ms) at = ms end
         local function step() this = cd; cd:GetScript("OnUpdateModel")() end
+        local function shown()
+          local s = ""
+          for q = 1, 4 do
+            local t = cd.benillaSwipe and cd.benillaSwipe[q]
+            s = s .. ((t and t:IsShown()) and "1" or "0")
+          end
+          return s
+        end
+        local function full(q)
+          local ulx = cd.benillaSwipe[q]:GetTexCoord()
+          return ulx == .5
+        end
         GetTime = function() return 102 end
         cd:SetCooldown(100, 10)
         step()
-        assert(at and math.abs(at - 200) < 50, tostring(at))
+        assert(at == 999, "the model is held clear: " .. tostring(at))
+        -- 20 % gone: the first quarter partly, the other three whole.
+        assert(shown() == "1111", shown())
+        assert(not full(1) and full(2) and full(3) and full(4))
         cd:SetReverse(true)
         step()
-        assert(math.abs(at - 800) < 50, tostring(at))
+        -- Reverse: only the 20 % that has passed, inside the first quarter.
+        assert(shown() == "1000", shown())
+        assert(not full(1))
+        -- Its corner on the hand's dark side reads deep in the veil, the centre on the edge.
+        local ulx, _, llx = cd.benillaSwipe[1]:GetTexCoord()
+        assert(ulx > 1 and math.abs(llx) < 1e-6, ulx .. " " .. llx)
         cd:SetPaused(true); at = nil
         step()
         assert(at == nil)
         cd:SetPaused(false)
         cd:SetDrawSwipe(false)
-        assert(cd:GetAlpha() == 0 and not cd:GetDrawSwipe())
+        step()
+        assert(shown() == "0000" and cd:GetAlpha() == 1, shown())
         cd:SetDrawBling(false)
         cd:SetCooldown(80, 10)
         step()
