@@ -178,6 +178,8 @@ struct SavedAlias {
 struct Aliases<'a> {
     lua: &'a Lua,
     saved: Vec<SavedAlias>,
+    /// The stock tokens borrowed, in turn.
+    order: [&'static str; 2],
 }
 impl Drop for Aliases<'_> {
     fn drop(&mut self) {
@@ -231,11 +233,9 @@ impl Aliases<'_> {
                 }
             }
         }
-        let token = if self.saved.is_empty() {
-            "npc"
-        } else {
-            "mouseover"
-        };
+        // `mouseover` reads the VM's own global (`LiveGlobals::mouseover`); `npc` reads the
+        // client's interaction global whenever a host is lent, so it serves only as the second.
+        let token = self.order[self.saved.len().min(1)];
         let replacement = state(self.lua, guid);
         let mut model = self.lua.app_data_mut::<Model>().expect("model");
         let old = model.units_by_lower.remove(token);
@@ -272,7 +272,26 @@ pub(super) fn call(lua: &Lua, original: &Function, args: MultiValue) -> mlua::Re
     }) {
         return original.call::<MultiValue>(args);
     }
-    let mut aliases = Aliases { lua, saved: vec![] };
+    // A call that names the mouseover itself keeps it; its custom token borrows `npc`.
+    let names_mouseover = args.iter().any(|value| match value {
+        Value::String(token) => {
+            let token = token.to_string_lossy();
+            resolve(lua, &token).is_none()
+                && token
+                    .get(..9)
+                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case("mouseover"))
+        }
+        _ => false,
+    });
+    let mut aliases = Aliases {
+        lua,
+        saved: vec![],
+        order: if names_mouseover {
+            ["npc", "mouseover"]
+        } else {
+            ["mouseover", "npc"]
+        },
+    };
     let mut replaced = Vec::new();
     for arg in args {
         let custom = if let Value::String(token) = &arg {
