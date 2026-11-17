@@ -169,3 +169,7 @@ fn feed(
     }
     *memo.get(&script) = true;
 }
+
+#[cfg(test)]
+#[path = "token_alias_tests.rs"]
+mod token_alias_tests;
