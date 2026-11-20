@@ -1,11 +1,12 @@
-//! Merchant queries and paced junk sales reuse the vendor snapshot and sell queue.
+//! Merchant queries and paced junk sales read the open vendor live (the window's head and its
+//! buy-back rows, as the stock getters do) and reuse the sell queue.
 
 use crate::script::Model;
 use mlua::Lua;
 
 fn junk(lua: &Lua) -> Vec<(i64, u32, u64)> {
     let model = lua.app_data_ref::<Model>().expect("model");
-    if model.merchant.is_none() {
+    if !crate::script::merchant::head(lua, &model).open {
         return vec![];
     }
     let extras = lua.app_data_ref::<super::items::Extras>().expect("items");
@@ -17,10 +18,14 @@ fn junk(lua: &Lua) -> Vec<(i64, u32, u64)> {
                 return None;
             }
             let state = crate::script::held::bag_slot(lua, &model, bag, slot)?;
-            let template = model.item_templates.get(&item.item_id)?;
+            // The slot's quality as the bag reads it live; the VM's template copy only where the
+            // slot carries none (the copy is seated on demand, so a grey item may have none).
+            let quality = state
+                .quality
+                .or_else(|| model.item_templates.get(&item.item_id).map(|t| t.quality))?;
             (item.guid != 0
                 && !crate::script::cursor::item_locked(&model, state.guid)
-                && template.quality == 0)
+                && quality == 0)
                 .then_some((bag, slot, item.guid))
         })
         .collect();
@@ -38,7 +43,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 .ok()
                 .and_then(|index| index.checked_sub(1))
                 .filter(|index| *index < 12)
-                .and_then(|index| model.merchant.as_ref()?.buyback.get(index))
+                .and_then(|index| crate::script::merchant::buyback_row(lua, &model, index))
                 .map(|item| item.item_id)
                 .filter(|id| *id != 0))
         })?,
@@ -62,10 +67,12 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         "context",
         lua.create_function(|lua, ()| {
             let model = lua.app_data_ref::<Model>().expect("model");
-            Ok(model
-                .merchant
-                .as_ref()
-                .map(|_| format!("0x{:016X}", model.unit_guids.npc)))
+            // The vendor as the client holds it now: the window's head and the `npc` global.
+            if !crate::script::merchant::head(lua, &model).open {
+                return Ok(None);
+            }
+            let npc = crate::script::unit::token_guid(lua, &model.unit_guids, "npc")?;
+            Ok(Some(format!("0x{:016X}", npc.unwrap_or(0))))
         })?,
     )?;
     bridge.set(
