@@ -157,14 +157,12 @@ fn subject(lua: &Lua, verb: &str, args: &MultiValue) -> mlua::Result<Option<Item
                     .and_then(|i| items.get(i))
             })
             .map(|&(item_id, _)| item_id),
-        "SetMerchantItem" | "SetBuybackItem" => model.merchant.as_ref().and_then(|m| {
-            let rows = if verb == "SetBuybackItem" {
-                &m.buyback
-            } else {
-                &m.items
-            };
-            row.and_then(|i| rows.get(i)).map(|s| s.item_id)
-        }),
+        "SetMerchantItem" => row
+            .and_then(|i| crate::script::merchant::row(lua, &model, i))
+            .map(|s| s.item_id),
+        "SetBuybackItem" => row
+            .and_then(|i| crate::script::merchant::buyback_row(lua, &model, i))
+            .map(|s| s.item_id),
         "SetLootItem" => model
             .loot
             .as_ref()
