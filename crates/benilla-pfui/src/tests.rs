@@ -1334,6 +1334,90 @@ fn merchant_junk_sales_are_paced_and_resolve_moved_instance_guids() {
 }
 
 #[test]
+fn merchant_junk_reads_the_vendor_live_with_the_host_lent() {
+    use benilla_ui::script::{
+        live::LiveAsk,
+        pfui_host::items::{self, Instance},
+        BuybackRowQuery, CallHost, CallTail, ContainerSlot, ContainerState, MerchantCall,
+        MerchantHead, MerchantHeadQuery, MerchantItem, ScriptCall,
+    };
+    /// The client in play: the vendor open in the host only, the VM's copy never set.
+    #[derive(Default)]
+    struct Vendor {
+        sold: Vec<u64>,
+    }
+    impl CallHost for Vendor {
+        fn apply(&mut self, _: &mut UiScript, call: ScriptCall) -> Option<CallTail> {
+            if let ScriptCall::Merchant(MerchantCall::Sell { item_guid, .. }) = call {
+                self.sold.push(item_guid);
+            }
+            None
+        }
+        fn read_live(&mut self, ask: &mut LiveAsk<'_>) -> bool {
+            ask.answer(|_: &MerchantHeadQuery| {
+                Some(MerchantHead {
+                    open: true,
+                    buyback: 1,
+                    ..Default::default()
+                })
+            }) || ask.answer(|q: &BuybackRowQuery| {
+                Some((q.0 == 0).then(|| MerchantItem {
+                    item_id: 40,
+                    ..Default::default()
+                }))
+            })
+        }
+    }
+    let mut script = extended();
+    // No item template seated: the grey is known by the slot's own quality.
+    let bag = ContainerState {
+        num_slots: 4,
+        slots: (1..=2)
+            .map(|slot| {
+                (
+                    slot,
+                    ContainerSlot {
+                        item_id: 37 + slot,
+                        count: 1,
+                        quality: Some(slot - 1),
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect(),
+        ..Default::default()
+    };
+    script.set_container(0, Some(bag));
+    let item = |guid, id| Instance {
+        guid,
+        item_id: id,
+        count: 1,
+        uses: 1,
+        name: None,
+    };
+    items::set_instances(
+        script.lua(),
+        [((0, 1), item(101, 38)), ((0, 2), item(102, 39))],
+    );
+    script
+        .run("assert(C_MerchantFrame.GetNumJunkItems()==0, 'closed without a host')")
+        .unwrap();
+    let mut vendor = Vendor::default();
+    script.hosted(&mut vendor, |script| {
+        script
+            .run(
+                "assert(C_MerchantFrame.GetNumJunkItems()==1, 'junk '..C_MerchantFrame.GetNumJunkItems())
+                 assert(C_MerchantFrame.GetBuybackItemID(1)==40); C_MerchantFrame.SellAllJunkItems()",
+            )
+            .unwrap();
+        script.tick(0.1);
+        script.tick(0.1);
+    });
+    assert_eq!(vendor.sold, vec![101]);
+    assert!(script.errors().is_empty(), "{:?}", script.errors());
+}
+
+#[test]
 fn spell_known_checks_the_visible_book_and_marker_queries_use_live_units() {
     use benilla_ui::script::{
         pfui_host::units, PetBookState, SpellBookState, SpellSlotView, UnitState,
