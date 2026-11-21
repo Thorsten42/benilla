@@ -1171,6 +1171,75 @@ fn totem_queries_distinguish_tools_from_active_summons_and_target_real_guids() {
         .unwrap();
 }
 
+/// The modern list puts the player's own auras first, so its index is not the stock one: an aura
+/// the player cast in a later slot leads it. `SetUnitAura` turns the modern index into the stock
+/// walk's before it calls the stock setter, as ClassicAPI does (`FindNthSlot`, then
+/// `EngineIndexForSlot`), so the tooltip names the aura the icon shows.
+#[test]
+fn aura_tooltip_index_follows_the_modern_order() {
+    use benilla_ui::script::{
+        pfui_host::auras::{self, Aura},
+        AuraState, SpellTooltipView, UnitGuids,
+    };
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 5,
+        ..Default::default()
+    });
+    let buff = |slot: u8, spell_id: u32, name: &str, source_guid: Option<u64>| Aura {
+        crowd_control: false,
+        self_only: false,
+        applies_aura: false,
+        immunities: Vec::new(),
+        slot,
+        state: AuraState {
+            spell_id,
+            slot,
+            name: Some(name.into()),
+            helpful: true,
+            ..Default::default()
+        },
+        source_guid,
+    };
+    for (id, name) in [(201, "Mark"), (202, "Rejuvenation")] {
+        script.set_spell_tooltip(
+            id,
+            SpellTooltipView {
+                name: name.into(),
+                ..Default::default()
+            },
+        );
+    }
+    // Slot 0 from someone unseen, slot 1 the player's own cast.
+    auras::set_auras(
+        script.lua(),
+        5,
+        Some(vec![
+            buff(0, 201, "Mark", None),
+            buff(1, 202, "Rejuvenation", Some(3)),
+        ]),
+    );
+    script
+        .run(
+            r#"
+        local tip=CreateFrame('GameTooltip','ProbeOrderTip',nil,'TestTooltipTemplate')
+        local function at(i)
+          tip:SetOwner(WorldFrame or CreateFrame('Frame'),'ANCHOR_NONE')
+          tip:SetUnitAura('target',i,'HELPFUL')
+          return ProbeOrderTipTextLeft1:GetText()
+        end
+        for i=1,2 do
+          local icon=C_UnitAuras.GetAuraDataByIndex('target',i,'HELPFUL').name
+          assert(at(i)==icon, i..': icon '..icon..', tooltip '..tostring(at(i)))
+        end
+        assert(at(1)=='Rejuvenation', 'own first')
+    "#,
+        )
+        .unwrap();
+    assert!(script.errors().is_empty(), "{:?}", script.errors());
+}
+
 #[test]
 fn aura_tooltips_use_the_modern_index_space_and_existing_spell_renderer() {
     use benilla_ui::script::{
