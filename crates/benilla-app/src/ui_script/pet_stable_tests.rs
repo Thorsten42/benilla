@@ -186,6 +186,8 @@ fn the_stable_pane_shows_the_selected_pets_display() {
             Some(row(7, "Snarl", 1007)),
             Some(row(8, "Tusk", 1008)),
             None,
+            None,
+            None,
         ],
         has_live_pet: true,
     }));

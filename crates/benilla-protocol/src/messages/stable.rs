@@ -88,7 +88,7 @@ pub fn stable_swap_pet(npc_guid: u64, pet_number: u32) -> Vec<u8> {
 // No `CMSG_STABLE_REVIVE_PET` (0x0274) verb: vmangos's handler is empty (`NPCHandler.cpp:731`).
 
 /// Read `MSG_LIST_STABLED_PETS` from the server (`NPCHandler.cpp:522-575`). The slot count is how
-/// many are bought (0..=2), not occupied. The current pet's row may be missing: the rows are the
+/// many are bought (0..=2, 0..=4 on a Turtle core), not occupied. The current pet's row may be missing: the rows are the
 /// summoned pet ([`StabledPet::is_summoned`]) and the stabled ones in list order.
 pub(super) fn read_list_stabled_pets(r: &mut &[u8]) -> io::Result<(u64, u8, Vec<StabledPet>)> {
     let npc = read_u64_le(r)?;
