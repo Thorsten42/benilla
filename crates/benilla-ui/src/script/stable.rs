@@ -3,8 +3,9 @@
 //! cache lacks asks it with the window's callback ([`super::RecordAsk::StableCreature`]), and each
 //! request goes out inside its call through the host ([`StableCall`]).
 //!
-//! The window shows slots 0..=2: 0 is the current pet, 1 and 2 the stable slots a hunter buys
-//! (`NUM_PET_STABLE_SLOTS` 2, two `StableSlotPrices.dbc` rows, vmangos `MAX_PET_STABLES` 2). The
+//! The window shows slots 0..=2 in 1.12.1: 0 is the current pet, 1 and 2 the stable slots a hunter
+//! buys (`NUM_PET_STABLE_SLOTS` 2, two `StableSlotPrices.dbc` rows, vmangos `MAX_PET_STABLES` 2);
+//! Turtle sells 4, so up to slot 4 ([`NUM_STABLE_SLOTS`]). The
 //! wire's 1-based slot arrives rebased ([`benilla_protocol::messages::StabledPet::slot`]). Slot 0
 //! can hold a row with no pet out: a dismissed or distant pet still comes from the server's
 //! character-pet cache, and the stock window falls back to `GetStablePetInfo(0)` when
@@ -20,8 +21,11 @@ use super::binding_abi;
 use super::live::{ask, LiveQuery};
 use super::Model;
 
-/// The current pet plus the `NUM_PET_STABLE_SLOTS` (2) stable slots (`PetStable.lua:1`).
-pub const NUM_STABLE_SLOTS: usize = 3;
+/// The current pet plus the `NUM_PET_STABLE_SLOTS` stable slots (`PetStable.lua:1`): 2 in 1.12.1,
+/// 4 in Turtle's FrameXML (`NUM_PET_STABLE_SLOTS = 4`), its `StableSlotPrices.dbc` (four rows) and
+/// the Tortoise core (`MAX_PET_STABLES 4`). Sized for Turtle: with stock data the two extra rows
+/// stay empty, stock FrameXML never asks for them, and the price table stops the purchase at 2.
+pub const NUM_STABLE_SLOTS: usize = 5;
 
 /// One stable window row, every wire field resolved to what the Lua renders. An empty slot is
 /// `None` in [`StableState::slots`]; an unbought one lies past [`StableState::num_stable_slots`].
@@ -662,7 +666,8 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     // BuyStableSlot(): the client's silent gates, in order: an open stable, fewer than 2 slots
-    // (`0x4cb0c4`), a price row and affordability (`0x4cb122`).
+    // (`0x4cb0c4`; Turtle's client allows 4, which the price table's rows cap in either), a price
+    // row and affordability (`0x4cb122`).
     g.set(
         "BuyStableSlot",
         lua.create_function(|lua, ()| {
@@ -718,7 +723,12 @@ mod tests {
         }
     }
 
-    fn state(slots: [Option<StablePetSlot>; NUM_STABLE_SLOTS]) -> StableState {
+    /// The window with `leading` as its first rows, the rest empty.
+    fn state<const N: usize>(leading: [Option<StablePetSlot>; N]) -> StableState {
+        let mut slots: [Option<StablePetSlot>; NUM_STABLE_SLOTS] = Default::default();
+        for (slot, row) in slots.iter_mut().zip(leading) {
+            *slot = row;
+        }
         StableState {
             num_stable_slots: 1,
             next_slot_cost: 50_000,
@@ -945,8 +955,7 @@ mod tests {
         s.keep_calls();
         s.set_stable(Some(StableState {
             num_stable_slots: 2,
-            slots: [None, Some(pet(8, "Bruiser", 38)), None],
-            ..state([None, None, None])
+            ..state([None, Some(pet(8, "Bruiser", 38)), None])
         }));
         s.eval::<()>("PickupStablePet(1) ClickStablePet(2)")
             .unwrap();
@@ -973,10 +982,25 @@ mod tests {
         s.eval::<()>("BuyStableSlot()").unwrap();
         assert!(s.take_stable_intents().is_empty(), "unaffordable is silent");
 
-        // Both slots owned, with money restored so only the cap refuses.
+        // 1.12.1's two slots owned: its price table has no third row, so no price refuses.
         s.set_money(1_000_000);
+        let mut stock_full = state([None, None, None]);
+        stock_full.num_stable_slots = 2;
+        stock_full.next_slot_cost = 0;
+        s.set_stable(Some(stock_full));
+        s.eval::<()>("BuyStableSlot()").unwrap();
+        assert!(s.take_stable_intents().is_empty(), "no price row is silent");
+
+        // Turtle's third slot has a price (250g) and is bought.
+        let mut turtle_third = state([None, None, None]);
+        turtle_third.num_stable_slots = 2;
+        s.set_stable(Some(turtle_third));
+        s.eval::<()>("BuyStableSlot()").unwrap();
+        assert_eq!(s.take_stable_intents(), vec![StableIntent::BuySlot]);
+
+        // All four of Turtle's owned: the cap refuses whatever the price row says.
         let mut full = state([None, None, None]);
-        full.num_stable_slots = 2;
+        full.num_stable_slots = 4;
         s.set_stable(Some(full));
         s.eval::<()>("BuyStableSlot()").unwrap();
         assert!(s.take_stable_intents().is_empty(), "the cap is silent");
