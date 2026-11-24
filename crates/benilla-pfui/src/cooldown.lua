@@ -8,12 +8,10 @@ BenillaCooldownMixin = {}
 local M = BenillaCooldownMixin
 
 -- The countdown numbers a ClassicAPI client writes over the sweep while `countdownForCooldowns` is
--- on (registered at 0, as the client registers it), the frame does not hide them and the cooldown
--- outlasts its minimum: retail's text for the time left, whole units rounded up, tenths below the
--- milliseconds threshold and m:ss below the abbreviation threshold, which counts from one minute
--- to one hour.
-local known, value = pcall(GetCVar, "countdownForCooldowns")
-if not known or value == nil then RegisterCVar("countdownForCooldowns", "0") end
+-- on (registered at 0 with ClassicAPI's other CVars, classicapi_cvars.lua), the frame does not hide
+-- them and the cooldown outlasts its minimum: retail's text for the time left, whole units rounded
+-- up, tenths below the milliseconds threshold and m:ss below the abbreviation threshold, which
+-- counts from one minute to one hour.
 local mod = math.mod or math.fmod
 local function ceilDiv(n, d) return math.floor(n / d) + (mod(n, d) ~= 0 and 1 or 0) end
 local function countdownText(ms, abbrevThreshold, millisecondsThreshold)

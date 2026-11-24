@@ -1163,6 +1163,33 @@ fn color_util_wraps_text_in_a_color_code() {
         .unwrap();
 }
 
+/// ClassicAPI 1.23's Settings window pieces: `editbox:HasFocus()`, `C_SettingsUtil` firing its two
+/// events inside the call, and the soft-interact CVars at Classic Era's defaults
+/// (`editbox/Methods.cpp`, `settings/Panel.cpp`, `target/SoftInteract.cpp`).
+#[test]
+fn settings_window_pieces_answer_as_classicapi() {
+    let script = extended();
+    script
+        .run(r#"
+        local box = CreateFrame('EditBox', 'ProbeFocusBox')
+        assert(box:HasFocus() == false)
+        box:SetFocus(); assert(box:HasFocus() == true)
+        box:ClearFocus(); assert(box:HasFocus() == false)
+        got = {}
+        local f = CreateFrame('Frame'); f:RegisterEvent('SETTINGS_PANEL_OPEN'); f:RegisterEvent('SETTINGS_LOADED')
+        f:SetScript('OnEvent', function() table.insert(got, event .. ' ' .. tostring(arg1) .. ' ' .. tostring(arg2)) end)
+        C_SettingsUtil.OpenSettingsPanel('pfUI', 'Fonts')
+        C_SettingsUtil.NotifySettingsLoaded()
+        assert(table.concat(got, ';') == 'SETTINGS_PANEL_OPEN pfUI Fonts;SETTINGS_LOADED nil nil', table.concat(got, ';'))
+        assert(GetCVar('SoftTargetInteract') == '0' and GetCVar('SoftTargetInteractRange') == '10')
+        assert(GetCVar('TargetPriorityAutoTargetIgnoreWindow') == '500' and GetCVar('countdownForCooldowns') == '0')
+        -- ClassicAPI's CVars are the engine's: the addons keep all 30 RegisterCVar slots.
+        for i = 1, 30 do RegisterCVar('ProbeAddonCVar' .. i, '1') end
+        assert(not pcall(RegisterCVar, 'ProbeAddonCVar31', '1'))
+        "#)
+        .unwrap();
+}
+
 /// ClassicAPI's `FlashClientIcon` returns nothing and leaves one ask for the app, however many
 /// calls a frame makes (`screen/Flash.cpp`).
 #[test]
