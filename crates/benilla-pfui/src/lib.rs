@@ -130,6 +130,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "UnitDistanceSquared",
         "C_MountJournal",
         "C_InstanceEncounter",
+        "C_CurveUtil",
         "BenillaModelSceneMixin",
         "GetShapeshiftFormID",
         "GetSpellInfo",
@@ -457,6 +458,9 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         .exec()?;
     lua.load(include_str!("enums.lua"))
         .set_name("@benilla-pfui/enums.lua")
+        .exec()?;
+    lua.load(include_str!("curves.lua"))
+        .set_name("@benilla-pfui/curves.lua")
         .exec()?;
     clock::install(lua)?;
     lua.load(include_str!("items.lua"))
