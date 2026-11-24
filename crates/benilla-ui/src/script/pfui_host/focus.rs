@@ -51,6 +51,9 @@ pub(super) fn resolve(lua: &Lua, token: &str) -> Option<Option<u64>> {
         && !token
             .get(..4)
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("mark"))
+        && !token
+            .get(..4)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("boss"))
     {
         return None;
     }
@@ -67,6 +70,21 @@ pub(super) fn resolve(lua: &Lua, token: &str) -> Option<Option<u64>> {
         let index = rest[..digits].parse::<usize>().ok();
         (
             index.and_then(|index| super::super::super::nameplate::pfui::guid(lua, index)),
+            &rest[digits..],
+        )
+    } else if let Some(rest) = token.strip_prefix("boss") {
+        // ClassicAPI's `boss1`..`boss5` (`unit/Boss.cpp`): the bosses of the encounter under way,
+        // in the order they joined it. Another index is no token.
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        let index = rest[..digits]
+            .parse::<usize>()
+            .ok()
+            .filter(|index| (1..=5).contains(index))?;
+        (
+            lua.app_data_ref::<Metadata>()?
+                .bosses
+                .get(index - 1)
+                .copied(),
             &rest[digits..],
         )
     } else if let Some(rest) = token.strip_prefix("mark") {
