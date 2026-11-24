@@ -35,6 +35,8 @@ struct Item {
     players: Vec<Player>,
     winner: Option<u64>,
     done: bool,
+    /// LOOT_HISTORY_AUTO_SHOW went out for this roll.
+    shown: bool,
 }
 
 #[derive(Default)]
@@ -44,6 +46,30 @@ struct History {
 }
 
 /// One packet's values, captured at receipt, including cached names/classes and its UI timestamp.
+/// ClassicAPI's `LOOT_HISTORY_AUTO_SHOW(rollID, isMasterLoot)` (`loot/History.cpp`): once per roll,
+/// after its item is added, for a bind-on-pickup item; the host calls it when the item's bonding
+/// is known (at the roll's start, or when its record lands). 1.12 rolls no master-loot items, so
+/// `isMasterLoot` is nil.
+pub fn auto_show(lua: &Lua, key: Key) {
+    let id = {
+        let Some(mut history) = lua.app_data_mut::<History>() else {
+            return;
+        };
+        let Some(item) = history.items.iter_mut().rev().find(|item| item.key == key) else {
+            return;
+        };
+        if std::mem::replace(&mut item.shown, true) {
+            return;
+        }
+        item.id
+    };
+    pfui_host::fire_pfui_event(
+        lua,
+        "LOOT_HISTORY_AUTO_SHOW",
+        vec![ScriptValue::Int(id as i64), ScriptValue::Nil],
+    );
+}
+
 pub fn observe(lua: &Lua, key: Key, item: u32, suffix: i32, timestamp: f64, event: Event) {
     let mut notifications = Vec::new();
     {
@@ -71,6 +97,7 @@ pub fn observe(lua: &Lua, key: Key, item: u32, suffix: i32, timestamp: f64, even
                 players: vec![],
                 winner: None,
                 done: false,
+                shown: false,
             });
             notifications.push(("LOOT_HISTORY_FULL_UPDATE", vec![]));
             history.items.len() - 1
