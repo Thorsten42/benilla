@@ -294,6 +294,8 @@ pub fn set_auras(lua: &Lua, guid: u64, mut auras: Option<Vec<Aura>>) {
                 vec![crate::script::ScriptValue::Str(token)],
             );
         }
+        // A unit no token names still reaches the frames that registered its GUID.
+        crate::script::pfui_host::guid_events::signal(lua, "UNIT_AURA", guid, &[]);
     }
 }
 
