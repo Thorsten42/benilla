@@ -315,7 +315,13 @@ pub(crate) fn fire_event_into(lua: &Lua, event: &str, args: Vec<ScriptValue>) {
             .get(event)
             .and_then(|l| l.first().copied())
     };
-    if at.is_none() {
+    // The unit's GUID listeners take the event after the walk's own ([`guid_events`]); a walk
+    // with only those still runs.
+    #[cfg(feature = "pfui")]
+    let guid_unit = super::pfui_host::guid_events::unit_of(lua, event, args.first());
+    #[cfg(not(feature = "pfui"))]
+    let guid_unit: Option<u64> = None;
+    if at.is_none() && guid_unit.is_none() {
         return;
     }
     if super::host::holding(lua) {
@@ -345,6 +351,12 @@ pub(crate) fn fire_event_into(lua: &Lua, event: &str, args: Vec<ScriptValue>) {
         }
         at = next;
     }
+    #[cfg(feature = "pfui")]
+    if let Some(guid) = guid_unit {
+        super::pfui_host::guid_events::signal(lua, event, guid, args.get(1..).unwrap_or(&[]));
+    }
+    #[cfg(not(feature = "pfui"))]
+    let _ = guid_unit;
     if let Some(saved) = saved {
         let _ = globals.set("event", saved);
     }
