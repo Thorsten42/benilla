@@ -200,6 +200,16 @@ pub(crate) fn player_book(lua: &Lua) -> super::SpellBookState {
     })
 }
 
+/// Slot `index` (0-based) of the player's spellbook (`pet` false) or the pet's, as the book reads
+/// now.
+pub fn book_slot(lua: &Lua, pet: bool, index: usize) -> Option<super::SpellSlotView> {
+    if pet {
+        pet_book(lua).slots.get(index).cloned()
+    } else {
+        player_book(lua).slots.get(index).cloned()
+    }
+}
+
 /// The pet's spellbook now, as [`player_book`] reads the player's.
 pub(crate) fn pet_book(lua: &Lua) -> super::PetBookState {
     super::live::ask(lua, &super::PetBookNow).unwrap_or_else(|| {
