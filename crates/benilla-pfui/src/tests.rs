@@ -1114,6 +1114,36 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI 1.23's `<ModelScene>`: a frame of its own type that keeps its flags (the dressing
+/// room's mount scene and its control frame load from it), and `C_MountJournal` by spell, a mount
+/// being a spell with a SPELL_AURA_MOUNTED effect (`mount/Journal.cpp`).
+#[test]
+fn a_model_scene_loads_and_mounts_are_their_spells() {
+    let script = extended();
+    let xml = r#"<Ui>
+        <ModelScene name="ProbeSceneTemplate" mixin="ProbeSceneMixin" virtual="true">
+          <Scripts><OnLoad>self.loaded = true; self:SetAllowOverlappedModels(true)</OnLoad></Scripts>
+        </ModelScene>
+        <ModelScene name="ProbeScene" inherits="ProbeSceneTemplate">
+          <Frames><Frame parentKey="ControlFrame"/></Frames>
+        </ModelScene>
+    </Ui>"#;
+    script.run("ProbeSceneMixin = { Kind = 'probe' }").unwrap();
+    let doc = benilla_ui::framexml::parse(xml).expect("parses");
+    let report = benilla_ui::loader::load(&script, &doc, &|_| None);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    script
+        .run(r#"
+        assert(ProbeScene and ProbeScene.loaded and ProbeScene.Kind == 'probe' and ProbeScene.ControlFrame)
+        assert(ProbeScene:GetObjectType() == 'ModelScene' and ProbeScene:IsObjectType('ModelScene'))
+        assert(ProbeScene:IsObjectType('Frame') and ProbeScene:GetAllowOverlappedModels() == true)
+        assert(C_MountJournal.GetMountInfoExtraByID(458) == nil)
+        assert(C_MountJournal.GetMountFromSpell(nil) == nil)
+        "#)
+        .unwrap();
+    assert!(script.errors().is_empty(), "{:?}", script.errors());
+}
+
 /// ClassicAPI's `UnitDistanceSquared`: the raw squared distance from the player and whether a
 /// position was read; the player is (0, true), a unit with none (0, false) (`unit/Range.cpp`).
 #[test]
