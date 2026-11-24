@@ -127,6 +127,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "GetNumGossipOptions",
         "GetNumGossipAvailableQuests",
         "GetNumGossipActiveQuests",
+        "UnitDistanceSquared",
         "GetShapeshiftFormID",
         "GetSpellInfo",
         "GetSpellBonusDamage",
