@@ -151,6 +151,16 @@ fn id(lua: &Lua, value: Value) -> mlua::Result<Option<u32>> {
     Ok(None)
 }
 
+/// An item id from a number, an `item:` string or a link.
+pub(crate) fn item_id(lua: &Lua, value: Value) -> mlua::Result<Option<u32>> {
+    id(lua, value)
+}
+
+/// The item id at an item location (bag and slot, or equipment slot), else as [`item_id`].
+pub(crate) fn location_item_id(lua: &Lua, value: Value) -> mlua::Result<Option<u32>> {
+    location_id(lua, value)
+}
+
 fn location_id(lua: &Lua, value: Value) -> mlua::Result<Option<u32>> {
     if let Value::Table(location) = value {
         let bag: Option<i64> = location.get("bagID")?;

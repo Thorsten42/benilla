@@ -10,6 +10,7 @@ mod bubbles;
 pub mod casts;
 pub(crate) mod chat_event;
 mod cursor;
+pub(crate) mod data_loads;
 mod descriptors;
 pub mod durations;
 mod editbox_caret;
@@ -400,6 +401,8 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     super::macros::pfui::install(lua)?;
     super::reputation::pfui::install(lua)?;
     macro_verbs::install(lua)?;
+    // After every namespace it adds to (C_Item, C_QuestLog) is built.
+    data_loads::install(lua)?;
     Ok(())
 }
 
@@ -424,6 +427,7 @@ pub fn item_result(lua: &Lua, item_id: u32, success: bool) {
             ],
         );
     }
+    data_loads::item_landed(lua, item_id, success);
 }
 
 /// A load scope shared by TOC files, XML inclusions and synchronous LoadAddOn calls. Restoring
