@@ -169,6 +169,52 @@ fn location_id(lua: &Lua, value: Value) -> mlua::Result<Option<u32>> {
     id(lua, value)
 }
 
+/// ClassicAPI's `C_Item.GetStackCount(itemLocation)` (`item/StackCount.cpp`): the stack in one
+/// slot, the item's `ITEM_FIELD_STACK_COUNT`, where `GetItemCount` sums every stack of an id. The
+/// location is a bag and slot, an equipment slot, or an item GUID string as `GetItemGUID` writes
+/// it; anything else, or an empty slot, is 0.
+fn stack_count(lua: &Lua, value: Value) -> mlua::Result<u32> {
+    match value {
+        Value::Table(location) => {
+            let bag: Option<i64> = location.get("bagID")?;
+            let slot: Option<u32> = location.get("slotIndex")?;
+            let model = lua.app_data_ref::<Model>().expect("model");
+            if let (Some(bag), Some(slot)) = (bag, slot) {
+                return Ok(crate::script::held::bag_slot(lua, &model, bag, slot)
+                    .filter(|s| s.item_id != 0)
+                    .map_or(0, |s| s.count));
+            }
+            let equip: Option<usize> = location.get("equipmentSlotIndex")?;
+            Ok(equip
+                .and_then(|i| crate::script::worn::worn_slot(lua, &model, i))
+                .filter(|v| v.item_id != 0)
+                .map_or(0, |v| v.count))
+        }
+        Value::String(text) => {
+            let text = text.to_string_lossy();
+            let Some(guid) = text
+                .strip_prefix("0x")
+                .or_else(|| text.strip_prefix("0X"))
+                .and_then(|hex| u64::from_str_radix(hex, 16).ok())
+                .filter(|guid| *guid != 0)
+            else {
+                return Ok(0);
+            };
+            Ok(lua
+                .app_data_ref::<Extras>()
+                .and_then(|extras| {
+                    extras
+                        .instances
+                        .values()
+                        .find(|instance| instance.guid == guid)
+                        .map(|instance| instance.count)
+                })
+                .unwrap_or(0))
+        }
+        _ => Ok(0),
+    }
+}
+
 /// The VM's copy of item `id`'s record; a miss with `request` asks for it inside the getter's call,
 /// and its landing signals `GET_ITEM_INFO_RECEIVED`.
 fn cached(lua: &Lua, id: Option<u32>, request: bool) -> Option<ItemTemplateView> {
@@ -248,6 +294,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     let api = lua.create_table()?;
     actions::install(lua, &api)?;
     api.set("GetItemID", lua.create_function(location_id)?)?;
+    api.set("GetStackCount", lua.create_function(stack_count)?)?;
     for name in [
         "GetItemName",
         "GetItemNameByID",
