@@ -975,6 +975,39 @@ fn focus_power_events_report_only_the_resource_that_changed() {
     power.maximum[1] = Some(1100);
     units::set_powers(script.lua(), [(5, power)]);
     script.run("assert(table.concat(targetEvents,' ')=='UNIT_POWER_UPDATE:RAGE UNIT_MAXPOWER:RAGE', table.concat(targetEvents,' '))").unwrap();
+    // ClassicAPI's types (unit/Power.cpp): happiness is 27 and shown over 1.12's divisor of 1000;
+    // a type other than the display power answers 0 for a unit that is neither player nor pet;
+    // type 4 is the player's combo points, 0 for any other unit.
+    let mut pet = Power {
+        kind: 2,
+        current: [Some(0), Some(0), Some(80), Some(0), Some(612_000)],
+        maximum: [Some(0), Some(0), Some(100), Some(0), Some(1_050_000)],
+    };
+    units::set_powers(script.lua(), [(5, pet.clone())]);
+    script
+        .run(
+            r#"
+      assert(Enum.PowerType.Happiness == 27 and Enum.PowerType.ComboPoints == 4)
+      assert(UnitPower('target') == 80 and UnitPowerMax('target', 27) == 1050)
+      assert(UnitPower('target', 27) == 0, 'not the display power, not the pet: gated')
+      assert(UnitPower('target', Enum.PowerType.ComboPoints) == 0 and UnitPower('target', 99) == 0)
+    "#,
+        )
+        .unwrap();
+    script.set_unit_guids(&UnitGuids {
+        target: 5,
+        pet: 5,
+        ..Default::default()
+    });
+    script
+        .run("assert(UnitPower('target', 27) == 612 and UnitPower('target', 27, true) == 612000)")
+        .unwrap();
+    pet.current[0] = Some(30);
+    pet.maximum[0] = Some(50);
+    units::set_powers(script.lua(), [(5, pet)]);
+    script
+        .run("assert(UnitPowerMax('target', 0) == 50, 'the max is not gated')")
+        .unwrap();
     assert!(script.errors().is_empty(), "{:?}", script.errors());
 }
 

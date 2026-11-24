@@ -238,6 +238,9 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     }
     lua51::install(lua)?;
     encoding::install(lua)?;
+    lua.load(include_str!("classicapi_enums.lua"))
+        .set_name("@benilla-pfui/classicapi_enums.lua")
+        .exec()?;
     lua.load(include_str!("utilities.lua"))
         .set_name("@benilla-pfui/utilities.lua")
         .exec()?;

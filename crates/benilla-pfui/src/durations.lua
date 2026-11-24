@@ -19,13 +19,6 @@ local function strict(kind)
   return function() error("Attempt to modify a " .. kind, 2) end
 end
 
-Enum = Enum or {}
-Enum.DurationTimeModifier = { RealTime = 0, BaseTime = 1 }
-Enum.DurationTextBindingProperty = { RemainingDuration = 0, RemainingPercent = 1, ElapsedDuration = 2,
-  ElapsedPercent = 3, TotalDuration = 4, StartTime = 5, EndTime = 6 }
-Enum.StatusBarInterpolation = { Immediate = 0, ExponentialEaseOut = 1 }
-Enum.StatusBarTimerDirection = { ElapsedTime = 0, RemainingTime = 1 }
-Enum.NumericRuleFormatRounding = { Nearest = 0, Up = 1, Down = 2 }
 
 ---------------------------------------------------------------------------------------------------
 -- Numeric formatter
