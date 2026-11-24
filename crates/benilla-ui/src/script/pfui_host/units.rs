@@ -19,6 +19,8 @@ struct Metadata {
     focus: Option<u64>,
     restored_focus_pending: bool,
     raw: HashMap<u64, RawUnit>,
+    /// The units last reported in view, `None` until the first feed seeds it.
+    in_view: Option<std::collections::HashSet<u64>>,
 }
 
 /// Attach before installing the extension in a fresh VM. Only the owning session shares it.
@@ -79,9 +81,40 @@ pub fn player_is_warrior(lua: &Lua) -> bool {
         .is_some_and(|class| class == "WARRIOR")
 }
 
+/// Every unit in view, as the object table holds it now. A unit that entered or left since the
+/// last feed fires ClassicAPI's `UNIT_VISIBILITY_CHANGED: unitTarget, isVisible`
+/// (`unit/VisibilityEvent.cpp`): once per token naming it, then to the frames that registered its
+/// GUID. The first feed of a VM only seeds what is in view.
 pub fn set_raw_units(lua: &Lua, units: impl IntoIterator<Item = (u64, RawUnit)>) {
-    if let Some(mut metadata) = lua.app_data_mut::<Metadata>() {
+    let changed: Vec<(u64, bool)> = {
+        let Some(mut metadata) = lua.app_data_mut::<Metadata>() else {
+            return;
+        };
         metadata.raw = units.into_iter().collect();
+        let now: std::collections::HashSet<u64> = metadata.raw.keys().copied().collect();
+        let changed = match &metadata.in_view {
+            None => Vec::new(),
+            Some(before) => {
+                let mut changed: Vec<(u64, bool)> = now
+                    .difference(before)
+                    .map(|guid| (*guid, true))
+                    .chain(before.difference(&now).map(|guid| (*guid, false)))
+                    .collect();
+                changed.sort_unstable();
+                changed
+            }
+        };
+        metadata.in_view = Some(now);
+        changed
+    };
+    for (guid, visible) in changed {
+        let rest = [crate::script::ScriptValue::Bool(visible)];
+        for token in event_tokens(lua, guid) {
+            let mut args = vec![crate::script::ScriptValue::Str(token)];
+            args.extend(rest.iter().cloned());
+            crate::script::pfui_host::fire_pfui_event(lua, "UNIT_VISIBILITY_CHANGED", args);
+        }
+        crate::script::pfui_host::guid_events::signal(lua, "UNIT_VISIBILITY_CHANGED", guid, &rest);
     }
 }
 
@@ -405,13 +438,17 @@ pub fn set_powers(lua: &Lua, powers: impl IntoIterator<Item = (u64, Power)>) {
         metadata.powers = powers;
     }
     for (guid, event, kind) in updates {
+        let rest: Vec<_> = kind
+            .map(|kind| crate::script::ScriptValue::Str(kind.into()))
+            .into_iter()
+            .collect();
         for token in custom_tokens(lua, guid) {
             let mut args = vec![crate::script::ScriptValue::Str(token)];
-            if let Some(kind) = kind {
-                args.push(crate::script::ScriptValue::Str(kind.into()));
-            }
+            args.extend(rest.iter().cloned());
             crate::script::pfui_host::fire_pfui_event(lua, event, args);
         }
+        // A unit no token names still reaches the frames that registered its GUID.
+        crate::script::pfui_host::guid_events::signal(lua, event, guid, &rest);
     }
 }
 
