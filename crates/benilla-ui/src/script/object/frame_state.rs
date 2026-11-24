@@ -279,7 +279,10 @@ pub(super) fn install(lua: &Lua, m: &Table) -> mlua::Result<()> {
             }
             // Under the ClassicAPI extension the subtree follows the frame's new level, as that
             // client's patched SetParent moves it (`reparent_finish_levels`).
+            #[cfg(feature = "pfui")]
             let children_follow = crate::script::pfui_host::xml::active(lua);
+            #[cfg(not(feature = "pfui"))]
+            let children_follow = false;
             {
                 let mut model = lua.app_data_mut::<Model>().expect("model");
                 model
