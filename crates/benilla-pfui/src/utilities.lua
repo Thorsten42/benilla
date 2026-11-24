@@ -51,6 +51,14 @@ C_ColorUtil = {}
 function C_ColorUtil.GenerateTextColorCode(color)
   return string.format("%02x%02x%02x%02x", byte(color.a or 1), byte(color.r), byte(color.g), byte(color.b))
 end
+-- ClassicAPI's text wrappers (color/Util.cpp): "|c" .. code .. text .. "|r", and the same with the
+-- code a color generates.
+function C_ColorUtil.WrapTextInColorCode(text, code)
+  return "|c" .. tostring(code) .. tostring(text) .. "|r"
+end
+function C_ColorUtil.WrapTextInColor(text, color)
+  return C_ColorUtil.WrapTextInColorCode(text, C_ColorUtil.GenerateTextColorCode(color))
+end
 
 CallbackRegistryMixin = {}
 function CallbackRegistryMixin:OnLoad()
