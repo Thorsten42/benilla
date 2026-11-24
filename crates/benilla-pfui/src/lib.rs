@@ -133,6 +133,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "C_CurveUtil",
         "CastSpellByID",
         "GetTotemTimeLeft",
+        "FlashClientIcon",
         "BenillaModelSceneMixin",
         "GetShapeshiftFormID",
         "GetSpellInfo",

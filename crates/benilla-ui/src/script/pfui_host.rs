@@ -4,6 +4,7 @@
 use mlua::{Function, IntoLuaMulti, Lua, MultiValue, Table, Value};
 
 mod addons;
+pub mod attention;
 pub mod attributes;
 pub mod auras;
 mod bubbles;
@@ -400,6 +401,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     mirror_timers::install(lua)?;
     gossip_info::install(lua)?;
     mouse_pass::install(lua)?;
+    attention::install(lua)?;
     guid_events::install(lua)?;
     super::nameplate::pfui::install(lua)?;
     attributes::install(lua)?;
