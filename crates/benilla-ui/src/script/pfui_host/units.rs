@@ -528,6 +528,27 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 .map_or((false, false), |reach| (reach.dist_sq <= 40.0 * 40.0, true)))
         })?,
     )?;
+    // ClassicAPI's `UnitDistanceSquared(unit)` (`unit/Range.cpp`): the raw squared distance from
+    // the player, no reach added, and whether a position was read; the player is (0, true), a
+    // unit with no position (0, false), always a number.
+    lua.globals().set(
+        "UnitDistanceSquared",
+        lua.create_function(|lua, unit: Value| {
+            let Value::String(unit) = unit else {
+                return Err(mlua::Error::runtime("Usage: UnitDistanceSquared(\"unit\")"));
+            };
+            let Some(guid) = guid(lua, &unit.to_string_lossy())? else {
+                return Ok((0.0, false));
+            };
+            let model = lua.app_data_ref::<Model>().expect("model");
+            if guid == model.unit_guids.player {
+                return Ok((0.0, true));
+            }
+            Ok(crate::script::inspect::reach_of(lua, &model, guid)
+                .filter(|reach| reach.dist_sq.is_finite())
+                .map_or((0.0, false), |reach| (reach.dist_sq, true)))
+        })?,
+    )?;
     // The inverse of GetSpellName(slot, bookType); the player's book answers before the pet's.
     lua.globals().set(
         "FindSpellBookSlotByID",

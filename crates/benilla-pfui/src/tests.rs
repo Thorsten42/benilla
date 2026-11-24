@@ -1114,6 +1114,42 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's `UnitDistanceSquared`: the raw squared distance from the player and whether a
+/// position was read; the player is (0, true), a unit with none (0, false) (`unit/Range.cpp`).
+#[test]
+fn unit_distance_squared_reads_the_units_reach() {
+    use benilla_ui::script::{UnitGuids, UnitReach};
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 5,
+        mouseover: 6,
+        ..Default::default()
+    });
+    script.set_unit_reach(
+        [(
+            5,
+            UnitReach {
+                dist_sq: 900.0,
+                inspectable: false,
+            },
+        )]
+        .into_iter()
+        .collect(),
+    );
+    script
+        .run(
+            r#"
+        local d, ok = UnitDistanceSquared('target'); assert(d == 900 and ok == true)
+        d, ok = UnitDistanceSquared('player'); assert(d == 0 and ok == true)
+        d, ok = UnitDistanceSquared('mouseover'); assert(d == 0 and ok == false)
+        d, ok = UnitDistanceSquared('party1'); assert(d == 0 and ok == false)
+        assert(not pcall(UnitDistanceSquared))
+        "#,
+        )
+        .unwrap();
+}
+
 /// ClassicAPI's `C_Item.GetStackCount`: the stack in one slot, here by the item's GUID as
 /// `GetItemGUID` writes it; an unknown GUID, an empty location or another value is 0
 /// (`item/StackCount.cpp`).
