@@ -1114,6 +1114,29 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's `LOOT_HISTORY_AUTO_SHOW(rollID, nil)` goes once per roll, with the history's id
+/// for it (`loot/History.cpp`); a roll not in the history shows nothing.
+#[test]
+fn loot_history_auto_show_goes_once_per_roll() {
+    use crate::loot::{self, Event, Key};
+    let script = extended();
+    script
+        .run(r#"
+        shown = {}
+        local f = CreateFrame('Frame'); f:RegisterEvent('LOOT_HISTORY_AUTO_SHOW')
+        f:SetScript('OnEvent', function() table.insert(shown, tostring(arg1) .. ' ' .. tostring(arg2)) end)
+        "#)
+        .unwrap();
+    let key = Key { target: 9, slot: 2 };
+    loot::observe(script.lua(), key, 19019, 0, 1.0, Event::Start);
+    loot::auto_show(script.lua(), key);
+    loot::auto_show(script.lua(), key);
+    loot::auto_show(script.lua(), Key { target: 9, slot: 3 });
+    let shown: String = script.eval("return table.concat(shown, ';')").unwrap();
+    let id: i64 = script.eval("return (C_LootHistory.GetItem(1))").unwrap();
+    assert_eq!(shown, format!("{id} nil"));
+}
+
 /// ClassicAPI's `FlashClientIcon` returns nothing and leaves one ask for the app, however many
 /// calls a frame makes (`screen/Flash.cpp`).
 #[test]
