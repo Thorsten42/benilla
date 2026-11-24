@@ -1431,6 +1431,109 @@ fn aura_tooltip_index_follows_the_modern_order() {
     assert!(script.errors().is_empty(), "{:?}", script.errors());
 }
 
+/// ClassicAPI's aura instance IDs (`aura/Instance.cpp`): a slot keeps its ID while it holds the
+/// same spell, new stacks and all, and a new spell there gets a fresh one. The by-ID getters and
+/// tooltip setters find the aura by it, the filter decides, and a Buff/Debuff form forces its
+/// range (`aura/Api.cpp`, `unit/Tooltip.cpp`).
+#[test]
+fn aura_instance_ids_follow_the_slot_and_name_the_aura() {
+    use benilla_ui::script::{
+        pfui_host::auras::{self, Aura},
+        AuraState, SpellTooltipView, UnitGuids,
+    };
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 5,
+        ..Default::default()
+    });
+    let aura = |slot: u8, spell_id: u32, name: &str, helpful: bool, count: u8| Aura {
+        crowd_control: false,
+        self_only: false,
+        applies_aura: false,
+        immunities: Vec::new(),
+        slot,
+        state: AuraState {
+            spell_id,
+            slot,
+            count,
+            name: Some(name.into()),
+            helpful,
+            ..Default::default()
+        },
+        source_guid: None,
+    };
+    for (id, name) in [(201, "Mark"), (301, "Sunder"), (202, "Thorns")] {
+        script.set_spell_tooltip(
+            id,
+            SpellTooltipView {
+                name: name.into(),
+                ..Default::default()
+            },
+        );
+    }
+    auras::set_auras(
+        script.lua(),
+        5,
+        Some(vec![
+            aura(0, 201, "Mark", true, 1),
+            aura(40, 301, "Sunder", false, 1),
+        ]),
+    );
+    script
+        .run(r#"
+        local mark = C_UnitAuras.GetAuraDataByIndex('target', 1, 'HELPFUL')
+        local sunder = C_UnitAuras.GetAuraDataByIndex('target', 1, 'HARMFUL')
+        assert(mark.auraInstanceID and sunder.auraInstanceID and mark.auraInstanceID ~= sunder.auraInstanceID)
+        assert(select(16, C_UnitAuras.UnitAura('target', 1, 'HELPFUL')) == mark.auraInstanceID)
+        MARK, SUNDER = mark.auraInstanceID, sunder.auraInstanceID
+        assert(C_UnitAuras.GetAuraDataByAuraInstanceID('target', SUNDER).name == 'Sunder')
+        local buf = { stale = true }
+        assert(C_UnitAuras.GetAuraDataByAuraInstanceID('target', MARK, buf) == buf and buf.stale == nil and buf.name == 'Mark')
+        assert(C_UnitAuras.GetAuraDataByAuraInstanceID('target', 9999) == nil)
+        assert(C_UnitAuras.IsAuraFilteredOutByInstanceID('target', MARK, 'HARMFUL'))
+        assert(not C_UnitAuras.IsAuraFilteredOutByInstanceID('target', MARK, ''))
+        assert(C_UnitAuras.IsAuraFilteredOutByInstanceID('target', 9999, ''))
+        tip = CreateFrame('GameTooltip', 'ProbeIdTip', nil, 'TestTooltipTemplate')
+        function show(method, id, filter)
+          tip:SetOwner(CreateFrame('Frame'), 'ANCHOR_NONE'); tip:ClearLines()
+          tip[method](tip, 'target', id, filter)
+          return ProbeIdTipTextLeft1:GetText()
+        end
+        assert(show('SetUnitAuraByAuraInstanceID', SUNDER) == 'Sunder')
+        assert(show('SetUnitBuffByAuraInstanceID', MARK, 'HARMFUL') == 'Mark', 'Buff forces HELPFUL')
+        assert(show('SetUnitDebuffByAuraInstanceID', MARK) == nil, 'Debuff rejects a buff')
+        assert(show('SetUnitAuraByAuraInstanceID', MARK, 'HARMFUL') == nil, 'the filter rejects it')
+        assert(not pcall(tip.SetUnitAuraByAuraInstanceID, tip, 'target'))
+        "#)
+        .unwrap();
+    // Mark gains a stack: same instance. Thorns replaces Sunder's slot: a new one.
+    auras::set_auras(
+        script.lua(),
+        5,
+        Some(vec![
+            aura(0, 201, "Mark", true, 2),
+            aura(40, 202, "Thorns", true, 1),
+        ]),
+    );
+    script
+        .run(
+            r#"
+        assert(C_UnitAuras.GetAuraDataBySlot('target', 0).auraInstanceID == MARK)
+        local thorns = C_UnitAuras.GetAuraDataBySlot('target', 40).auraInstanceID
+        assert(thorns ~= SUNDER and thorns ~= MARK)
+        assert(C_UnitAuras.GetAuraDataByAuraInstanceID('target', SUNDER) == nil)
+        "#,
+        )
+        .unwrap();
+    auras::set_auras(script.lua(), 5, None);
+    auras::set_auras(script.lua(), 5, Some(vec![aura(0, 201, "Mark", true, 2)]));
+    script
+        .run("assert(C_UnitAuras.GetAuraDataBySlot('target', 0).auraInstanceID ~= MARK, 'seen again: new IDs')")
+        .unwrap();
+    assert!(script.errors().is_empty(), "{:?}", script.errors());
+}
+
 #[test]
 fn aura_tooltips_use_the_modern_index_space_and_existing_spell_renderer() {
     use benilla_ui::script::{
@@ -3618,7 +3721,8 @@ fn modern_auras_keep_descriptor_slots_and_report_only_known_casters_and_timers()
       local name,icon,count,dispel,duration,expiration,source,stealable,personal,spell=
         C_UnitAuras.UnitAuraBySlot('target',33)
       assert(name=='Aura102' and icon=='Icon' and count==2 and source=='player' and spell==102)
-      assert(select('#',C_UnitAuras.UnitAuraBySlot('target',33))==15)
+      assert(select('#',C_UnitAuras.UnitAuraBySlot('target',33))==16)
+      assert(select(16,C_UnitAuras.UnitAuraBySlot('target',33))==info.auraInstanceID)
       assert(C_UnitAuras.GetAuraDataBySpellName('target','Aura102').spellId==102)
       local r,g,b,a=C_UnitAuras.GetAuraDispelTypeColor('Magic'):GetRGBA()
       assert(r==0.2 and g==0.6 and b==1 and a==1)

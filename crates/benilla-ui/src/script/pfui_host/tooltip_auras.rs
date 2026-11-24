@@ -34,7 +34,66 @@ pub(crate) fn install(lua: &Lua) -> mlua::Result<()> {
                     .call::<MultiValue>((this.clone(), unit, index))
             },
         )?,
-    )
+    )?;
+    // The `ByAuraInstanceID` forms (ClassicAPI `unit/Tooltip.cpp`): the aura with that instance
+    // ID, when the filter selects it, in the stock tooltip. `SetUnitAura…`'s filter defaults to
+    // both ranges; the Buff and Debuff forms put their range in place of the filter's and keep
+    // the rest. An ID the filter rejects, or one no aura has, leaves the tooltip as it was.
+    for (name, forced) in [
+        ("SetUnitAuraByAuraInstanceID", None),
+        ("SetUnitBuffByAuraInstanceID", Some("HELPFUL")),
+        ("SetUnitDebuffByAuraInstanceID", Some("HARMFUL")),
+    ] {
+        let usage = format!("Usage: GameTooltip:{name}(\"unit\", auraInstanceID [, \"filter\"])");
+        methods.set(
+            name,
+            lua.create_function(
+                move |lua, (this, unit, id, filter): (Table, Value, Value, Option<String>)| {
+                    let (Value::String(token), Some(id)) = (&unit, lua.coerce_integer(id)?) else {
+                        return Err(mlua::Error::runtime(usage.clone()));
+                    };
+                    let token = token.to_string_lossy();
+                    let mut filter = filter.unwrap_or_default();
+                    if let Some(range) = forced {
+                        let rest: Vec<&str> = filter
+                            .split(['|', ' '])
+                            .filter(|t| {
+                                !t.is_empty()
+                                    && !t.eq_ignore_ascii_case("HELPFUL")
+                                    && !t.eq_ignore_ascii_case("HARMFUL")
+                            })
+                            .collect();
+                        filter = std::iter::once(range)
+                            .chain(rest)
+                            .collect::<Vec<_>>()
+                            .join("|");
+                    }
+                    let Some(aura) = u32::try_from(id).ok().and_then(|id| {
+                        crate::script::pfui_host::auras::by_instance(lua, &token, id)
+                    }) else {
+                        return Ok(MultiValue::new());
+                    };
+                    if !crate::script::pfui_host::auras::selects(lua, &token, &aura, &filter) {
+                        return Ok(MultiValue::new());
+                    }
+                    let Some((index, helpful)) = stock_index(lua, &token, &aura) else {
+                        return Ok(MultiValue::new());
+                    };
+                    let method = if helpful {
+                        "SetUnitBuff"
+                    } else {
+                        "SetUnitDebuff"
+                    };
+                    this.get::<Function>(method)?.call::<MultiValue>((
+                        this.clone(),
+                        unit.clone(),
+                        index,
+                    ))
+                },
+            )?,
+        )?;
+    }
+    Ok(())
 }
 
 /// The stock index of the aura `index` names in the `C_UnitAuras` order, and its polarity, as
@@ -51,8 +110,18 @@ fn engine_index(lua: &Lua, unit: &Value, index: &Value, harmful: bool) -> Option
     let aura = crate::script::pfui_host::auras::list(lua, &token, Some(polarity))
         .into_iter()
         .nth(nth)?;
+    stock_index(lua, &token, &aura)
+}
+
+/// The stock index of `aura` on `token` and its polarity: its place among the unit's auras of its
+/// polarity in ascending slot, as the stock setter counts them (`EngineIndexForSlot`).
+fn stock_index(
+    lua: &Lua,
+    token: &str,
+    aura: &crate::script::pfui_host::auras::Aura,
+) -> Option<(i64, bool)> {
     let helpful = aura.state.helpful;
-    let guid = crate::script::aura::aura_unit(lua, &token).ok()?;
+    let guid = crate::script::aura::aura_unit(lua, token).ok()?;
     // The stock setter counts the unit's auras of one polarity in ascending slot.
     crate::script::aura::read_auras_of(lua, guid, |list| {
         let mut count = 0;
