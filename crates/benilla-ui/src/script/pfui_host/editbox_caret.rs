@@ -8,6 +8,16 @@ use mlua::{Lua, Table, Value};
 
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     let methods: Table = lua.named_registry_value(crate::script::editbox::REG_EDITBOX_METHODS)?;
+    // ClassicAPI's `editbox:HasFocus()` (`editbox/Methods.cpp`): whether this box owns the keyboard
+    // focus, the one box SetFocus last gave it and ClearFocus has not taken back.
+    methods.set(
+        "HasFocus",
+        lua.create_function(|lua, this: Table| {
+            let h = frame_handle_of(lua, &this)?;
+            let model = lua.app_data_ref::<Model>().expect("model");
+            Ok(model.focused_editbox == Some(h))
+        })?,
+    )?;
     methods.set(
         "SetCursorPosition",
         lua.create_function(|lua, (this, position): (Table, Value)| {

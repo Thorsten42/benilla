@@ -9,11 +9,8 @@ Enum.AutoCompletePriority = { Other = 0, Interacted = 1, InGroup = 2, Guild = 3,
   AccountCharacter = 5, AccountCharacterSameRealm = 6 }
 local Flag, Priority = Enum.AutoCompleteEntryFlag, Enum.AutoCompletePriority
 
-for _, name in ipairs({ "autoCompleteResortNamesOnRecency", "autoCompleteWhenEditingFromCenter",
-    "autoCompleteUseContext" }) do
-  local known, value = pcall(GetCVar, name)
-  if not known or value == nil then RegisterCVar(name, "1") end
-end
+-- autoCompleteResortNamesOnRecency, autoCompleteWhenEditingFromCenter and autoCompleteUseContext
+-- are ClassicAPI's CVars (classicapi_cvars.lua), at 1.
 local function setting(name) return (tonumber(GetCVar(name) or 1) or 1) ~= 0 end
 
 local function hasBit(flags, bit)

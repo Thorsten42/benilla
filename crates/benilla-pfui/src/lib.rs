@@ -134,6 +134,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "CastSpellByID",
         "GetTotemTimeLeft",
         "FlashClientIcon",
+        "C_SettingsUtil",
         "BenillaModelSceneMixin",
         "GetShapeshiftFormID",
         "GetSpellInfo",
@@ -418,6 +419,13 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     lua.load(include_str!("cooldown.lua"))
         .set_name("@benilla-pfui/cooldown.lua")
         .exec()?;
+    lua.load(include_str!("classicapi_cvars.lua"))
+        .set_name("@benilla-pfui/classicapi_cvars.lua")
+        .call::<()>(
+            lua.create_function(|lua, (name, default): (String, String)| {
+                benilla_ui::script::register_extension_cvar(lua, &name, &default)
+            })?,
+        )?;
     lua.load(include_str!("model_scene.lua"))
         .set_name("@benilla-pfui/model_scene.lua")
         .exec()?;
