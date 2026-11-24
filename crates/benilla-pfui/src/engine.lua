@@ -204,27 +204,65 @@ end
 function GetNumModifiedClickActions() return table.getn(modifiedClickOrder) end
 function GetModifiedClickAction(index) return modifiedClickOrder[index] end
 
--- Atlases: a name for a rectangle of a texture file. `SetAtlas` points a texture at one; a name
--- that is not registered leaves the texture as it was.
+-- Atlases: a name for a rectangle of a texture file (ClassicAPI `texture/Atlas.cpp`). `SetAtlas`
+-- points a texture at one; a name that is not registered leaves the texture as it was. The
+-- built-in rows (atlases.lua, ClassicAPI's table) can be transposed, the sprite's x running down
+-- the file's rect, and carry nine-slice margins, which GetAtlasInfo reports; this client does not
+-- slice a texture, so a sliced atlas draws stretched.
 local atlases, atlasOf = {}, setmetatable({}, {__mode = "k"})
 C_Texture = {}
-function C_Texture.RegisterAtlas(name, file, width, height, left, right, top, bottom, tilesH, tilesV)
-  atlases[string.lower(name)] = {
+local function define(entry)
+  atlases[string.lower(entry.elementName)] = entry
+  -- `|A…|a` text escapes draw from the host's copy, which takes only a complete atlas.
+  pcall(bridge.atlas_registered, entry.elementName, entry.filename, entry.width, entry.height,
+    entry.leftTexCoord, entry.rightTexCoord, entry.topTexCoord, entry.bottomTexCoord)
+end
+-- A built-in row: name, file, width, height, left, right, top, bottom, atlas id, element id,
+-- tiles horizontally, tiles vertically, transposed, and the slice {left, top, right, bottom,
+-- mode} or nil.
+function bridge.define_atlas(name, file, width, height, left, right, top, bottom, atlasID,
+    elementID, tilesH, tilesV, transposed, slice)
+  define({
     elementName = name, filename = file, width = width, height = height,
     leftTexCoord = left, rightTexCoord = right, topTexCoord = top, bottomTexCoord = bottom,
     tilesHorizontally = tilesH and true or false, tilesVertically = tilesV and true or false,
-  }
-  -- `|A…|a` text escapes draw from the host's copy, which takes only a complete atlas.
-  pcall(bridge.atlas_registered, name, file, width, height, left, right, top, bottom)
+    atlasID = atlasID, elementID = elementID, transposed = transposed and true or false,
+    sliceData = slice and { marginLeft = slice[1], marginTop = slice[2], marginRight = slice[3],
+      marginBottom = slice[4], sliceMode = slice[5] } or nil,
+  })
+end
+-- An addon's own sprite under an atlas name, ClassicAPI's extension.
+function C_Texture.RegisterAtlas(name, file, width, height, left, right, top, bottom, tilesH, tilesV)
+  define({
+    elementName = name, filename = file, width = width, height = height,
+    leftTexCoord = left, rightTexCoord = right, topTexCoord = top, bottomTexCoord = bottom,
+    tilesHorizontally = tilesH and true or false, tilesVertically = tilesV and true or false,
+  })
   return true
 end
 local function atlas(name) return type(name) == "string" and atlases[string.lower(name)] end
+local public = { elementName = true, filename = true, width = true, height = true,
+  leftTexCoord = true, rightTexCoord = true, topTexCoord = true, bottomTexCoord = true,
+  tilesHorizontally = true, tilesVertically = true }
 function C_Texture.GetAtlasInfo(name)
   local info = atlas(name)
   if not info then return nil end
   local copy = {}
-  for key, value in pairs(info) do copy[key] = value end
+  for key in pairs(public) do copy[key] = info[key] end
+  if info.sliceData then
+    local slice = {}
+    for key, value in pairs(info.sliceData) do slice[key] = value end
+    copy.sliceData = slice
+  end
   return copy
+end
+function C_Texture.GetAtlasID(name)
+  local info = atlas(name)
+  return info and info.atlasID or nil
+end
+function C_Texture.GetAtlasElementID(name)
+  local info = atlas(name)
+  return info and info.elementID or nil
 end
 function C_Texture.GetAtlasExists(name) return atlas(name) and true or false end
 
@@ -239,7 +277,13 @@ textures.SetAtlas = function(self, name, useAtlasSize)
   local info = atlas(name)
   if not info then return end
   setTexture(self, info.filename)
-  self:SetTexCoord(info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord)
+  local l, r, t, b = info.leftTexCoord, info.rightTexCoord, info.topTexCoord, info.bottomTexCoord
+  if info.transposed then
+    -- The sprite's top edge is the rect's left edge: UL, LL, UR, LR in sprite order.
+    self:SetTexCoord(l, t, r, t, l, b, r, b)
+  else
+    self:SetTexCoord(l, r, t, b)
+  end
   if useAtlasSize then
     self:SetWidth(info.width)
     self:SetHeight(info.height)
