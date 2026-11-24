@@ -1114,6 +1114,89 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's `C_GossipInfo` reads the open window's wire rows and selects by option or quest id
+/// through the stock selectors, at the row's place; a closed window lists nothing and sends
+/// nothing (`gossip/Info.cpp`).
+#[test]
+fn gossip_info_lists_the_window_and_selects_by_id() {
+    use benilla_ui::script::live::LiveAsk;
+    use benilla_ui::script::pfui_host::gossip_info::{GossipInfo, GossipInfoQuery};
+    use benilla_ui::script::{CallHost, CallTail, GossipCall, ScriptCall};
+    struct Npc(Vec<GossipCall>, Option<GossipInfo>);
+    impl CallHost for Npc {
+        fn apply(&mut self, _: &mut UiScript, call: ScriptCall) -> Option<CallTail> {
+            if let ScriptCall::Gossip(call) = call {
+                self.0.push(call);
+            }
+            None
+        }
+        fn read_live(&mut self, ask: &mut LiveAsk<'_>) -> bool {
+            let info = self.1.clone();
+            ask.answer(|_: &GossipInfoQuery| Some(info))
+        }
+    }
+    let mut script = extended();
+    let mut closed = Npc(Vec::new(), None);
+    script.hosted(&mut closed, |s| {
+        s.run(r#"
+            assert(next(C_GossipInfo.GetOptions()) == nil and C_GossipInfo.GetNumOptions() == 0)
+            assert(GetNumGossipAvailableQuests() == 0 and next(C_GossipInfo.GetActiveQuests()) == nil)
+            C_GossipInfo.SelectOption(3); C_GossipInfo.SelectAvailableQuest(100)
+        "#).unwrap()
+    });
+    assert!(closed.0.is_empty(), "a closed window sends nothing");
+    let mut open = Npc(
+        Vec::new(),
+        Some(GossipInfo {
+            options: vec![(3, 1, "Train me".into()), (7, 0, "Bye".into())],
+            quests: vec![
+                (100, 2, 10, "Find it".into()),
+                (200, 4, 12, "Bring it".into()),
+                (300, 3, 11, "Still out".into()),
+            ],
+        }),
+    );
+    script.hosted(&mut open, |s| {
+        s.run(r#"
+            local o = C_GossipInfo.GetOptions()
+            assert(#o == 2 and o[2].gossipOptionID == 7 and o[2].name == "Bye" and o[2].orderIndex == 2)
+            assert(o[1].icon == 1 and o[1].status == 0 and o[1].flags == 0)
+            assert(GetNumGossipOptions() == 2 and C_GossipInfo.GetNumAvailableQuests() == 1)
+            local a, act = C_GossipInfo.GetAvailableQuests(), C_GossipInfo.GetActiveQuests()
+            assert(#a == 1 and a[1].questID == 100 and a[1].questLevel == 10 and a[1].isComplete == nil)
+            assert(#act == 2 and act[1].questID == 200 and act[1].isComplete == true)
+            assert(act[2].questID == 300 and act[2].isComplete == false and GetNumGossipActiveQuests() == 2)
+            C_GossipInfo.SelectOption(7)
+            C_GossipInfo.SelectOptionByIndex(1)
+            C_GossipInfo.SelectOption(99)
+            C_GossipInfo.SelectActiveQuest(300)
+            C_GossipInfo.SelectAvailableQuest(100)
+            assert(not pcall(C_GossipInfo.SelectOption))
+        "#).unwrap()
+    });
+    assert_eq!(
+        open.0,
+        vec![
+            GossipCall::Option {
+                index: 2,
+                code: None
+            },
+            GossipCall::Option {
+                index: 1,
+                code: None
+            },
+            GossipCall::Quest {
+                active: true,
+                index: 2
+            },
+            GossipCall::Quest {
+                active: false,
+                index: 1
+            },
+        ]
+    );
+}
+
 /// pfUI's mirror bars read the value at the call (`mirrortimers.lua:11`): a draining breath bar
 /// counts down from its start by its scale, a paused one holds, a stop empties the slot.
 #[test]
