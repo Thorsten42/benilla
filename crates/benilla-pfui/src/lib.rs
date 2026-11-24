@@ -128,6 +128,8 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "GetNumGossipAvailableQuests",
         "GetNumGossipActiveQuests",
         "UnitDistanceSquared",
+        "C_MountJournal",
+        "BenillaModelSceneMixin",
         "GetShapeshiftFormID",
         "GetSpellInfo",
         "GetSpellBonusDamage",
@@ -411,6 +413,9 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     lua.load(include_str!("cooldown.lua"))
         .set_name("@benilla-pfui/cooldown.lua")
         .exec()?;
+    lua.load(include_str!("model_scene.lua"))
+        .set_name("@benilla-pfui/model_scene.lua")
+        .exec()?;
     let intrinsics = benilla_ui::framexml::parse(INTRINSICS)
         .map_err(|e| mlua::Error::runtime(format!("benilla-pfui intrinsics: {e:?}")))?;
     let report = benilla_ui::loader::load_into(lua, &intrinsics, "", &|_| None);
@@ -560,6 +565,7 @@ pub fn install_class_names<'a>(
 /// the indicator model with the modern methods.
 const INTRINSICS: &str = r#"<Ui>
   <Model name="Cooldown" inherits="CooldownFrameTemplate" mixin="BenillaCooldownMixin" intrinsic="true"/>
+  <Frame name="ModelScene" mixin="BenillaModelSceneMixin" intrinsic="true"/>
 </Ui>"#;
 
 /// The ClassicAPI addon's files this client does not load, as their engine half is missing: none
