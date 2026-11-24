@@ -1114,6 +1114,56 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's `SetPassThroughButtons`: a press of a passed button skips the frame and reaches the
+/// mouse frame under it, or the world with none; its other buttons stay its own, and no argument
+/// clears the set (`frame/MouseInput.cpp`).
+#[test]
+fn a_passed_button_reaches_the_frame_under_it() {
+    use benilla_ui::script::PointerTarget;
+    let mut s = extended();
+    s.set_screen_size(800.0, 600.0);
+    s.run(
+        r#"
+        UIParent = CreateFrame("Frame", "UIParent"); UIParent:SetAllPoints()
+        presses = {}
+        local function frame(name, size)
+            local f = CreateFrame("Button", name, UIParent)
+            f:SetPoint("BOTTOMLEFT", 100, 100); f:SetWidth(size); f:SetHeight(size)
+            f:EnableMouse(true)
+            f:SetScript("OnMouseDown", function() table.insert(presses, this:GetName() .. ":" .. arg1) end)
+            return f
+        end
+        Under = frame("Under", 80)
+        Over = frame("Over", 40); Over:SetFrameLevel(Under:GetFrameLevel() + 5)
+        Over:SetPassThroughButtons("LeftButton", "Nonsense")
+        assert(not pcall(Over.SetPassThroughButtons, Over, 1))
+        "#,
+    )
+    .unwrap();
+    s.resolve();
+    s.mouse_move(120.0, 120.0);
+    for button in ["LeftButton", "RightButton"] {
+        s.mouse_button(120.0, 120.0, button, true);
+        s.mouse_button(120.0, 120.0, button, false);
+    }
+    s.run("Under:Hide()").unwrap();
+    s.resolve();
+    s.mouse_move(121.0, 121.0);
+    let target = s.mouse_button_to(121.0, 121.0, "LeftButton", true);
+    s.mouse_button(121.0, 121.0, "LeftButton", false);
+    assert_eq!(
+        target,
+        PointerTarget::World,
+        "nothing under it: the world takes it"
+    );
+    s.run("Over:SetPassThroughButtons()").unwrap();
+    s.mouse_button(121.0, 121.0, "LeftButton", true);
+    s.mouse_button(121.0, 121.0, "LeftButton", false);
+    let presses: String = s.eval("return table.concat(presses, ' ')").unwrap();
+    assert_eq!(presses, "Under:LeftButton Over:RightButton Over:LeftButton");
+    assert!(s.take_errors().is_empty());
+}
+
 /// ClassicAPI's `C_GossipInfo` reads the open window's wire rows and selects by option or quest id
 /// through the stock selectors, at the row's place; a closed window lists nothing and sends
 /// nothing (`gossip/Info.cpp`).

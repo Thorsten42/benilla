@@ -24,6 +24,7 @@ pub mod maps;
 mod merchant;
 mod message_history;
 pub mod mirror_timers;
+pub(crate) mod mouse_pass;
 pub mod player_stats;
 pub mod professions;
 pub mod quests;
@@ -386,6 +387,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     totems::install(lua)?;
     mirror_timers::install(lua)?;
     gossip_info::install(lua)?;
+    mouse_pass::install(lua)?;
     super::nameplate::pfui::install(lua)?;
     attributes::install(lua)?;
     auras::install(lua)?;
