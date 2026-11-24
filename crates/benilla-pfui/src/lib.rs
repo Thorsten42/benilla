@@ -445,7 +445,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         .call::<()>(engine.clone())?;
     lua.load(include_str!("atlases.lua"))
         .set_name("@benilla-pfui/atlases.lua")
-        .exec()?;
+        .call::<()>(engine.get::<mlua::Function>("define_atlas")?)?;
     icons::install(lua)?;
     loot::install(lua)?;
     maps::Catalog::default().install(lua)?;
