@@ -8,21 +8,24 @@ use crate::framexml::Element;
 use mlua::{Function, Lua, ObjectLike, Table, Value};
 
 /// The handlers' Lua side: a method or global looked up when the script runs, and two handlers
-/// run in order.
+/// run in order. ClassicAPI binds `method=` and `function=` once at load and skips a name that is
+/// no function (`xml/ParentKey.cpp`): such a script never runs and raises nothing, which a lookup
+/// that finds nothing reproduces here (ClassicAPI's own WowStyle2IconButtonTemplate binds an
+/// OnShow its mixin lacks). Looking up at the call also finds a method added after the load.
 const HELPERS: &str = r#"
-local getglobal, unpack, error = getglobal, unpack, error
+local getglobal, unpack, type = getglobal, unpack, type
 local helpers = {}
 function helpers.method(name)
   return function(self, ...)
     local method = self[name]
-    if not method then error("script method " .. name .. " not found", 2) end
+    if type(method) ~= "function" then return end
     return method(self, unpack(arg, 1, arg.n))
   end
 end
 function helpers.global(name)
   return function(...)
     local func = getglobal(name)
-    if not func then error("script function " .. name .. " not found", 2) end
+    if type(func) ~= "function" then return end
     return func(unpack(arg, 1, arg.n))
   end
 end
