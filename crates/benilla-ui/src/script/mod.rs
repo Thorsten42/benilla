@@ -324,6 +324,8 @@ pub use cvar_checks::{
     check_camera_yaw, check_farclip, check_frill_density, check_refresh, check_shadow_level,
     check_small_cull, check_tex_lod_bias, check_triple_buffer, CvarCheck, CvarRows, CvarVerdict,
 };
+#[cfg(feature = "pfui")]
+pub use cvars::register_extension_cvar;
 pub use cvars::small_cull_text;
 pub use cvars::{
     CvarWrite, MultisampleFormat, MultisampleFormatsQuery, ScreenModes, ScreenModesQuery,

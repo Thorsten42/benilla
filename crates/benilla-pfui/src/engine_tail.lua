@@ -65,6 +65,18 @@ function C_Container.GetContainerItemInfo(bag, slot)
   }
 end
 
+-- ClassicAPI's C_SettingsUtil (settings/Panel.cpp), the C side of its Settings window: each fires
+-- its event inside the call. OpenSettingsPanel's two arguments ride SETTINGS_PANEL_OPEN as given
+-- (a category id or an addon's category name); the registrar calls NotifySettingsLoaded once
+-- every registrant has run.
+C_SettingsUtil = C_SettingsUtil or {}
+function C_SettingsUtil.OpenSettingsPanel(categoryID, scrollToElementName)
+  bridge.fire("SETTINGS_PANEL_OPEN", categoryID, scrollToElementName)
+end
+function C_SettingsUtil.NotifySettingsLoaded()
+  bridge.fire("SETTINGS_LOADED")
+end
+
 -- The ClassicAPI addon this layer's engine half is written for, v1.23.9: once it has loaded, the
 -- version an addon's load gate reads is that one. Without it the layer stands alone at 1.15.10.
 local versionFrame = CreateFrame("Frame")
