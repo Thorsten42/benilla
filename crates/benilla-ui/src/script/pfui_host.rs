@@ -15,6 +15,7 @@ pub mod durations;
 mod editbox_caret;
 mod engine;
 pub(crate) mod equipment_actions;
+pub mod gossip_info;
 pub mod inline_texture;
 pub mod interrupts;
 pub mod items;
@@ -384,6 +385,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     player_stats::install(lua)?;
     totems::install(lua)?;
     mirror_timers::install(lua)?;
+    gossip_info::install(lua)?;
     super::nameplate::pfui::install(lua)?;
     attributes::install(lua)?;
     auras::install(lua)?;
