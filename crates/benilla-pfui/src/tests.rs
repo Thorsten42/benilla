@@ -1858,6 +1858,72 @@ fn aura_instance_ids_follow_the_slot_and_name_the_aura() {
     assert!(script.errors().is_empty(), "{:?}", script.errors());
 }
 
+/// ClassicAPI's `UNIT_AURA_DELTA(unit, updateInfo)` (`aura/Delta.cpp`): a unit's first list is a
+/// full update with its IDs added; a restack is an update of the same ID; a replaced or lost aura
+/// is removed; each per token naming the unit and to the frames that registered its GUID.
+#[test]
+fn unit_aura_delta_reports_instance_changes() {
+    use benilla_ui::script::{
+        pfui_host::auras::{self, Aura},
+        AuraState, UnitGuids,
+    };
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 5,
+        ..Default::default()
+    });
+    let aura = |slot: u8, spell_id: u32, count: u8| Aura {
+        crowd_control: false,
+        self_only: false,
+        applies_aura: false,
+        immunities: Vec::new(),
+        slot,
+        state: AuraState {
+            spell_id,
+            slot,
+            count,
+            helpful: true,
+            ..Default::default()
+        },
+        source_guid: None,
+    };
+    script
+        .run(r#"
+        log = {}
+        local function ids(t) return t and table.concat(t, ',') or '-' end
+        local function note() table.insert(log, arg1 .. ' ' .. tostring(arg2.isFullUpdate) .. ' +' .. ids(arg2.addedAuraInstanceIDs) .. ' ~' .. ids(arg2.updatedAuraInstanceIDs) .. ' -' .. ids(arg2.removedAuraInstanceIDs)) end
+        local token = CreateFrame('Frame'); token:RegisterUnitEvent('UNIT_AURA_DELTA', 'target'); token:SetScript('OnEvent', note)
+        local byguid = CreateFrame('Frame'); byguid:RegisterGUIDEvent('UNIT_AURA_DELTA', '0x0000000000000005'); byguid:SetScript('OnEvent', note)
+        "#)
+        .unwrap();
+    auras::set_auras(script.lua(), 5, Some(vec![aura(0, 201, 1)]));
+    script.set_now(1.0);
+    auras::set_auras(script.lua(), 5, Some(vec![aura(0, 201, 2)]));
+    script.set_now(2.0);
+    auras::set_auras(script.lua(), 5, Some(vec![aura(0, 202, 1)]));
+    let log: String = script.eval("return table.concat(log, ';')").unwrap();
+    let ids: Vec<&str> = log.split(';').collect();
+    assert_eq!(ids.len(), 6, "{log}");
+    assert!(
+        ids[0].starts_with("target true +") && ids[0].ends_with(" ~- --"),
+        "{log}"
+    );
+    assert!(ids[1].starts_with("0x0000000000000005 true +"), "{log}");
+    let first = ids[0]
+        .trim_start_matches("target true +")
+        .split(' ')
+        .next()
+        .unwrap()
+        .to_string();
+    assert_eq!(ids[2], format!("target false +- ~{first} --"));
+    assert!(
+        ids[4].starts_with("target false +") && ids[4].ends_with(&format!(" ~- -{first}")),
+        "{log}"
+    );
+    assert!(script.errors().is_empty(), "{:?}", script.errors());
+}
+
 #[test]
 fn aura_tooltips_use_the_modern_index_space_and_existing_spell_renderer() {
     use benilla_ui::script::{
