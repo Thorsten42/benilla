@@ -247,7 +247,7 @@ impl Catalog {
             })?,
         )?;
         states::install(lua, records.clone())?;
-        let r = records;
+        let r = records.clone();
         api.set(
             "GetSpellEffectInfo",
             lua.create_function(move |lua, id: Value| {
@@ -263,6 +263,45 @@ impl Catalog {
                     result.set(index + 1, effect)?;
                 }
                 Ok(Some(result))
+            })?,
+        )?;
+        // ClassicAPI's spell loads (`spell/Data.cpp`): Spell.dbc is resident, so a spell is cached
+        // exactly when its record exists and a load answers inside the call, `(spellID, true)` for
+        // a record and `(spellID, nil)` for an id with none; an identifier that names no spell id
+        // fires nothing.
+        let r = records.clone();
+        api.set(
+            "IsSpellDataCached",
+            lua.create_function(move |lua, spell: Value| {
+                let id = benilla_ui::script::pfui_host::units::spell_identifier(lua, spell)?;
+                Ok(id.is_some_and(|id| r.contains_key(&id)))
+            })?,
+        )?;
+        let r = records.clone();
+        api.set(
+            "RequestLoadSpellData",
+            lua.create_function(move |lua, spell: Value| {
+                let id = match &spell {
+                    Value::Integer(_) | Value::Number(_) => lua
+                        .coerce_integer(spell)?
+                        .and_then(|id| u32::try_from(id).ok()),
+                    _ => benilla_ui::script::pfui_host::units::spell_identifier(lua, spell)?,
+                };
+                let Some(id) = id else { return Ok(()) };
+                let found = r.contains_key(&id);
+                benilla_ui::script::pfui_host::fire_pfui_event(
+                    lua,
+                    "SPELL_DATA_LOAD_RESULT",
+                    vec![
+                        benilla_ui::script::ScriptValue::Int(i64::from(id)),
+                        if found {
+                            benilla_ui::script::ScriptValue::Bool(true)
+                        } else {
+                            benilla_ui::script::ScriptValue::Nil
+                        },
+                    ],
+                );
+                Ok(())
             })?,
         )?;
         lua.globals().set("C_Spell", api)?;

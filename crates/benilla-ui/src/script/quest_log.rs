@@ -1109,6 +1109,9 @@ impl super::UiScript {
     /// the last one rebuilds (`0x4de8d4`-`0x4de8e2`), as does one landing when none is awaited.
     pub fn land_quest_records(&mut self, records: Vec<(u32, QuestRecordView)>) {
         let ids: Vec<u32> = records.iter().map(|&(id, _)| id).collect();
+        // ClassicAPI's explicit quest loads wait on these landings.
+        #[cfg(feature = "pfui")]
+        let landed = ids.clone();
         let waits: Vec<u32> = {
             let mut model = self.model_mut();
             let store = &mut model.quest_store;
@@ -1139,6 +1142,8 @@ impl super::UiScript {
             }
         }
         self.lfg_titles_landed(&ids);
+        #[cfg(feature = "pfui")]
+        super::pfui_host::data_loads::quests_landed(&self.lua, &landed);
     }
 
     /// A record held with nothing waiting on it: a new VM's seat, before its load runs any file.
