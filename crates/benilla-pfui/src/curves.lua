@@ -5,7 +5,6 @@
 -- x, Cosine eases by (1 - cos(t pi)) / 2, Cubic is a uniform Catmull-Rom over the points from the
 -- second to the one before last (the ends only steer it, flat outside them), Cosine with fewer
 -- than four points. Colour curves, secret values and game curves are not served here.
-Enum.LuaCurveType = Enum.LuaCurveType or { Linear = 0, Step = 1, Cosine = 2, Cubic = 3 }
 
 local LINEAR, STEP, COSINE, CUBIC = 0, 1, 2, 3
 local MAX_POINTS = 256
