@@ -523,6 +523,121 @@ pub fn creature_id(lua: &Lua, value: Value) -> mlua::Result<Option<u32>> {
     Ok((id != 0).then_some(id))
 }
 
+/// 1.12's display divisor per power slot (`0x6e7130`, its table at `0x86f978`): rage 10,
+/// happiness 1000, the rest 1.
+const POWER_DIVISORS: [u32; 5] = [1, 10, 1, 1, 1000];
+/// ClassicAPI's `Enum.PowerType.ComboPoints` and `.Happiness` (`unit/Power.cpp`).
+const TYPE_COMBO_POINTS: i64 = 4;
+const TYPE_HAPPINESS: i64 = 27;
+
+/// ClassicAPI's power type of a 1.12 power slot: 0 to 3 keep their numbers, happiness (slot 4)
+/// is 27 (`Unit::Power::TypeOfSlot`).
+pub fn power_type_of_slot(slot: u32) -> i64 {
+    if slot == 4 {
+        TYPE_HAPPINESS
+    } else {
+        i64::from(slot)
+    }
+}
+
+/// The 1.12 slot of a power type, `None` for a type 1.12 keeps no store for.
+fn power_slot_of_type(kind: i64) -> Option<usize> {
+    match kind {
+        0..=3 => Some(kind as usize),
+        TYPE_HAPPINESS => Some(4),
+        _ => None,
+    }
+}
+
+/// ClassicAPI's `UnitPower` / `UnitPowerMax` (`unit/Power.cpp`, the 3.80.2 client's): `kind` in
+/// `Enum.PowerType`, nil for the unit's display power. The player's combo points (type 4, a rogue
+/// or druid's, at most 5) live outside the power block; happiness is type 27. Values are divided
+/// by the slot's display divisor unless `raw`. Only the current value is gated: a type other
+/// than the unit's display power answers 0 unless the unit is the player or its pet. A unit out
+/// of view answers through the group roster's one power, any other type 0.
+fn unit_power(
+    lua: &Lua,
+    token: &str,
+    kind: Option<i64>,
+    raw: bool,
+    maximum: bool,
+) -> mlua::Result<u32> {
+    let guid = super::auras::unit_guid(lua, token);
+    let power = lua
+        .app_data_ref::<Metadata>()
+        .and_then(|metadata| guid.and_then(|guid| metadata.powers.get(&guid)).cloned());
+    let (player, pet) = {
+        let model = lua.app_data_ref::<Model>().expect("model");
+        (model.unit_guids.player, model.unit_guids.pet)
+    };
+    if let Some(power) = power {
+        let display = power_type_of_slot(u32::from(power.kind));
+        let kind = kind.unwrap_or(display);
+        let is_player = guid == Some(player) && player != 0;
+        if kind == TYPE_COMBO_POINTS {
+            if !is_player {
+                return Ok(0);
+            }
+            let (_, class): (Value, Option<String>) = lua
+                .globals()
+                .get::<mlua::Function>("UnitClass")?
+                .call("player")?;
+            if !matches!(class.as_deref(), Some("ROGUE" | "DRUID")) {
+                return Ok(0);
+            }
+            if maximum {
+                return Ok(5);
+            }
+            return lua
+                .globals()
+                .get::<mlua::Function>("GetComboPoints")?
+                .call::<Option<u32>>(())
+                .map(|points| points.unwrap_or(0));
+        }
+        let Some(slot) = power_slot_of_type(kind) else {
+            return Ok(0);
+        };
+        let gated = !maximum && kind != display && !is_player && !(pet != 0 && guid == Some(pet));
+        if gated {
+            return Ok(0);
+        }
+        let value = if maximum {
+            power.maximum[slot]
+        } else {
+            power.current[slot]
+        }
+        .unwrap_or(0);
+        return Ok(if raw {
+            value
+        } else {
+            value / POWER_DIVISORS[slot]
+        });
+    }
+    // Out of view: the roster's one power, which the stock getters read already divided.
+    let active: i64 = lua
+        .globals()
+        .get::<mlua::Function>("UnitPowerType")?
+        .call(token)?;
+    let Ok(active_slot) = u32::try_from(active) else {
+        return Ok(0);
+    };
+    if kind.is_some_and(|kind| kind != power_type_of_slot(active_slot)) {
+        return Ok(0);
+    }
+    let stock = if maximum { "UnitManaMax" } else { "UnitMana" };
+    let value: u32 = lua.globals().get::<mlua::Function>(stock)?.call(token)?;
+    Ok(if raw {
+        value.saturating_mul(
+            POWER_DIVISORS
+                .get(active_slot as usize)
+                .copied()
+                .unwrap_or(1),
+        )
+    } else {
+        value
+    })
+}
+
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     // ClassicAPI's `UnitInRange(unit)`: within 40 yards of the player, and whether a position
     // check ran; a token with no unit, the player or a unit with no reach answers false, false.
@@ -808,44 +923,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             name,
             lua.create_function(
                 move |lua, (token, kind, raw): (String, Option<i64>, Option<bool>)| {
-                    let guid = super::auras::unit_guid(lua, &token);
-                    let power = lua.app_data_ref::<Metadata>().and_then(|metadata| {
-                        guid.and_then(|guid| metadata.powers.get(&guid)).cloned()
-                    });
-                    if let Some(power) = power {
-                        let kind = kind.unwrap_or(i64::from(power.kind));
-                        let Some(index) = usize::try_from(kind).ok().filter(|index| *index < 5)
-                        else {
-                            return Ok(0u32);
-                        };
-                        let value = if maximum {
-                            power.maximum[index]
-                        } else {
-                            power.current[index]
-                        }
-                        .unwrap_or(0);
-                        let scale = if raw != Some(true) && (kind == 1 || kind == 4) {
-                            10
-                        } else {
-                            1
-                        };
-                        return Ok(value / scale);
-                    }
-                    // Out-of-range roster snapshots expose their active resource only.
-                    let active: i64 = lua
-                        .globals()
-                        .get::<mlua::Function>("UnitPowerType")?
-                        .call(token.clone())?;
-                    if kind.is_some_and(|kind| kind != active) {
-                        return Ok(0);
-                    }
-                    let stock = if maximum { "UnitManaMax" } else { "UnitMana" };
-                    let value: u32 = lua.globals().get::<mlua::Function>(stock)?.call(token)?;
-                    Ok(if raw == Some(true) && (active == 1 || active == 4) {
-                        value.saturating_mul(10)
-                    } else {
-                        value
-                    })
+                    unit_power(lua, &token, kind, raw == Some(true), maximum)
                 },
             )?,
         )?;
