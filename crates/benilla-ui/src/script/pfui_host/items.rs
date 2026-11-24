@@ -295,6 +295,13 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     actions::install(lua, &api)?;
     api.set("GetItemID", lua.create_function(location_id)?)?;
     api.set("GetStackCount", lua.create_function(stack_count)?)?;
+    // ClassicAPI's `C_Item.DoesItemExistByID` (`item/Exists.cpp`): 1.12 has no client item
+    // database, so any positive item id (a number or an `item:` string or link) exists; whether
+    // its record is cached is `IsItemDataCachedByID`'s question. Never raises.
+    api.set(
+        "DoesItemExistByID",
+        lua.create_function(|lua, value: Value| Ok(id(lua, value).ok().flatten().is_some()))?,
+    )?;
     for name in [
         "GetItemName",
         "GetItemNameByID",

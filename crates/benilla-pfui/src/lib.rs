@@ -129,6 +129,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "GetNumGossipActiveQuests",
         "UnitDistanceSquared",
         "C_MountJournal",
+        "C_InstanceEncounter",
         "BenillaModelSceneMixin",
         "GetShapeshiftFormID",
         "GetSpellInfo",
