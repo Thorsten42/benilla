@@ -1114,6 +1114,20 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's `FlashClientIcon` returns nothing and leaves one ask for the app, however many
+/// calls a frame makes (`screen/Flash.cpp`).
+#[test]
+fn flash_client_icon_leaves_one_ask() {
+    use benilla_ui::script::pfui_host::attention;
+    let script = extended();
+    assert!(!attention::take(script.lua()));
+    script
+        .run("assert(select('#', FlashClientIcon()) == 0); FlashClientIcon(true)")
+        .unwrap();
+    assert!(attention::take(script.lua()));
+    assert!(!attention::take(script.lua()));
+}
+
 /// ClassicAPI's curves (`curve/Curve.cpp`): ends hold, Linear and Step between points, Cubic a
 /// Catmull-Rom from the second point to the one before last. A VertexColor animation blends its
 /// target's colour; RemoveAnimations empties a group; Restart's offset starts part-way through.

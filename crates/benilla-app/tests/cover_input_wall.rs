@@ -87,6 +87,8 @@ const VERDICTS: &[(&str, Verdict)] = &[
     ("CustomCursorImage", Plumbing),
     ("InputPlugin", Plumbing),
     ("WinitPlugin", Plumbing),
+    // The winit windows, read only to ask the window manager for attention (pfUI's FlashClientIcon).
+    ("WINIT_WINDOWS", Plumbing),
     ("InputSystems", Plumbing),
     ("Key", Plumbing),
     ("KeyCode", Plumbing),
