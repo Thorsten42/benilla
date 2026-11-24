@@ -1,4 +1,6 @@
 local enums = {
+  SpellBookSpellBank = { Player = 0, Pet = 1 },
+  SpellBookItemType = { None = 0, Spell = 1, FutureSpell = 2, PetAction = 3, Flyout = 4 },
   UICursorType = { Default=0, Item=1, Money=2, Spell=3, PetAction=4, Merchant=5,
     ActionBar=6, Macro=7, Ammo=8, Pet=9, EquipmentSet=12 },
   PowerType = { HealthCost = -2, None = -1, Mana = 0, Rage = 1, Focus = 2, Energy = 3, Happiness = 4 },
