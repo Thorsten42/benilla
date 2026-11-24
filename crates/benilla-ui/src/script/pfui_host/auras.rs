@@ -57,25 +57,107 @@ struct Extras {
 /// ClassicAPI's aura instance IDs: a slot's record follows its aura. A new spell in the slot ends
 /// the old instance and starts one with a fresh ID; the same aura with new stacks or timing keeps
 /// its ID; a unit whose list goes away is forgotten, and one seen again is given new IDs.
-fn sync_instances(extras: &mut Extras, guid: u64, auras: Option<&[Aura]>) {
+fn sync_instances(extras: &mut Extras, guid: u64, auras: Option<&[Aura]>) -> Delta {
     let Some(auras) = auras else {
-        extras.instances.remove(&guid);
-        return;
+        let removed = extras
+            .instances
+            .remove(&guid)
+            .map(|old| old.values().map(|&(_, id)| id).collect())
+            .unwrap_or_default();
+        return Delta {
+            removed,
+            ..Delta::default()
+        };
     };
+    let first = !extras.instances.contains_key(&guid);
     let old = extras.instances.remove(&guid).unwrap_or_default();
+    let previous = extras.by_guid.get(&guid);
+    let mut delta = Delta {
+        full: first,
+        ..Delta::default()
+    };
     let mut new = HashMap::with_capacity(auras.len());
     for aura in auras {
         let spell = aura.state.spell_id;
         let id = match old.get(&aura.slot) {
-            Some(&(held, id)) if held == spell => id,
+            Some(&(held, id)) if held == spell => {
+                // The same instance: an update when its stacks or timing moved.
+                let before = previous.and_then(|list| {
+                    list.iter()
+                        .find(|a| a.slot == aura.slot && a.state.spell_id == spell)
+                });
+                if before.is_some_and(|b| {
+                    b.state.count != aura.state.count
+                        || b.state.duration != aura.state.duration
+                        || b.state.expiration_time != aura.state.expiration_time
+                }) {
+                    delta.updated.push(id);
+                }
+                id
+            }
             _ => {
                 extras.last_instance = extras.last_instance.wrapping_add(1).max(1);
+                delta.added.push(extras.last_instance);
                 extras.last_instance
             }
         };
         new.insert(aura.slot, (spell, id));
     }
+    let kept: std::collections::HashSet<u32> = new.values().map(|&(_, id)| id).collect();
+    delta.removed = old
+        .values()
+        .map(|&(_, id)| id)
+        .filter(|id| !kept.contains(id))
+        .collect();
     extras.instances.insert(guid, new);
+    delta
+}
+
+/// One unit's aura change as ClassicAPI's `UNIT_AURA_DELTA` reports it (`aura/Delta.cpp`).
+#[derive(Default)]
+struct Delta {
+    /// The unit was seen for the first time: its IDs are news.
+    full: bool,
+    added: Vec<u32>,
+    updated: Vec<u32>,
+    removed: Vec<u32>,
+}
+
+impl Delta {
+    fn is_empty(&self) -> bool {
+        !self.full && self.added.is_empty() && self.updated.is_empty() && self.removed.is_empty()
+    }
+}
+
+/// ClassicAPI's `UNIT_AURA_DELTA(unitTarget, updateInfo)`, retail's UNIT_AURA payload under its own
+/// name: once per token naming the unit, then to the frames that registered its GUID. The payload
+/// carries instance IDs only (`isFullUpdate`, `addedAuraInstanceIDs`, `updatedAuraInstanceIDs`,
+/// `removedAuraInstanceIDs`, each list nil when empty); a handler reads the auras by ID.
+fn fire_delta(lua: &Lua, guid: u64, delta: &Delta) -> mlua::Result<()> {
+    if delta.is_empty() {
+        return Ok(());
+    }
+    let info = lua.create_table()?;
+    info.set("isFullUpdate", delta.full)?;
+    for (key, ids) in [
+        ("addedAuraInstanceIDs", &delta.added),
+        ("updatedAuraInstanceIDs", &delta.updated),
+        ("removedAuraInstanceIDs", &delta.removed),
+    ] {
+        if !ids.is_empty() {
+            info.set(key, lua.create_sequence_from(ids.iter().copied())?)?;
+        }
+    }
+    for token in super::units::event_tokens(lua, guid) {
+        let unit = Value::String(lua.create_string(token)?);
+        super::fire_pfui_values(
+            lua,
+            "UNIT_AURA_DELTA",
+            vec![unit, Value::Table(info.clone())],
+        );
+    }
+    super::guid_events::signal_values(lua, "UNIT_AURA_DELTA", guid, vec![Value::Table(info)]);
+    Ok(())
 }
 
 /// The instance ID of the aura in `slot` on `guid`, while it holds `spell`.
@@ -254,7 +336,7 @@ pub fn set_auras(lua: &Lua, guid: u64, mut auras: Option<Vec<Aura>>) {
             }
         }
     }
-    let (changed, timing_changed) = if let Some(mut extras) = lua.app_data_mut::<Extras>() {
+    let (changed, timing_changed, delta) = if let Some(mut extras) = lua.app_data_mut::<Extras>() {
         let changed = extras.by_guid.get(&guid) != auras.as_ref();
         let timing_changed = player
             && auras
@@ -270,15 +352,15 @@ pub fn set_auras(lua: &Lua, guid: u64, mut auras: Option<Vec<Aura>>) {
                         })
                     })
                 });
-        sync_instances(&mut extras, guid, auras.as_deref());
+        let delta = sync_instances(&mut extras, guid, auras.as_deref());
         if let Some(auras) = auras {
             extras.by_guid.insert(guid, auras);
         } else {
             extras.by_guid.remove(&guid);
         }
-        (changed, timing_changed)
+        (changed, timing_changed, delta)
     } else {
-        (false, false)
+        (false, false, Delta::default())
     };
     if changed {
         // Stock PLAYER_AURAS_CHANGED deliberately ignores countdown-only refreshes.
@@ -297,6 +379,7 @@ pub fn set_auras(lua: &Lua, guid: u64, mut auras: Option<Vec<Aura>>) {
         // A unit no token names still reaches the frames that registered its GUID.
         crate::script::pfui_host::guid_events::signal(lua, "UNIT_AURA", guid, &[]);
     }
+    let _ = fire_delta(lua, guid, &delta);
 }
 
 pub(crate) fn unit_guid(lua: &Lua, token: &str) -> Option<u64> {
