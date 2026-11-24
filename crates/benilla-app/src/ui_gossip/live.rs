@@ -20,6 +20,31 @@ pub(crate) struct GossipLive<'w> {
 
 impl crate::script_calls::live::LiveFamily for GossipLive<'_> {
     fn answer(&mut self, ask: &mut LiveAsk<'_>) -> bool {
+        #[cfg(feature = "pfui")]
+        if ask.answer(
+            |_: &benilla_ui::script::pfui_host::gossip_info::GossipInfoQuery| {
+                Some(self.state.as_deref().and_then(info))
+            },
+        ) {
+            return true;
+        }
         ask.answer(|_: &GossipQuery| self.state.as_deref().map(super::menu))
     }
+}
+
+/// ClassicAPI's `C_GossipInfo` rows: the window's wire option indices, icons and quest ids, while
+/// a window is live (opened, its text no longer pending).
+#[cfg(feature = "pfui")]
+fn info(state: &GossipState) -> Option<benilla_ui::script::pfui_host::gossip_info::GossipInfo> {
+    (state.npc.is_some() && !state.pending).then(|| {
+        benilla_ui::script::pfui_host::gossip_info::GossipInfo {
+            options: state
+                .options
+                .iter()
+                .filter(|o| (o.index as i32) >= 0)
+                .map(|o| (o.index, o.icon, o.message.clone()))
+                .collect(),
+            quests: state.quests.clone(),
+        }
+    })
 }
