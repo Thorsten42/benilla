@@ -16,6 +16,7 @@ mod editbox_caret;
 mod engine;
 pub(crate) mod equipment_actions;
 pub mod gossip_info;
+pub(crate) mod guid_events;
 pub mod inline_texture;
 pub mod interrupts;
 pub mod items;
@@ -388,6 +389,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     mirror_timers::install(lua)?;
     gossip_info::install(lua)?;
     mouse_pass::install(lua)?;
+    guid_events::install(lua)?;
     super::nameplate::pfui::install(lua)?;
     attributes::install(lua)?;
     auras::install(lua)?;

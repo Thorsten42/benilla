@@ -135,6 +135,7 @@ pub(super) fn state(lua: &Lua, guid: u64) -> Option<UnitState> {
 
 pub(super) fn feed_states(lua: &Lua, states: impl IntoIterator<Item = (u64, UnitState, u64)>) {
     let before = events::snapshot(lua);
+    let guids_before = events::guid_snapshot(lua);
     {
         let Some(mut metadata) = lua.app_data_mut::<Metadata>() else {
             return;
@@ -147,6 +148,7 @@ pub(super) fn feed_states(lua: &Lua, states: impl IntoIterator<Item = (u64, Unit
         }
     }
     events::dispatch(lua, before, events::snapshot(lua));
+    events::guid_dispatch(lua, guids_before, events::guid_snapshot(lua));
 }
 
 pub(super) fn announce_restore(lua: &Lua) {

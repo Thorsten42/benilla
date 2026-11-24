@@ -1114,6 +1114,89 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's GUID registrations (`frame/GuidEvent.cpp`): a frame takes a unit event for a GUID
+/// it registered with `arg1` the GUID, once per event and frame of the clock whether or not a
+/// token names the unit, apart from its own event registrations; `UnregisterAllEvents` drops
+/// them. `UNIT_VISIBILITY_CHANGED` fires as a unit enters or leaves view, after a seeding feed
+/// (`unit/VisibilityEvent.cpp`).
+#[test]
+fn guid_registrations_take_their_units_events() {
+    use benilla_ui::script::pfui_host::{
+        auras::{self, Aura},
+        units::{self, RawUnit},
+    };
+    use benilla_ui::script::{AuraState, UnitGuids};
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 5,
+        ..Default::default()
+    });
+    let raw = |guid: u64| {
+        (
+            guid,
+            RawUnit {
+                health: Some(1),
+                form: 0,
+                mount_display: 0,
+                auras: Vec::new(),
+                applications: Vec::new(),
+            },
+        )
+    };
+    let aura = |spell_id: u32| Aura {
+        crowd_control: false,
+        self_only: false,
+        applies_aura: false,
+        immunities: Vec::new(),
+        slot: 0,
+        state: AuraState {
+            spell_id,
+            helpful: true,
+            name: Some("Mark".into()),
+            ..Default::default()
+        },
+        source_guid: None,
+    };
+    units::set_raw_units(script.lua(), [raw(5)]);
+    script
+        .run(r#"
+        seen = {}
+        f = CreateFrame('Frame', 'GuidProbe')
+        f:SetScript('OnEvent', function() table.insert(seen, event .. ' ' .. arg1 .. ' ' .. tostring(arg2)) end)
+        assert(f:RegisterGUIDEvent('UNIT_AURA', '0x0000000000000007', 'junk', '0x0000000000000007') == true)
+        assert(f:RegisterGUIDEvent('UNIT_AURA', '0x0000000000000007') == false, 'unchanged')
+        assert(f:RegisterGUIDEvent('UNIT_VISIBILITY_CHANGED', '0x0000000000000007', '0x0000000000000005'))
+        local ok, guid = f:IsGUIDEventRegistered('UNIT_AURA')
+        assert(ok == true and guid == '0x0000000000000007')
+        assert(select(2, f:IsGUIDEventRegistered('UNIT_HEALTH')) == nil)
+        assert(not f:IsEventRegistered('UNIT_AURA'), 'apart from the event registrations')
+        assert(not pcall(f.RegisterGUIDEvent, f, 'PLAYER_LOGIN', '0x0000000000000007'))
+        assert(not pcall(f.RegisterGUIDEvent, f, 'UNIT_AURA', 'junk'))
+        "#)
+        .unwrap();
+    // No token names 7: the feed's own signal reaches the frame, once.
+    auras::set_auras(script.lua(), 7, Some(vec![aura(201)]));
+    units::set_raw_units(script.lua(), [raw(5), raw(7)]);
+    script.set_now(1.0);
+    units::set_raw_units(script.lua(), [raw(7)]);
+    let seen: String = script.eval("return table.concat(seen, ';')").unwrap();
+    assert_eq!(
+        seen,
+        "UNIT_AURA 0x0000000000000007 nil;\
+         UNIT_VISIBILITY_CHANGED 0x0000000000000007 true;\
+         UNIT_VISIBILITY_CHANGED 0x0000000000000005 false"
+    );
+    script
+        .run("f:UnregisterAllEvents(); seen = {}; assert(not f:IsGUIDEventRegistered('UNIT_AURA'))")
+        .unwrap();
+    script.set_now(2.0);
+    auras::set_auras(script.lua(), 7, Some(vec![aura(202)]));
+    let seen: String = script.eval("return table.concat(seen, ';')").unwrap();
+    assert_eq!(seen, "");
+    assert!(script.errors().is_empty(), "{:?}", script.errors());
+}
+
 /// ClassicAPI's `SetPassThroughButtons`: a press of a passed button skips the frame and reaches the
 /// mouse frame under it, or the world with none; its other buttons stay its own, and no argument
 /// clears the set (`frame/MouseInput.cpp`).
