@@ -21,6 +21,10 @@ struct Metadata {
     raw: HashMap<u64, RawUnit>,
     /// The units last reported in view, `None` until the first feed seeds it.
     in_view: Option<std::collections::HashSet<u64>>,
+    /// The units of `boss1`..`boss5`, in order ([`focus::resolve`]).
+    bosses: Vec<u64>,
+    /// The creature IDs addons named bosses (`C_InstanceEncounter`), in the order added.
+    boss_creatures: Vec<u32>,
 }
 
 /// Attach before installing the extension in a fresh VM. Only the owning session shares it.
@@ -391,6 +395,7 @@ pub(super) fn event_tokens(lua: &Lua, guid: u64) -> Vec<String> {
 fn query_tokens(lua: &Lua) -> Vec<String> {
     let mut bases = super::super::nameplate::pfui::all_tokens(lua);
     bases.push("focus".into());
+    bases.extend((1..=5).map(|index| format!("boss{index}")));
     bases.extend((1..=8).map(|index| format!("mark{index}")));
     bases
         .into_iter()
@@ -528,6 +533,72 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 .map_or((false, false), |reach| (reach.dist_sq <= 40.0 * 40.0, true)))
         })?,
     )?;
+    // ClassicAPI's `C_InstanceEncounter` (`combatlog/BossCreatures.cpp`): the creature IDs an addon
+    // names bosses, one ID or a table of them read from [1] to the first nil; a bad entry raises
+    // the field error before any is applied. The list lives as long as the VM.
+    let encounter = lua.create_table()?;
+    fn creature_ids(lua: &Lua, value: Value) -> mlua::Result<Vec<u32>> {
+        let one = |v: Value, field: Option<usize>| -> mlua::Result<u32> {
+            lua.coerce_integer(v)?
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| *n > 0)
+                .ok_or_else(|| {
+                    mlua::Error::runtime(match field {
+                        Some(i) => format!("bad argument #1 (Current Field: [{i}])"),
+                        None => "bad argument #1 (creatureID expected)".into(),
+                    })
+                })
+        };
+        match value {
+            Value::Table(list) => {
+                let mut ids = Vec::new();
+                for i in 1.. {
+                    match list.raw_get::<Value>(i)? {
+                        Value::Nil => break,
+                        v => ids.push(one(v, Some(i))?),
+                    }
+                }
+                Ok(ids)
+            }
+            v => Ok(vec![one(v, None)?]),
+        }
+    }
+    encounter.set(
+        "AddBossCreatureID",
+        lua.create_function(|lua, value: Value| {
+            let ids = creature_ids(lua, value)?;
+            let mut metadata = lua.app_data_mut::<Metadata>().expect("unit metadata");
+            for id in ids {
+                if !metadata.boss_creatures.contains(&id) {
+                    metadata.boss_creatures.push(id);
+                }
+            }
+            Ok(())
+        })?,
+    )?;
+    encounter.set(
+        "RemoveBossCreatureID",
+        lua.create_function(|lua, value: Value| {
+            let ids = creature_ids(lua, value)?;
+            lua.app_data_mut::<Metadata>()
+                .expect("unit metadata")
+                .boss_creatures
+                .retain(|id| !ids.contains(id));
+            Ok(())
+        })?,
+    )?;
+    encounter.set(
+        "GetBossCreatureIDs",
+        lua.create_function(|lua, ()| {
+            let ids = lua
+                .app_data_ref::<Metadata>()
+                .expect("unit metadata")
+                .boss_creatures
+                .clone();
+            lua.create_sequence_from(ids)
+        })?,
+    )?;
+    lua.globals().set("C_InstanceEncounter", encounter)?;
     // ClassicAPI's `UnitDistanceSquared(unit)` (`unit/Range.cpp`): the raw squared distance from
     // the player, no reach added, and whether a position was read; the player is (0, true), a
     // unit with no position (0, false), always a number.

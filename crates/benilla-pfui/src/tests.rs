@@ -1114,6 +1114,29 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's `boss1`..`boss5` are tokens (no unit until an encounter names one) and other
+/// indices are not; `C_InstanceEncounter` keeps the creature IDs addons name bosses, a bad entry
+/// changing nothing; `C_Item.DoesItemExistByID` takes any positive id (`unit/Boss.cpp`,
+/// `combatlog/BossCreatures.cpp`, `item/Exists.cpp`).
+#[test]
+fn boss_tokens_and_the_boss_creature_list() {
+    let script = extended();
+    script
+        .run(r#"
+        assert(not UnitExists('boss1') and not UnitExists('boss5target') and UnitGUID('boss3') == nil)
+        assert(not pcall(UnitExists, 'boss6') and not pcall(UnitExists, 'boss'))
+        C_InstanceEncounter.AddBossCreatureID(11502)
+        C_InstanceEncounter.AddBossCreatureID({12118, 11502, 11982})
+        assert(not pcall(C_InstanceEncounter.AddBossCreatureID, {12057, 'x'}))
+        C_InstanceEncounter.RemoveBossCreatureID(12118)
+        local ids = C_InstanceEncounter.GetBossCreatureIDs()
+        assert(#ids == 2 and ids[1] == 11502 and ids[2] == 11982)
+        assert(C_Item.DoesItemExistByID(6948) and C_Item.DoesItemExistByID('item:6948:0:0:0'))
+        assert(not C_Item.DoesItemExistByID(0) and not C_Item.DoesItemExistByID(nil))
+        "#)
+        .unwrap();
+}
+
 /// ClassicAPI 1.23's `<ModelScene>`: a frame of its own type that keeps its flags (the dressing
 /// room's mount scene and its control frame load from it), and `C_MountJournal` by spell, a mount
 /// being a spell with a SPELL_AURA_MOUNTED effect (`mount/Journal.cpp`).
