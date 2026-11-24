@@ -244,6 +244,16 @@ impl Describe<'_, '_> {
     }
 }
 
+/// A power field as ClassicAPI's combat log writes it: the 1.12 slot's `Enum.PowerType`, happiness
+/// (slot 4) as 27 (`combatlog/Entry.cpp`, `Unit::Power::TypeOfSlot`).
+fn power_type(slot: impl Into<i64>) -> V {
+    let slot = slot.into();
+    V::Int(u32::try_from(slot).map_or(
+        slot,
+        benilla_ui::script::pfui_host::units::power_type_of_slot,
+    ))
+}
+
 fn int(n: impl Into<i64>) -> V {
     V::Int(n.into())
 }
@@ -469,7 +479,7 @@ fn feed(
                         }
                         PeriodicTick::Energize { power, amount } => {
                             let mut values = prefix;
-                            values.extend([int(amount), int(power), V::Nil]);
+                            values.extend([int(amount), power_type(power), V::Nil]);
                             e.push(
                                 "SPELL_PERIODIC_ENERGIZE",
                                 p.caster,
@@ -485,7 +495,7 @@ fn feed(
                         } => {
                             let mut values = prefix;
                             let extra = (amount as f32 * multiplier) as i64;
-                            values.extend([int(amount), int(power), V::Int(extra), V::Nil]);
+                            values.extend([int(amount), power_type(power), V::Int(extra), V::Nil]);
                             let subevent = if multiplier > 0.0 {
                                 "SPELL_PERIODIC_LEECH"
                             } else {
@@ -504,7 +514,7 @@ fn feed(
             }
             SessionEvent::SpellEnergizeLog(s) => {
                 let mut values = d.spell(s.spell_id).to_vec();
-                values.extend([int(s.amount), int(s.power), V::Nil]);
+                values.extend([int(s.amount), power_type(s.power), V::Nil]);
                 e.push(
                     "SPELL_ENERGIZE",
                     s.caster,
@@ -713,7 +723,7 @@ fn execute(e: &Emit, d: &Describe, caster: u64, spell: u32, effect: u32, entry: 
             let mut values = prefix;
             values.extend([
                 int(amount),
-                int(power),
+                power_type(power),
                 V::Int((amount as f32 * multiplier) as i64),
                 V::Nil,
             ]);

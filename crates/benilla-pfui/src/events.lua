@@ -120,9 +120,6 @@ end
 C_SpellActivationOverlay = C_SpellActivationOverlay or {}
 function C_SpellActivationOverlay.IsSpellOverlayed(spellID) return glowing[tonumber(spellID)] ~= nil end
 IsSpellOverlayed = C_SpellActivationOverlay.IsSpellOverlayed
-Enum = Enum or {}
-Enum.ScreenLocationType = { Center = 0, Left = 1, Right = 2, Top = 3, Bottom = 4, TopLeft = 5,
-  TopRight = 6, LeftOutside = 7, RightOutside = 8, LeftRight = 9, TopBottom = 10, LeftRightOutside = 11 }
 -- The two proc auras 1.12 keeps unchanged: aura, art, location, scale, and the spell it glows.
 local procs = {
   { aura = 17941, texture = "Textures\\SpellActivationOverlays\\Nightfall", glows = 686 },
