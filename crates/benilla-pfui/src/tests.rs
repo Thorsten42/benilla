@@ -1114,6 +1114,64 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// pfUI's mirror bars read the value at the call (`mirrortimers.lua:11`): a draining breath bar
+/// counts down from its start by its scale, a paused one holds, a stop empties the slot.
+#[test]
+fn mirror_timer_progress_runs_from_the_start_by_its_scale() {
+    use benilla_ui::script::pfui_host::mirror_timers::{self, MirrorTimerStart};
+    let mut script = extended();
+    script
+        .run(r#"
+            assert(GetMirrorTimerProgress('BREATH')==0)
+            assert(GetMirrorTimerProgress('nothing')==nil)
+            local name,value,max,scale,paused,label,spell=GetMirrorTimerInfo(2)
+            assert(name=='UNKNOWN' and value==0 and max==0 and scale==0 and paused==0 and label=='' and spell==0)
+            assert(GetMirrorTimerInfo(4)==nil)
+            assert(not pcall(GetMirrorTimerProgress))
+        "#)
+        .unwrap();
+    script.set_now(10.0);
+    let breath = MirrorTimerStart {
+        kind: 1,
+        value: 60_000,
+        max: 60_000,
+        scale: -1,
+        paused: false,
+        spell_id: 0,
+        label: "Breath",
+    };
+    mirror_timers::start(script.lua(), breath);
+    script.set_now(12.5);
+    script
+        .run(r#"
+            assert(GetMirrorTimerProgress('breath')==57500)
+            local name,value,max,scale,paused,label=GetMirrorTimerInfo('2')
+            assert(name=='BREATH' and value==60000 and max==60000 and scale==-1 and paused==0 and label=='Breath')
+        "#)
+        .unwrap();
+    mirror_timers::start(
+        script.lua(),
+        MirrorTimerStart {
+            kind: 1,
+            value: 30_000,
+            max: 60_000,
+            scale: 10,
+            paused: true,
+            spell_id: 0,
+            label: "Breath",
+        },
+    );
+    script.set_now(20.0);
+    script
+        .run("assert(GetMirrorTimerProgress('BREATH')==30000)")
+        .unwrap();
+    mirror_timers::stop(script.lua(), 1);
+    mirror_timers::stop(script.lua(), 7);
+    script
+        .run("assert(GetMirrorTimerProgress('BREATH')==0 and GetMirrorTimerInfo(2)=='UNKNOWN')")
+        .unwrap();
+}
+
 #[test]
 fn totem_queries_distinguish_tools_from_active_summons_and_target_real_guids() {
     use benilla_ui::script::{
