@@ -91,6 +91,15 @@ pub(crate) fn watched(lua: &Lua) -> Vec<u64> {
 /// the clock, `arg1` the GUID and `rest` after it. `event` is set around the calls as a walk sets
 /// it.
 pub(crate) fn signal(lua: &Lua, event: &str, guid: u64, rest: &[ScriptValue]) {
+    let rest: Vec<Value> = rest
+        .iter()
+        .filter_map(|value| value.clone().into_lua(lua).ok())
+        .collect();
+    signal_values(lua, event, guid, rest);
+}
+
+/// [`signal`] with a payload a [`ScriptValue`] cannot carry (a table).
+pub(crate) fn signal_values(lua: &Lua, event: &str, guid: u64, rest: Vec<Value>) {
     let now = crate::script::clock::now(lua);
     let frames: Vec<FrameHandle> = {
         let Some(mut state) = lua.app_data_mut::<GuidEvents>() else {
@@ -112,9 +121,12 @@ pub(crate) fn signal(lua: &Lua, event: &str, guid: u64, rest: &[ScriptValue]) {
         state.delivered.insert(key, now);
         frames
     };
+    let Ok(arg1) = lua.create_string(guid_string(guid)) else {
+        return;
+    };
     let mut args = Vec::with_capacity(rest.len() + 1);
-    args.push(ScriptValue::Str(guid_string(guid)));
-    args.extend_from_slice(rest);
+    args.push(Value::String(arg1));
+    args.extend(rest);
     let globals = lua.globals();
     let saved = globals.get::<Value>("event").ok();
     let _ = globals.set("event", event);
@@ -123,7 +135,9 @@ pub(crate) fn signal(lua: &Lua, event: &str, guid: u64, rest: &[ScriptValue]) {
             .app_data_ref::<Model>()
             .and_then(|model| model.frame_to_id.get(&frame).copied());
         if let Some(id) = id {
-            if let Err(e) = crate::script::event::fire_event_handler(lua, id, &args) {
+            if let Err(e) =
+                crate::script::event::fire_widget_handler(lua, id, "OnEvent", args.clone())
+            {
                 lua.app_data_mut::<Model>()
                     .expect("model")
                     .record_lua_error(&e);
