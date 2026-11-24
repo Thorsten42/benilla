@@ -631,6 +631,56 @@ const USAGE_REGISTER_CVAR: &str = "Usage: RegisterCVar(\"cvar\" [, default])";
 /// How many CVars `RegisterCVar` creates per process (`0x488b25`: `cmp [0xb4e3c8], 0x1e`).
 pub const LUA_CVAR_LIMIT: u32 = 30;
 
+/// `RegisterCVar`'s record: a script's (`counted`, inside the reference's limit of
+/// [`LUA_CVAR_LIMIT`]) or one an engine extension makes, as ClassicAPI's C++ registers its own
+/// CVars outside the scripts' budget ([`register_extension_cvar`]).
+fn register(lua: &Lua, name: String, value: String, counted: bool) -> mlua::Result<()> {
+    let mut model = lua.app_data_mut::<Model>().expect("model app_data");
+    // The limit is tested before the name is looked up (`0x488b25`), so at the limit a
+    // re-declaration raises too.
+    if counted && model.cvar_lua_created >= LUA_CVAR_LIMIT {
+        return Err(mlua::Error::runtime(TOO_MANY_CVARS));
+    }
+    let key = name.to_ascii_lowercase();
+    // A saved value outranks the declared one, which stays the default for the saver.
+    let saved = model.cvars_saved_base.get(&key).cloned();
+    if model.cvars.contains_key(&key) {
+        return Ok(());
+    }
+    // Only a call that creates the record counts (`0x488b8f`, past the lookup at
+    // `0x488b7d`). A saved name is no creation: the reference's config load already made
+    // its record (`set`, `0x63d582`), so its lookup finds one.
+    if counted && saved.is_none() {
+        model.cvar_lua_created += 1;
+    }
+    // The host gives the row a place in its registry, which outlives this VM.
+    model.cvar_registrations.push((name.clone(), value.clone()));
+    let seq = model.cvars.len();
+    model.cvars.insert(
+        key,
+        CvarSlot {
+            name,
+            value: saved.clone().unwrap_or_else(|| value.clone()),
+            default: value,
+            latched: false,
+            pending: None,
+            check: None,
+            // The saved value is the reset text of the record its config line made.
+            reset: saved,
+            session: false,
+            seq,
+        },
+    );
+    Ok(())
+}
+
+/// An engine extension's CVar, created as a script's would be but outside the scripts' limit, so
+/// the ClassicAPI layer's own settings leave the addons their 30.
+#[cfg(feature = "pfui")]
+pub fn register_extension_cvar(lua: &Lua, name: &str, default: &str) -> mlua::Result<()> {
+    register(lua, name.to_string(), default.to_string(), false)
+}
+
 /// `0x8422c0`, verbatim.
 const TOO_MANY_CVARS: &str = "Attempted to register too many CVars";
 
@@ -651,44 +701,9 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
             let Some(name) = cvar_arg(args.front()) else {
                 return Err(mlua::Error::runtime(USAGE_REGISTER_CVAR));
             };
-            let mut model = lua.app_data_mut::<Model>().expect("model app_data");
-            // The limit is tested before the name is looked up (`0x488b25`), so at the limit a
-            // re-declaration raises too.
-            if model.cvar_lua_created >= LUA_CVAR_LIMIT {
-                return Err(mlua::Error::runtime(TOO_MANY_CVARS));
-            }
             // The default only when `lua_isstring(2)` passes (`0x488b56`), else "0".
             let value = cvar_arg(args.get(1)).unwrap_or_else(|| NO_STRING_FORM.to_string());
-            let key = name.to_ascii_lowercase();
-            // A saved value outranks the declared one, which stays the default for the saver.
-            let saved = model.cvars_saved_base.get(&key).cloned();
-            if model.cvars.contains_key(&key) {
-                return Ok(());
-            }
-            // Only a call that creates the record counts (`0x488b8f`, past the lookup at
-            // `0x488b7d`). A saved name is no creation: the reference's config load already made
-            // its record (`set`, `0x63d582`), so its lookup finds one.
-            if saved.is_none() {
-                model.cvar_lua_created += 1;
-            }
-            // The host gives the row a place in its registry, which outlives this VM.
-            model.cvar_registrations.push((name.clone(), value.clone()));
-            let seq = model.cvars.len();
-            model.cvars.insert(
-                key,
-                CvarSlot {
-                    name,
-                    value: saved.clone().unwrap_or_else(|| value.clone()),
-                    default: value,
-                    latched: false,
-                    pending: None,
-                    check: None,
-                    // The saved value is the reset text of the record its config line made.
-                    reset: saved,
-                    session: false,
-                    seq,
-                },
-            );
+            register(lua, name, value, true)?;
             Ok(())
         })?,
     )?;
