@@ -13,6 +13,9 @@ workspace = true
 # `dev` is forwarded here, or unification would put it back in a player build.
 default = ["dev"]
 dev = ["benilla-formats/dev"]
+# ClassicAPI's built-in textures: a game path no file answers is read from the ClassicAPI addon's
+# Textures folder, as its DLL serves them (the app's `pfui` feature turns it on).
+classicapi = []
 
 [dependencies]
 anyhow.workspace = true
