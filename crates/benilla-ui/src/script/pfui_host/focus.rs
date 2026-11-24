@@ -54,6 +54,9 @@ pub(super) fn resolve(lua: &Lua, token: &str) -> Option<Option<u64>> {
         && !token
             .get(..4)
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("boss"))
+        && !token
+            .get(..5)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("totem"))
     {
         return None;
     }
@@ -87,6 +90,15 @@ pub(super) fn resolve(lua: &Lua, token: &str) -> Option<Option<u64>> {
                 .copied(),
             &rest[digits..],
         )
+    } else if let Some(rest) = token.strip_prefix("totem") {
+        // ClassicAPI's `totem1`..`totem4` (`totem/Tracker.cpp`): the totem bar's units, Fire,
+        // Earth, Water, Air. Another index is no token.
+        let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+        let index = rest[..digits]
+            .parse::<usize>()
+            .ok()
+            .filter(|index| (1..=4).contains(index))?;
+        (super::super::totems::guid(lua, index), &rest[digits..])
     } else if let Some(rest) = token.strip_prefix("mark") {
         let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
         let index = rest[..digits]
