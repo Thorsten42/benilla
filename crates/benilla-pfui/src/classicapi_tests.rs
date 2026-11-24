@@ -1583,3 +1583,28 @@ fn set_parent_moves_the_subtree_under_classicapi() {
     assert_eq!(health, 4, "1.12 keeps the child's level");
     assert!(health < overlay);
 }
+
+/// ClassicAPI's built-in atlas table (`texture/AtlasData.h`): a transposed row sets the eight-corner
+/// coordinates with the sprite's top edge on the rect's left edge, a sliced row reports its
+/// margins in `sliceData`, and the ids come back by name.
+#[test]
+fn built_in_atlases_transpose_and_report_their_slices() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        local tex = CreateFrame("Frame"):CreateTexture()
+        tex:SetAtlas("UI-ScrollBar-EndCap-Left")
+        local ulx, uly, llx, lly, urx, ury, lrx, lry = tex:GetTexCoord()
+        assert(ulx == 0 and uly == 0 and llx == 0.484375 and lly == 0, "LL is the rect's top right")
+        assert(urx == 0 and ury == 0.109375 and lrx == 0.484375 and lry == 0.109375)
+        local info = C_Texture.GetAtlasInfo("ui-damagemeters-header-bar")
+        assert(info.sliceData.marginLeft == 80 and info.sliceData.marginBottom == 22)
+        assert(info.sliceData.sliceMode == 0 and info.atlasID == nil, "ids stay private")
+        assert(C_Texture.GetAtlasID("ui-damagemeters-header-bar") == 3658)
+        assert(C_Texture.GetAtlasElementID("ui-damagemeters-header-bar") == 32444)
+        assert(C_Texture.GetAtlasInfo("UI-ScrollBar-EndCap-Left").sliceData == nil)
+    "#,
+        )
+        .unwrap();
+}
