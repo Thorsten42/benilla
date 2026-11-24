@@ -6,7 +6,14 @@ use benilla_protocol::{SessionEvent, SessionEventKind};
 use benilla_ui::script::UiScript;
 use bevy::prelude::*;
 
+/// Rolls whose item record had not landed at their start, waiting to learn whether it binds on
+/// pickup.
+#[derive(Resource, Default)]
+struct AwaitingBonding(Vec<(Key, u32)>);
+
 pub(super) fn register(app: &mut App) {
+    app.init_resource::<AwaitingBonding>();
+    app.add_systems(Update, bonding_landed.in_set(super::InputSnapshots));
     app.net_handler(SessionEventKind::LootStartRoll, receive);
     app.net_handler(SessionEventKind::LootRoll, receive);
     app.net_handler(SessionEventKind::LootRollWon, receive);
@@ -22,6 +29,8 @@ fn receive(
     me: Res<crate::net::SelfGuid>,
     clock: Res<crate::ui_script::UiClock>,
     self_q: Query<&crate::net::ObjectStore, With<crate::net::SelfPlayer>>,
+    items: Res<crate::items::Items>,
+    mut awaiting: ResMut<AwaitingBonding>,
 ) {
     let Some(script) = script else { return };
     let player = |guid, kind, roll| {
@@ -98,5 +107,37 @@ fn receive(
         + bevy::platform::time::Instant::now()
             .duration_since(clock.anchor)
             .as_secs_f64();
+    let start = matches!(event, Event::Start);
     loot::observe(script.lua(), key, id, suffix as i32, timestamp, event);
+    // ClassicAPI's auto-show for a bind-on-pickup item, once its record says so.
+    if start {
+        match items.template(id, 0, crate::query_cache::Ask::Read) {
+            Some(info) if info.bonding == 1 => loot::auto_show(script.lua(), key),
+            Some(_) => {}
+            None => awaiting.0.push((key, id)),
+        }
+    }
+}
+
+/// A roll waiting on its item's record shows once the record lands binding on pickup.
+fn bonding_landed(
+    script: Option<NonSend<UiScript>>,
+    items: Res<crate::items::Items>,
+    mut awaiting: ResMut<AwaitingBonding>,
+) {
+    let Some(script) = script else { return };
+    if awaiting.0.is_empty() {
+        return;
+    }
+    awaiting.0.retain(
+        |&(key, id)| match items.template(id, 0, crate::query_cache::Ask::Read) {
+            Some(info) => {
+                if info.bonding == 1 {
+                    loot::auto_show(script.lua(), key);
+                }
+                false
+            }
+            None => items.template_known(id),
+        },
+    );
 }
