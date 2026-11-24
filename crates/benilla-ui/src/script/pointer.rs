@@ -548,6 +548,24 @@ impl UiScript {
                 } else {
                     hit_id.and_then(|id| model.id_to_frame.get(&id).copied())
                 };
+                // ClassicAPI's pass-through buttons: the walk skips a frame that lets this button
+                // through, so the next mouse frame under the cursor takes the press, or the world.
+                #[cfg(feature = "pfui")]
+                let hover = match hover {
+                    Some(h)
+                        if held.is_none()
+                            && super::pfui_host::mouse_pass::passes(&self.lua, h, button) =>
+                    {
+                        let sorted = order::pick_order(&model.arena);
+                        order::hit_test(&sorted, |fh| {
+                            model.arena.is_mouse_enabled(fh)
+                                && !model.nameplates.vetoes(fh)
+                                && frame_contains(&model, fh, x, y)
+                                && !super::pfui_host::mouse_pass::passes(&self.lua, fh, button)
+                        })
+                    }
+                    other => other,
+                };
                 // The world input hook `0x492b50`, which the handler runs on the event record before
                 // it picks a frame, and only with no capture held (`0x76635c`-`0x766370`): a right
                 // press with a payload on the cursor or a gift wrap pending clears the cursor and is
