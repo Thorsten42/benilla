@@ -1114,6 +1114,51 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's explicit loads (`item/Data.cpp`, `quest/Data.cpp`): a cached record answers inside
+/// the call, an uncached one asks and answers when it lands, once per call made while it waited;
+/// an item id of 0 or less answers false at once.
+#[test]
+fn explicit_item_and_quest_loads_answer_once_per_call() {
+    use benilla_ui::script::{pfui_host, ItemTemplateView, QuestRecordView};
+    let mut script = extended();
+    script.set_item_template(
+        6948,
+        ItemTemplateView {
+            name: "Hearthstone".into(),
+            ..Default::default()
+        },
+    );
+    script
+        .run(r#"
+        got = {}
+        local f = CreateFrame('Frame')
+        f:RegisterEvent('ITEM_DATA_LOAD_RESULT'); f:RegisterEvent('QUEST_DATA_LOAD_RESULT')
+        f:SetScript('OnEvent', function() table.insert(got, event .. ' ' .. arg1 .. ' ' .. tostring(arg2)) end)
+        C_Item.RequestLoadItemDataByID(6948)
+        C_Item.RequestLoadItemDataByID(0)
+        C_Item.RequestLoadItemDataByID('item:2589')
+        C_Item.RequestLoadItemDataByID(2589)
+        C_QuestLog.RequestLoadQuestByID(783)
+        "#)
+        .unwrap();
+    pfui_host::item_result(script.lua(), 2589, true);
+    script.land_quest_records(vec![(
+        783,
+        QuestRecordView {
+            title: "A Threat Within".into(),
+            ..Default::default()
+        },
+    )]);
+    script.run("C_QuestLog.RequestLoadQuestByID(783)").unwrap();
+    let got: String = script.eval("return table.concat(got, ';')").unwrap();
+    assert_eq!(
+        got,
+        "ITEM_DATA_LOAD_RESULT 6948 true;ITEM_DATA_LOAD_RESULT 0 false;\
+         ITEM_DATA_LOAD_RESULT 2589 true;ITEM_DATA_LOAD_RESULT 2589 true;\
+         QUEST_DATA_LOAD_RESULT 783 true;QUEST_DATA_LOAD_RESULT 783 true"
+    );
+}
+
 /// ClassicAPI's `boss1`..`boss5` are tokens (no unit until an encounter names one) and other
 /// indices are not; `C_InstanceEncounter` keeps the creature IDs addons name bosses, a bad entry
 /// changing nothing; `C_Item.DoesItemExistByID` takes any positive id (`unit/Boss.cpp`,
