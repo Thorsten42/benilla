@@ -87,6 +87,39 @@ fn spellbook_item_info_reads_the_slot() {
         .unwrap();
 }
 
+/// ClassicAPI's totem extras (`totem/Tracker.cpp`, `spell/CastByID.cpp`): `GetTotemTimeLeft`
+/// in whole seconds, `totem1`..`totem4` naming the bar's units, and `CastSpellByID` casting only
+/// a spell one of the books holds.
+#[test]
+fn totem_time_left_tokens_and_cast_by_id() {
+    use benilla_ui::script::pfui_host::totems::{self, Totem};
+    let mut script = extended();
+    book(&mut script);
+    script.set_now(10.0);
+    let searing = Totem {
+        spell_id: 3599,
+        guid: Some(0xF130_0000_0000_0077),
+        name: "Searing Totem".into(),
+        icon: None,
+        start: 2.0,
+        duration: 30.0,
+    };
+    totems::set(script.lua(), [Some(searing), None, None, None], [0; 4]);
+    script
+        .run(
+            r#"
+        assert(GetTotemTimeLeft(1) == 22 and GetTotemTimeLeft(2) == 0)
+        assert(select('#', GetTotemTimeLeft(5)) == 0 and not pcall(GetTotemTimeLeft))
+        assert(UnitGUID('totem1') == '0xF130000000000077' and UnitGUID('totem2') == nil)
+        assert(not pcall(UnitExists, 'totem5'))
+        assert(CastSpellByID(9999) == nil, 'not in a book')
+        assert(CastSpellByID(143) == true and CastSpellByID(2649) == true)
+        assert(not pcall(CastSpellByID))
+    "#,
+        )
+        .unwrap();
+}
+
 #[test]
 fn modifier_rollup_and_literal_trim_follow_the_documented_contract() {
     let mut script = extended();
