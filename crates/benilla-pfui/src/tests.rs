@@ -1114,6 +1114,44 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's curves (`curve/Curve.cpp`): ends hold, Linear and Step between points, Cubic a
+/// Catmull-Rom from the second point to the one before last. A VertexColor animation blends its
+/// target's colour; RemoveAnimations empties a group; Restart's offset starts part-way through.
+#[test]
+fn curves_and_colour_animations_follow_classicapi() {
+    let script = extended();
+    script
+        .run(r#"
+        local c = C_CurveUtil.CreateCurve()
+        assert(c:Evaluate(3) == 0 and c:GetType() == Enum.LuaCurveType.Linear)
+        c:AddPoint(0, 0); c:AddPoint(10, 1); c:AddPoint(5, 0.25)
+        assert(c:GetPointCount() == 3 and c:GetPoint(2).x == 5)
+        assert(c:Evaluate(-4) == 0 and c:Evaluate(99) == 1 and c:Evaluate(2.5) == 0.125)
+        c:SetType(Enum.LuaCurveType.Step); assert(c:Evaluate(7) == 0.25)
+        local k = C_CurveUtil.CreateCurve(); k:SetType(Enum.LuaCurveType.Cubic)
+        for x = -1, 3 do k:AddPoint(x, x * 2) end
+        assert(k:Evaluate(0.5) == 1 and k:Evaluate(-1) == 0 and k:Evaluate(9) == 4)
+        assert(not pcall(k.SetType, k, 9))
+
+        local f = CreateFrame('Frame'); tex = f:CreateTexture()
+        group = f:CreateAnimationGroup()
+        for i, pair in ipairs({ {0, 1}, {1, 0} }) do
+          local a = group:CreateAnimation('VertexColor')
+          a:SetOrder(i); a:SetDuration(1)
+          a:SetStartColor(CreateColor(pair[1], 0, 0, 1)); a:SetEndColor(CreateColor(pair[2], 0, 0, 1))
+          a:SetTarget(tex)
+        end
+        group:SetLooping('REPEAT')
+        group:Restart(false, 1.5)
+        local r = tex:GetVertexColor()
+        assert(math.abs(r - 0.5) <= 1 / 255, 'halfway down the second order: ' .. r)
+        group:RemoveAnimations()
+        assert(not group:IsPlaying() and select('#', group:GetAnimations()) == 0)
+        "#)
+        .unwrap();
+    assert!(script.errors().is_empty(), "{:?}", script.errors());
+}
+
 /// ClassicAPI's explicit loads (`item/Data.cpp`, `quest/Data.cpp`): a cached record answers inside
 /// the call, an uncached one asks and answers when it lands, once per call made while it waited;
 /// an item id of 0 or less answers false at once.
