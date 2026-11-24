@@ -20,7 +20,7 @@ trace_chrome = ["bevy/trace_chrome"]
 # only through `cargo run`, which puts the toolchain's libstd on the loader path.
 bevy_dynamic_linking = ["bevy/dynamic_linking"]
 # Optional fork extension; stock builds retain the 1.12 API and addon loading ABI.
-pfui = ["dep:benilla-pfui"]
+pfui = ["dep:benilla-pfui", "benilla-assets/classicapi"]
 pfui-turtle = ["pfui"]
 nampower = ["pfui", "benilla-pfui/nampower", "benilla-ui/nampower"]
 
