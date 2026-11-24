@@ -45,7 +45,7 @@ scripted(Animation)
 
 -- Each animation's own setters by type.
 local kinds = {Alpha = {}, Translation = {}, Scale = {}, Rotation = {}, LineScale = {},
-  LineTranslation = {}, Path = {}, Animation = {}}
+  LineTranslation = {}, Path = {}, VertexColor = {}, Animation = {}}
 for kind, methods in pairs(kinds) do
   kinds[kind] = setmetatable(methods, {__index = Animation})
 end
@@ -76,6 +76,11 @@ function kinds.Path:CreateControlPoint(name, template, order)
   return point
 end
 function kinds.Path:GetControlPoints() return unpack(self.points or {}) end
+-- A VertexColor blends its target's vertex colour from the start colour to the end one.
+function kinds.VertexColor:SetStartColor(color) self.startColor = color end
+function kinds.VertexColor:GetStartColor() return self.startColor end
+function kinds.VertexColor:SetEndColor(color) self.endColor = color end
+function kinds.VertexColor:GetEndColor() return self.endColor end
 function kinds.Rotation:SetDegrees(degrees) self.degrees = degrees end
 function kinds.Rotation:GetDegrees() return self.degrees or 0 end
 function kinds.Rotation:SetRadians(radians) self.degrees = radians * 180 / math.pi end
@@ -201,6 +206,15 @@ local function apply(animation, progress)
     if hold(target) then move(target, (animation.offsetX or 0) * eased, (animation.offsetY or 0) * eased) end
   elseif animation.kind == "Path" then
     if hold(target) then move(target, along(animation.points, eased)) end
+  elseif animation.kind == "VertexColor" and target.SetVertexColor then
+    local from, to = animation.startColor, animation.endColor
+    if from and to then
+      local r1, g1, b1, a1 = from:GetRGBA()
+      local r2, g2, b2, a2 = to:GetRGBA()
+      a1, a2 = a1 or 1, a2 or 1
+      target:SetVertexColor(r1 + (r2 - r1) * eased, g1 + (g2 - g1) * eased,
+        b1 + (b2 - b1) * eased, a1 + (a2 - a1) * eased)
+    end
   end
 end
 
@@ -308,7 +322,26 @@ function Group:Play(reverse)
   fire(self, "OnPlay")
   startOrder(self)
 end
-function Group:Restart(reverse) self:Stop(); self:Play(reverse) end
+-- Restart(reverse, offset): from the start again, `offset` seconds already played, phase by phase.
+function Group:Restart(reverse, offset)
+  self:Stop(); self:Play(reverse)
+  offset = tonumber(offset) or 0
+  local guard = 0
+  while offset > 0 and self.playing and guard < 10000 do
+    guard = guard + 1
+    local left = phaseLength(self, self.orders[self.phase]) - self.phaseElapsed
+    if left <= 0 or offset < left then
+      step(self, offset); offset = 0
+    else
+      step(self, left); offset = offset - left
+    end
+  end
+end
+-- Every animation goes; a playing group stops first.
+function Group:RemoveAnimations()
+  if self.playing then finish(self, true) end
+  self.animations = {}
+end
 function Group:Stop() if self.playing then finish(self, true) end end
 function Group:Finish() if self.playing then finish(self, false) end end
 function Group:Pause()
