@@ -448,7 +448,14 @@ pub fn set_powers(lua: &Lua, powers: impl IntoIterator<Item = (u64, Power)>) {
             .map(|kind| crate::script::ScriptValue::Str(kind.into()))
             .into_iter()
             .collect();
-        for token in custom_tokens(lua, guid) {
+        // The stock engine raises its own power events for the stock tokens; ClassicAPI's generic
+        // ones (UNIT_POWER_UPDATE, UNIT_MAXPOWER) exist only here, so every token takes those.
+        let tokens = if matches!(event, "UNIT_POWER_UPDATE" | "UNIT_MAXPOWER") {
+            event_tokens(lua, guid)
+        } else {
+            custom_tokens(lua, guid)
+        };
+        for token in tokens {
             let mut args = vec![crate::script::ScriptValue::Str(token)];
             args.extend(rest.iter().cloned());
             crate::script::pfui_host::fire_pfui_event(lua, event, args);
