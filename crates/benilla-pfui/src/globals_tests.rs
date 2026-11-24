@@ -65,6 +65,28 @@ fn book(script: &mut UiScript) {
     .unwrap();
 }
 
+/// ClassicAPI's `C_SpellBook.GetSpellBookItemInfo(slot, bank)`: the book's 1-based slot as a
+/// table, the rank as `subName`, the icon's path, nil past the book (`spell/Info.cpp`).
+#[test]
+fn spellbook_item_info_reads_the_slot() {
+    let mut script = extended();
+    book(&mut script);
+    script
+        .run(
+            r#"
+        local info = C_SpellBook.GetSpellBookItemInfo(3, Enum.SpellBookSpellBank.Player)
+        assert(info.spellID == 143 and info.actionID == 143 and info.name == "Fireball")
+        assert(info.subName == "Rank 2" and info.iconID == "Interface\\Icons\\Fireball")
+        assert(info.itemType == Enum.SpellBookItemType.Spell and info.isPassive == false)
+        assert(C_SpellBook.GetSpellBookItemInfo(2, 0).subName == "")
+        local growl = C_SpellBook.GetSpellBookItemInfo(1, Enum.SpellBookSpellBank.Pet)
+        assert(growl.spellID == 2649 and growl.itemType == Enum.SpellBookItemType.PetAction)
+        assert(C_SpellBook.GetSpellBookItemInfo(5, 0) == nil and C_SpellBook.GetSpellBookItemInfo(0, 0) == nil)
+    "#,
+        )
+        .unwrap();
+}
+
 #[test]
 fn modifier_rollup_and_literal_trim_follow_the_documented_contract() {
     let mut script = extended();

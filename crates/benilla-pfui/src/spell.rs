@@ -184,6 +184,36 @@ impl Catalog {
                 Ok(result)
             })?,
         )?;
+        // ClassicAPI's `C_SpellBook.GetSpellBookItemInfo(slotIndex, spellBank)` (`spell/Info.cpp`):
+        // the 1-based slot of the player's book (bank 0) or the pet's (1), nil for an empty or
+        // out-of-range slot. Spell or PetAction, the spell id as the action, the rank as
+        // `subName` ("" for none), the icon as its path (no file ids), never off-spec.
+        book.set(
+            "GetSpellBookItemInfo",
+            lua.create_function(|lua, (slot, bank): (Value, Option<i64>)| {
+                let Some(index) = lua
+                    .coerce_integer(slot)?
+                    .and_then(|slot| usize::try_from(slot).ok())
+                    .and_then(|slot| slot.checked_sub(1))
+                else {
+                    return Ok(None);
+                };
+                let pet = bank == Some(1);
+                let Some(view) = benilla_ui::script::pfui_host::book_slot(lua, pet, index) else {
+                    return Ok(None);
+                };
+                let info = lua.create_table()?;
+                info.set("itemType", if pet { 3 } else { 1 })?;
+                info.set("actionID", view.spell_id)?;
+                info.set("spellID", view.spell_id)?;
+                info.set("name", view.name)?;
+                info.set("subName", view.rank.unwrap_or_default())?;
+                info.set("iconID", view.texture)?;
+                info.set("isPassive", view.passive)?;
+                info.set("isOffSpec", false)?;
+                Ok(Some(info))
+            })?,
+        )?;
         lua.globals().set("C_SpellBook", book)?;
         for name in ["GetSpellName", "GetSpellSubtext", "GetSpellTexture"] {
             let records = records.clone();
