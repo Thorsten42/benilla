@@ -1148,6 +1148,21 @@ fn loot_history_auto_show_goes_once_per_roll() {
     assert_eq!(shown, format!("{id} nil"));
 }
 
+/// ClassicAPI's `C_ColorUtil.WrapTextInColor` / `WrapTextInColorCode` (`color/Util.cpp`), which its
+/// 1.23 addon's `WrapTextInColor` global calls.
+#[test]
+fn color_util_wraps_text_in_a_color_code() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        assert(C_ColorUtil.WrapTextInColorCode('Hi', 'ffff0000') == '|cffff0000Hi|r')
+        assert(C_ColorUtil.WrapTextInColor('Hi', CreateColor(1, 0, 0)) == '|cffff0000Hi|r')
+        "#,
+        )
+        .unwrap();
+}
+
 /// ClassicAPI's `FlashClientIcon` returns nothing and leaves one ask for the app, however many
 /// calls a frame makes (`screen/Flash.cpp`).
 #[test]
