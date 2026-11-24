@@ -1,13 +1,21 @@
 //! pfUI's immutable spell lookups; gameplay-dependent queries live in the host bridge.
 
 use crate::creature::{localized, number, numeric_id, rows, string};
-use mlua::{Lua, Value};
+use mlua::{Lua, Table, Value};
 use std::{collections::BTreeMap, rc::Rc};
 
 mod legacy;
 #[path = "spell_runtime.rs"]
 pub mod runtime;
 mod states;
+
+/// Effect columns the catalog keeps for the layer's own reads (IsDressableItem) that ClassicAPI's
+/// `C_Spell.GetSpellEffectInfo` does not list (`spell/EffectInfo.cpp`): Spell.dbc's
+/// `EffectItemType` and `EffectTriggerSpell`.
+const INTERNAL_EFFECT_FIELDS: [&str; 2] = ["itemType", "triggerSpell"];
+/// `SPELL_EFFECT_LEARN_SPELL` and `SPELL_EFFECT_CREATE_ITEM`.
+const EFFECT_LEARN_SPELL: f64 = 36.0;
+const EFFECT_CREATE_ITEM: f64 = 24.0;
 
 #[derive(Clone, Debug)]
 pub struct Spell {
@@ -83,6 +91,9 @@ impl Catalog {
                     ("pointsPerLevel", 73, false, true),
                     ("dicePerLevel", 70, false, true),
                     ("miscValue", 106, true, false),
+                    // Read by the layer itself, not in GetSpellEffectInfo ([`INTERNAL_EFFECT_FIELDS`]).
+                    ("itemType", 103, false, false),
+                    ("triggerSpell", 109, false, false),
                 ] {
                     let value = number(row, col + i)?;
                     let value = if float {
@@ -288,7 +299,9 @@ impl Catalog {
                 for (index, fields) in spell.effects.iter().enumerate() {
                     let effect = lua.create_table()?;
                     for (name, value) in fields {
-                        effect.set(*name, *value)?;
+                        if !INTERNAL_EFFECT_FIELDS.contains(name) {
+                            effect.set(*name, *value)?;
+                        }
                     }
                     result.set(index + 1, effect)?;
                 }
@@ -332,6 +345,49 @@ impl Catalog {
                     ],
                 );
                 Ok(())
+            })?,
+        )?;
+        // ClassicAPI's `IsDressableItem(item)` (`item/Dressable.cpp`, 4.3.4's): 1 for an item with
+        // an inventory type, or a recipe whose spell (effect 0 LEARN_SPELL) teaches one whose
+        // effect 0 creates such an item; else nil. Read from the cache, so an uncached item or
+        // product is not dressable. Deviation: the recipe is tested through its first use spell,
+        // where ClassicAPI walks all five of the item's spells.
+        let r = records.clone();
+        lua.globals().set(
+            "IsDressableItem",
+            lua.create_function(move |lua, item: Value| {
+                let globals = lua.globals();
+                let c_item: Table = globals.get("C_Item")?;
+                let inventory_type = |id: i64| -> mlua::Result<bool> {
+                    Ok(c_item
+                        .get::<mlua::Function>("GetItemInventoryTypeByID")?
+                        .call::<Option<i64>>(id)?
+                        .is_some_and(|t| t != 0))
+                };
+                let Some(id) = c_item
+                    .get::<mlua::Function>("GetItemInfoInstant")?
+                    .call::<Option<i64>>(item)?
+                else {
+                    return Ok(None);
+                };
+                if inventory_type(id)? {
+                    return Ok(Some(1));
+                }
+                let (_, spell): (Value, Option<u32>) =
+                    c_item.get::<mlua::Function>("GetItemSpell")?.call(id)?;
+                let effect0 = |spell: u32| r.get(&spell).and_then(|s| s.effects.first().cloned());
+                let created = spell
+                    .and_then(effect0)
+                    .filter(|e| e.get("effect") == Some(&EFFECT_LEARN_SPELL))
+                    .and_then(|e| e.get("triggerSpell").map(|t| *t as u32))
+                    .and_then(effect0)
+                    .filter(|e| e.get("effect") == Some(&EFFECT_CREATE_ITEM))
+                    .and_then(|e| e.get("itemType").map(|t| *t as i64))
+                    .filter(|id| *id > 0);
+                Ok(match created {
+                    Some(made) if inventory_type(made)? => Some(1),
+                    _ => None,
+                })
             })?,
         )?;
         lua.globals().set("C_Spell", api)?;
