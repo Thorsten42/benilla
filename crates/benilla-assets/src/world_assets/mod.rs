@@ -462,6 +462,22 @@ impl LooseFiles {
         }
     }
 
+    /// ClassicAPI's built-in texture at game path `path`, for a path neither the loose files nor
+    /// the archives answer: its DLL embeds a few dozen textures newer clients have and serves each
+    /// at its game path when no file has it (`texture/Builtin.cpp`). Here they sit in the ClassicAPI
+    /// addon's `Textures` folder under the same path (`Textures\Interface\Buttons\…`), where the
+    /// addon's install puts them; an `Interface\AddOns\` path is never redirected.
+    #[cfg(feature = "classicapi")]
+    pub fn classicapi_builtin(&self, path: &str) -> Option<Vec<u8>> {
+        let norm = normalize_path(path);
+        if norm.starts_with(ADDONS_PREFIX) || path.contains('/') {
+            return None;
+        }
+        let root = self.addons.as_deref()?;
+        let candidate = format!("{ADDONS_PREFIX}!!!classicapi\\textures\\{norm}");
+        std::fs::read(loose_addon_file(root, &candidate)?).ok()
+    }
+
     /// The loose file that answers an open of `path` with `open`, or `None` for the archives:
     /// the font open's bare name first ([`LooseOpen::BareNameFirst`]), then the whole name, an
     /// `Interface\AddOns\` one in the AddOns folder, which the install's index leaves out. A name
@@ -501,7 +517,12 @@ pub fn read_loose_or_chain(
 ) -> Option<Vec<u8>> {
     match loose.find(path, open) {
         Some(file) => file.read(),
-        None => chain.lock_recover().read(path).ok(),
+        None => {
+            let read = chain.lock_recover().read(path).ok();
+            #[cfg(feature = "classicapi")]
+            let read = read.or_else(|| loose.classicapi_builtin(path));
+            read
+        }
     }
 }
 
@@ -1119,6 +1140,48 @@ mod tests {
             None
         );
 
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// ClassicAPI's built-in textures (`texture/Builtin.cpp`): a game path is read from the
+    /// ClassicAPI addon's `Textures` folder, its components matched without case; an addon path is
+    /// never redirected, a `/` spelling finds nothing, and with no AddOns folder there is none.
+    #[cfg(feature = "classicapi")]
+    #[test]
+    fn a_classicapi_builtin_texture_is_read_from_its_addons_textures_folder() {
+        let root = std::env::temp_dir().join(format!(
+            "benilla-classicapi-builtin-test-{}",
+            std::process::id()
+        ));
+        let addons = root.join("AddOns");
+        let buttons = addons
+            .join("!!!ClassicAPI")
+            .join("Textures")
+            .join("Interface")
+            .join("Buttons");
+        std::fs::create_dir_all(&buttons).unwrap();
+        std::fs::write(buttons.join("MinimalScrollbarProportional.blp"), b"BLP2").unwrap();
+        let folder = LooseFiles {
+            addons: Some(addons.clone()),
+            install: None,
+        };
+        assert_eq!(
+            folder
+                .classicapi_builtin("INTERFACE\\Buttons\\minimalscrollbarproportional.blp")
+                .as_deref(),
+            Some(&b"BLP2"[..])
+        );
+        assert!(folder
+            .classicapi_builtin("Interface/Buttons/MinimalScrollbarProportional.blp")
+            .is_none());
+        assert!(folder
+            .classicapi_builtin(
+                "Interface\\AddOns\\Textures\\Interface\\Buttons\\MinimalScrollbarProportional.blp"
+            )
+            .is_none());
+        assert!(LooseFiles::default()
+            .classicapi_builtin("Interface\\Buttons\\MinimalScrollbarProportional.blp")
+            .is_none());
         std::fs::remove_dir_all(&root).ok();
     }
 
