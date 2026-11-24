@@ -47,6 +47,66 @@ struct Extras {
     /// Each player aura's last expiry by `(slot, spell)`, with the full duration it had when that
     /// expiry was first read.
     player_spans: HashMap<(u8, u32), (f64, f64)>,
+    /// Each unit's aura instances by slot: the spell the slot held and the ID it was given
+    /// (ClassicAPI's `aura/Instance.cpp`).
+    instances: HashMap<u64, HashMap<u8, (u32, u32)>>,
+    /// The last instance ID given out; IDs start at 1.
+    last_instance: u32,
+}
+
+/// ClassicAPI's aura instance IDs: a slot's record follows its aura. A new spell in the slot ends
+/// the old instance and starts one with a fresh ID; the same aura with new stacks or timing keeps
+/// its ID; a unit whose list goes away is forgotten, and one seen again is given new IDs.
+fn sync_instances(extras: &mut Extras, guid: u64, auras: Option<&[Aura]>) {
+    let Some(auras) = auras else {
+        extras.instances.remove(&guid);
+        return;
+    };
+    let old = extras.instances.remove(&guid).unwrap_or_default();
+    let mut new = HashMap::with_capacity(auras.len());
+    for aura in auras {
+        let spell = aura.state.spell_id;
+        let id = match old.get(&aura.slot) {
+            Some(&(held, id)) if held == spell => id,
+            _ => {
+                extras.last_instance = extras.last_instance.wrapping_add(1).max(1);
+                extras.last_instance
+            }
+        };
+        new.insert(aura.slot, (spell, id));
+    }
+    extras.instances.insert(guid, new);
+}
+
+/// The instance ID of the aura in `slot` on `guid`, while it holds `spell`.
+fn instance_id(lua: &Lua, guid: u64, slot: u8, spell: u32) -> Option<u32> {
+    let extras = lua.app_data_ref::<Extras>()?;
+    let &(held, id) = extras.instances.get(&guid)?.get(&slot)?;
+    (held == spell).then_some(id)
+}
+
+/// The aura on `token` whose instance ID is `id`, with the player's timing read as the getters
+/// read it.
+pub(crate) fn by_instance(lua: &Lua, token: &str, id: u32) -> Option<Aura> {
+    let guid = unit_guid(lua, token)?;
+    let slot = {
+        let extras = lua.app_data_ref::<Extras>()?;
+        extras
+            .instances
+            .get(&guid)?
+            .iter()
+            .find(|(_, &(_, held))| held == id)
+            .map(|(&slot, _)| slot)?
+    };
+    self::slot(lua, token, i64::from(slot))
+}
+
+/// Whether `filter` selects `aura` on `token`, by the list's own rules; a filter naming neither
+/// HELPFUL nor HARMFUL accepts both.
+pub(crate) fn selects(lua: &Lua, token: &str, aura: &Aura, filter: &str) -> bool {
+    list(lua, token, Some(filter))
+        .iter()
+        .any(|a| a.slot == aura.slot && a.state.spell_id == aura.state.spell_id)
 }
 
 /// A player aura's timing as the getters answer it. The stock player list carries none: the
@@ -210,6 +270,7 @@ pub fn set_auras(lua: &Lua, guid: u64, mut auras: Option<Vec<Aura>>) {
                         })
                     })
                 });
+        sync_instances(&mut extras, guid, auras.as_deref());
         if let Some(auras) = auras {
             extras.by_guid.insert(guid, auras);
         } else {
@@ -354,10 +415,16 @@ fn cast_by_player(aura: &Aura) -> bool {
     })
 }
 
-fn data(lua: &Lua, aura: Option<Aura>) -> mlua::Result<Option<Table>> {
+/// The instance ID of `aura` as `unit` wears it.
+fn aura_instance(lua: &Lua, unit: &str, aura: &Aura) -> Option<u32> {
+    instance_id(lua, unit_guid(lua, unit)?, aura.slot, aura.state.spell_id)
+}
+
+fn data(lua: &Lua, unit: &str, aura: Option<Aura>) -> mlua::Result<Option<Table>> {
     let Some(aura) = aura else { return Ok(None) };
     let state = &aura.state;
     let table = lua.create_table()?;
+    table.set("auraInstanceID", aura_instance(lua, unit, &aura))?;
     table.set("name", state.name.as_deref())?;
     table.set("icon", state.icon.as_deref())?;
     table.set("applications", state.count)?;
@@ -391,10 +458,11 @@ fn data(lua: &Lua, aura: Option<Aura>) -> mlua::Result<Option<Table>> {
     Ok(Some(table))
 }
 
-fn tuple(lua: &Lua, aura: Option<Aura>) -> mlua::Result<MultiValue> {
+fn tuple(lua: &Lua, unit: &str, aura: Option<Aura>) -> mlua::Result<MultiValue> {
     let Some(aura) = aura else {
         return Ok(MultiValue::from_vec(vec![Value::Nil]));
     };
+    let id = aura_instance(lua, unit, &aura);
     let string = |text: Option<&str>| -> mlua::Result<Value> {
         match text {
             Some(text) => Ok(Value::String(lua.create_string(text)?)),
@@ -418,6 +486,8 @@ fn tuple(lua: &Lua, aura: Option<Aura>) -> mlua::Result<MultiValue> {
         Value::Boolean(cast_by_player(&aura)),
         Value::Boolean(false),
         Value::Number(1.0),
+        // ClassicAPI's 16th value: the aura's instance ID, nil where the table has none.
+        id.map_or(Value::Nil, |id| Value::Integer(i64::from(id))),
     ]))
 }
 
@@ -432,7 +502,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     .checked_sub(1)
                     .and_then(|index| usize::try_from(index).ok())
                     .and_then(|index| list(lua, &unit, filter.as_deref()).get(index).cloned());
-                data(lua, aura)
+                data(lua, &unit, aura)
             },
         )?,
     )?;
@@ -444,20 +514,20 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     .checked_sub(1)
                     .and_then(|index| usize::try_from(index).ok())
                     .and_then(|index| list(lua, &unit, filter.as_deref()).get(index).cloned());
-                tuple(lua, aura)
+                tuple(lua, &unit, aura)
             },
         )?,
     )?;
     api.set(
         "GetAuraDataBySlot",
         lua.create_function(|lua, (unit, id): (String, Option<i64>)| {
-            data(lua, id.and_then(|id| slot(lua, &unit, id)))
+            data(lua, &unit, id.and_then(|id| slot(lua, &unit, id)))
         })?,
     )?;
     api.set(
         "UnitAuraBySlot",
         lua.create_function(|lua, (unit, id): (String, Option<i64>)| {
-            tuple(lua, id.and_then(|id| slot(lua, &unit, id)))
+            tuple(lua, &unit, id.and_then(|id| slot(lua, &unit, id)))
         })?,
     )?;
     api.set(
@@ -472,7 +542,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 )
                 .into_iter()
                 .find(|aura| aura.state.name.as_deref() == Some(&name));
-                data(lua, aura)
+                data(lua, &unit, aura)
             },
         )?,
     )?;
@@ -523,6 +593,47 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                         .map(|aura| Value::Integer(i64::from(aura.slot))),
                 );
                 Ok(MultiValue::from_vec(values))
+            },
+        )?,
+    )?;
+    // The aura with that instance ID, or nil; with `buf`, its fields go into that table (cleared
+    // of any this aura lacks), which is returned.
+    api.set(
+        "GetAuraDataByAuraInstanceID",
+        lua.create_function(
+            |lua, (unit, id, buf): (String, Option<u32>, Option<Table>)| {
+                let aura = id.and_then(|id| by_instance(lua, &unit, id));
+                let Some(table) = data(lua, &unit, aura)? else {
+                    return Ok(Value::Nil);
+                };
+                let Some(buf) = buf else {
+                    return Ok(Value::Table(table));
+                };
+                let keys: Vec<Value> = buf
+                    .pairs::<Value, Value>()
+                    .filter_map(|pair| pair.ok().map(|(key, _)| key))
+                    .collect();
+                for key in keys {
+                    buf.raw_set(key, Value::Nil)?;
+                }
+                for pair in table.pairs::<Value, Value>() {
+                    let (key, value) = pair?;
+                    buf.raw_set(key, value)?;
+                }
+                Ok(Value::Table(buf))
+            },
+        )?,
+    )?;
+    // True when no aura on the unit has the ID, or the filter does not select it.
+    api.set(
+        "IsAuraFilteredOutByInstanceID",
+        lua.create_function(
+            |lua, (unit, id, filter): (String, Option<u32>, Option<String>)| {
+                Ok(id
+                    .and_then(|id| by_instance(lua, &unit, id))
+                    .is_none_or(|aura| {
+                        !selects(lua, &unit, &aura, filter.as_deref().unwrap_or(""))
+                    }))
             },
         )?,
     )?;
