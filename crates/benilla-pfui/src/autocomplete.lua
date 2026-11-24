@@ -2,11 +2,6 @@
 -- the guild roster, the friends list and this session's whispers, matched against an edit box's
 -- text as ClassicAPI 1.20's API reference specifies. Nothing is drawn; an addon lists the names.
 C_AutoComplete = C_AutoComplete or {}
-Enum = Enum or {}
-Enum.AutoCompleteEntryFlag = { InGroup = 1, InGuild = 2, Friend = 4, Bnet = 8, InteractedWith = 16,
-  Online = 32, InAOI = 64, AccountCharacter = 128, RecentPlayer = 256 }
-Enum.AutoCompletePriority = { Other = 0, Interacted = 1, InGroup = 2, Guild = 3, Friend = 4,
-  AccountCharacter = 5, AccountCharacterSameRealm = 6 }
 local Flag, Priority = Enum.AutoCompleteEntryFlag, Enum.AutoCompletePriority
 
 -- autoCompleteResortNamesOnRecency, autoCompleteWhenEditingFromCenter and autoCompleteUseContext
