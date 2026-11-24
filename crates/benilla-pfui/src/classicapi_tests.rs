@@ -1608,3 +1608,26 @@ fn built_in_atlases_transpose_and_report_their_slices() {
         )
         .unwrap();
 }
+
+/// ClassicAPI binds `method=` once at load and skips a name that is no function
+/// (`xml/ParentKey.cpp`): its WowStyle2IconButtonTemplate binds an OnShow its mixin lacks, and
+/// showing such a button runs nothing and raises nothing; a method that exists still runs.
+#[test]
+fn a_script_method_the_frame_lacks_is_skipped() {
+    let script = extended();
+    script
+        .run("ProbeSkipMixin = { OnHide = function(self) self.hid = true end }")
+        .unwrap();
+    let doc = benilla_ui::framexml::parse(
+        r#"<Ui><Button name="ProbeSkipButton" mixin="ProbeSkipMixin" hidden="true">
+            <Scripts><OnShow method="OnShow"/><OnHide method="OnHide"/></Scripts>
+        </Button></Ui>"#,
+    )
+    .expect("parses");
+    let report = benilla_ui::loader::load(&script, &doc, &|_| None);
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    script
+        .run("ProbeSkipButton:Show(); ProbeSkipButton:Hide(); assert(ProbeSkipButton.hid)")
+        .unwrap();
+    assert!(script.errors().is_empty(), "{:?}", script.errors());
+}
