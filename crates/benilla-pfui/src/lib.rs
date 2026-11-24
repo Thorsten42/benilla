@@ -135,6 +135,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "GetTotemTimeLeft",
         "FlashClientIcon",
         "C_SettingsUtil",
+        "IsDressableItem",
         "BenillaModelSceneMixin",
         "GetShapeshiftFormID",
         "GetSpellInfo",
