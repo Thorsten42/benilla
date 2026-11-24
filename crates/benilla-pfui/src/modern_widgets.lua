@@ -272,6 +272,10 @@ function texture:SetHorizTile(tiling) setTile(self, "horizTile", tiling) end
 texture.GetHorizTile = getter("horizTile", false)
 function texture:SetVertTile(tiling) setTile(self, "vertTile", tiling) end
 texture.GetVertTile = getter("vertTile", false)
+-- Retail's pixel-snapping switches (ClassicAPI `texture/Snapping.cpp`): 1.12 draws every texture
+-- where its rect falls, so what they turn off is already off. Accepted and ignored, no getter.
+function texture:SetSnapToPixelGrid() end
+function texture:SetTexelSnappingBias() end
 local function span(low, high, size)
   if low and high then return high - low end
   return size
