@@ -120,6 +120,45 @@ fn totem_time_left_tokens_and_cast_by_id() {
         .unwrap();
 }
 
+/// ClassicAPI's `IsDressableItem` (`item/Dressable.cpp`): an item with an inventory type, or a recipe
+/// whose spell teaches one that creates such an item; an uncached item or product is not, and
+/// GetSpellEffectInfo keeps the columns it reads to itself.
+#[test]
+fn dressable_items_are_equippable_or_recipes_for_equippable_items() {
+    use benilla_ui::script::{pfui_host::items, ItemTemplateView};
+    let mut script = extended();
+    let item = |inventory_type| ItemTemplateView {
+        name: "Probe".into(),
+        inventory_type,
+        ..Default::default()
+    };
+    script.set_item_template(25, item(13));
+    script.set_item_template(2589, item(0));
+    script.set_item_template(2555, item(0));
+    items::set_use_spell(script.lua(), 2555, 7001);
+    let mut learn = spell("Plans: Worn Shortsword", "", 0.0);
+    learn.effects[0].insert("effect", 36.0);
+    learn.effects[0].insert("triggerSpell", 7002.0);
+    let mut make = spell("Worn Shortsword", "", 0.0);
+    make.effects[0].insert("effect", 24.0);
+    make.effects[0].insert("itemType", 25.0);
+    crate::spell::Catalog(BTreeMap::from([(7001, learn), (7002, make)]))
+        .install(script.lua())
+        .unwrap();
+    script
+        .run(
+            r#"
+        assert(IsDressableItem(25) == 1 and IsDressableItem("item:25:0:0:0") == 1)
+        assert(IsDressableItem(2589) == nil, "cloth goes in no slot")
+        assert(IsDressableItem(2555) == 1, "the plans make a sword")
+        assert(IsDressableItem(9999) == nil, "not cached")
+        local fx = C_Spell.GetSpellEffectInfo(7002)[1]
+        assert(fx.effect == 24 and fx.itemType == nil and fx.triggerSpell == nil)
+    "#,
+        )
+        .unwrap();
+}
+
 #[test]
 fn modifier_rollup_and_literal_trim_follow_the_documented_contract() {
     let mut script = extended();
