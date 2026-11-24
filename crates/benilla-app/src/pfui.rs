@@ -3,6 +3,7 @@
 use benilla_ui::script::UiScript;
 use bevy::prelude::*;
 
+mod attention;
 mod bags;
 mod casts;
 pub(crate) mod clicks;
@@ -194,6 +195,7 @@ impl Plugin for PfuiPlugin {
         units::register(app);
         totems::register(app);
         weapon_events::register(app);
+        attention::register(app);
         crate::ui_unit::pfui::register(app);
         crate::ui_aura::pfui::register(app);
         crate::target::pfui::register(app);
