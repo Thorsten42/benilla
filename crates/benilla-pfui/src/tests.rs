@@ -1114,6 +1114,38 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
     "#).unwrap();
 }
 
+/// ClassicAPI's `C_Item.GetStackCount`: the stack in one slot, here by the item's GUID as
+/// `GetItemGUID` writes it; an unknown GUID, an empty location or another value is 0
+/// (`item/StackCount.cpp`).
+#[test]
+fn stack_count_reads_the_items_own_stack() {
+    use benilla_ui::script::pfui_host::items::{self, Instance};
+    let script = extended();
+    items::set_instances(
+        script.lua(),
+        [(
+            (0, 1),
+            Instance {
+                guid: 0x4000_0000_0000_0042,
+                item_id: 4306,
+                count: 17,
+                uses: 0,
+                name: None,
+            },
+        )],
+    );
+    script
+        .run(
+            r#"
+        assert(C_Item.GetStackCount('0x4000000000000042') == 17)
+        assert(C_Item.GetStackCount('0x4000000000000043') == 0)
+        assert(C_Item.GetStackCount({bagID = 3, slotIndex = 9}) == 0)
+        assert(C_Item.GetStackCount(nil) == 0 and C_Item.GetStackCount(4306) == 0)
+        "#,
+        )
+        .unwrap();
+}
+
 /// ClassicAPI's GUID registrations (`frame/GuidEvent.cpp`): a frame takes a unit event for a GUID
 /// it registered with `arg1` the GUID, once per event and frame of the clock whether or not a
 /// token names the unit, apart from its own event registrations; `UnregisterAllEvents` drops
