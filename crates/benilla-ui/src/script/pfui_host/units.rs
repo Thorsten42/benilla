@@ -396,6 +396,7 @@ fn query_tokens(lua: &Lua) -> Vec<String> {
     let mut bases = super::super::nameplate::pfui::all_tokens(lua);
     bases.push("focus".into());
     bases.extend((1..=5).map(|index| format!("boss{index}")));
+    bases.extend((1..=4).map(|index| format!("totem{index}")));
     bases.extend((1..=8).map(|index| format!("mark{index}")));
     bases
         .into_iter()
