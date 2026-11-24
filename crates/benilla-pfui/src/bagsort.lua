@@ -12,10 +12,8 @@ local engine = ...
 local HEARTHSTONE = 6948
 local ROUND_LIMIT, STUCK_LIMIT, TIME_LIMIT = 400, 4, 120
 
-for _, name in ipairs({ "sortBagsRightToLeft", "backpackAutosortDisabled", "bankAutosortDisabled" }) do
-  local known, value = pcall(GetCVar, name)
-  if not known or value == nil then RegisterCVar(name, "0") end
-end
+-- sortBagsRightToLeft, backpackAutosortDisabled and bankAutosortDisabled are ClassicAPI's CVars
+-- (classicapi_cvars.lua), at 0.
 local function flag(name) return GetCVar(name) == "1" end
 local function setFlag(name, on) SetCVar(name, on and "1" or "0") end
 function C_Container.GetSortBagsRightToLeft() return flag("sortBagsRightToLeft") end
