@@ -962,8 +962,19 @@ fn focus_power_events_report_only_the_resource_that_changed() {
     power.current[1] = Some(250);
     units::set_powers(script.lua(), [(5, power.clone())]);
     script.run("assert(#resourceEvents==2 and resourceEvents[1]=='UNIT_RAGE:nil' and resourceEvents[2]=='UNIT_POWER_UPDATE:RAGE' and UnitPower('focus')==25)").unwrap();
-    units::set_powers(script.lua(), [(5, power)]);
+    units::set_powers(script.lua(), [(5, power.clone())]);
     script.run("assert(#resourceEvents==2)").unwrap();
+    // ClassicAPI's generic power events reach the stock token too; the engine's own stay its.
+    script.run(r#"
+      targetEvents={}
+      local t=CreateFrame('Frame')
+      for _,event in ipairs({'UNIT_RAGE','UNIT_POWER_UPDATE','UNIT_MAXPOWER'}) do t:RegisterUnitEvent(event,'target') end
+      t:SetScript('OnEvent',function(self,event,unit,kind) table.insert(targetEvents,event..':'..tostring(kind)) end)
+    "#).unwrap();
+    power.current[1] = Some(300);
+    power.maximum[1] = Some(1100);
+    units::set_powers(script.lua(), [(5, power)]);
+    script.run("assert(table.concat(targetEvents,' ')=='UNIT_POWER_UPDATE:RAGE UNIT_MAXPOWER:RAGE', table.concat(targetEvents,' '))").unwrap();
     assert!(script.errors().is_empty(), "{:?}", script.errors());
 }
 
