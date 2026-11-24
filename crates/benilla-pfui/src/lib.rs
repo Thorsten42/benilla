@@ -131,6 +131,8 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "C_MountJournal",
         "C_InstanceEncounter",
         "C_CurveUtil",
+        "CastSpellByID",
+        "GetTotemTimeLeft",
         "BenillaModelSceneMixin",
         "GetShapeshiftFormID",
         "GetSpellInfo",

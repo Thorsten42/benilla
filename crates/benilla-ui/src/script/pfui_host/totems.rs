@@ -50,8 +50,34 @@ pub fn set(lua: &Lua, active: [Option<Totem>; 4], tools: [u32; 4]) {
     }
 }
 
+/// The unit of `totem<slot>` (1 to 4), ClassicAPI's extension token over the totem bar's GUIDs.
+pub(crate) fn guid(lua: &Lua, slot: usize) -> Option<u64> {
+    let state = lua.app_data_ref::<State>()?;
+    state.active.get(slot.checked_sub(1)?)?.as_ref()?.guid
+}
+
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     lua.set_app_data(State::default());
+    // `GetTotemTimeLeft(slot)` (`totem/Tracker.cpp`): the active totem's whole seconds left, 0 for
+    // an empty slot, nothing for a slot outside 1 to 4.
+    lua.globals().set(
+        "GetTotemTimeLeft",
+        lua.create_function(|lua, slot: Value| {
+            let Some(slot) = lua.coerce_number(slot)? else {
+                return Err(mlua::Error::runtime("Usage: GetTotemTimeLeft(slot)"));
+            };
+            let index = slot.trunc() - 1.0;
+            if !(0.0..4.0).contains(&index) {
+                return Ok(MultiValue::new());
+            }
+            let now = crate::script::clock::now(lua);
+            let state = lua.app_data_ref::<State>().expect("totem state");
+            let left = state.active[index as usize]
+                .as_ref()
+                .map_or(0.0, |t| (t.start + t.duration - now).max(0.0).floor());
+            Ok(MultiValue::from_vec(vec![Value::Number(left)]))
+        })?,
+    )?;
     lua.globals().set(
         "GetTotemInfo",
         lua.create_function(|lua, index: usize| {

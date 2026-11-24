@@ -228,6 +228,62 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
 
 /// `C_Spell.CastAtUnit` and `C_Spell.CastAtCursor`, once the spell catalog has made `C_Spell`.
 pub fn install_spell_verbs(lua: &Lua) -> mlua::Result<()> {
+    // ClassicAPI's `CastSpellByID(spellID [, target])` (`spell/CastByID.cpp`): that exact rank from
+    // the player's book or the pet's, at the current target, at the unit `target` names, or with
+    // "cursor" at the cursor. A spell neither book holds, or a target that names no unit, returns
+    // nothing; a dispatched cast returns true.
+    lua.globals().set(
+        "CastSpellByID",
+        lua.create_function(|lua, (spell, target): (Value, Option<String>)| {
+            let Some(id) = lua
+                .coerce_integer(spell)?
+                .and_then(|id| u32::try_from(id).ok())
+                .filter(|id| *id > 0)
+            else {
+                return Err(mlua::Error::runtime(
+                    "Usage: CastSpellByID(spellID[, target])",
+                ));
+            };
+            let in_book = super::player_book(lua)
+                .slots
+                .iter()
+                .any(|s| s.spell_id == id)
+                || super::pet_book(lua).slots.iter().any(|s| s.spell_id == id);
+            if !in_book {
+                return Ok(Value::Nil);
+            }
+            if target
+                .as_deref()
+                .is_some_and(|t| t.eq_ignore_ascii_case("cursor"))
+            {
+                let point = cursor_point(lua);
+                submit(
+                    lua,
+                    match point {
+                        Some(point) => ClickAction::GroundSpell {
+                            spell_id: id,
+                            point,
+                        },
+                        None => ClickAction::CastAt {
+                            spell_id: id,
+                            target: None,
+                            place_ground: false,
+                            no_toggle: false,
+                        },
+                    },
+                )?;
+                return Ok(Value::Boolean(true));
+            }
+            let placed = target.is_some();
+            Ok(
+                if cast_at(lua, Value::Integer(i64::from(id)), target, placed, false)? {
+                    Value::Boolean(true)
+                } else {
+                    Value::Nil
+                },
+            )
+        })?,
+    )?;
     let spells: Table = lua.globals().get("C_Spell")?;
     spells.set(
         "CastAtUnit",
