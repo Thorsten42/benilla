@@ -8,6 +8,7 @@
 mod attributes;
 pub mod bags;
 mod baselib;
+pub mod bindings;
 pub mod clock;
 pub mod combat_log;
 pub mod creature;
