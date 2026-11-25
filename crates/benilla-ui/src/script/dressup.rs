@@ -12,7 +12,7 @@ use super::Model;
 use crate::widget::FrameKind;
 
 /// Registry key of the `DressUpModel` method table, its own three; the rest come by the chain.
-pub(super) const REG_DRESSUPMODEL_METHODS: &str = "__benilla_dressupmodel_methods";
+pub(crate) const REG_DRESSUPMODEL_METHODS: &str = "__benilla_dressupmodel_methods";
 
 /// One dressing-room verb, applied inside its call.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -26,6 +26,11 @@ pub enum DressUpIntent {
     /// `TryOn(item)`: the item in its `InventoryType`'s slot, a held one in the lane `0x5048e8`
     /// picks, with no class, level or proficiency check (`DressUpFrame.lua:2-16`).
     TryOn(u32),
+    /// A ClassicAPI client's `UndressSlot(inventorySlot)` (`model/DressUp.cpp`): one step of
+    /// `Undress`, the slot's piece off, worn or tried on; 16 and 17 are the held lanes. Only the
+    /// layer's method sends it; ungated, as feature unification can build this crate with `pfui`
+    /// under an app without it.
+    UndressSlot(u8),
 }
 
 impl super::UiScript {
@@ -39,7 +44,7 @@ impl super::UiScript {
 }
 
 /// Hand `intent` to the host, which applies it before this returns.
-fn submit(lua: &Lua, intent: DressUpIntent) -> mlua::Result<()> {
+pub(crate) fn submit(lua: &Lua, intent: DressUpIntent) -> mlua::Result<()> {
     super::calls::submit(lua, super::ScriptCall::DressUp(intent))
 }
 
