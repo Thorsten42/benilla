@@ -35,10 +35,15 @@ const UNIT_FLAG_NOT_SELECTABLE: u32 = 1 << 25;
 const UNIT_FLAG_IN_COMBAT: u32 = 0x0008_0000;
 const UNIT_FLAG_PET_IN_COMBAT: u32 = 0x0000_0800;
 
+/// The feed's set, for a reader of the same poses to order behind.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct SoftTargetFeed;
+
 pub(super) fn register(app: &mut App) {
     app.add_systems(
         Update,
         feed.in_set(super::InputSnapshots)
+            .in_set(SoftTargetFeed)
             .run_if(crate::ui_script::ingame_ui_up),
     );
 }
