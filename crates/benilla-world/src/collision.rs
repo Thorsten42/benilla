@@ -190,6 +190,20 @@ impl WorldCollision<'_, '_> {
             .map(|h| h.distance)
     }
 
+    /// Whether the segment `from..to` is clear of line-of-sight geometry: the reference's
+    /// camera/LOS segment query (leaf `0x6bc700`), a ray with no radius against the camera's
+    /// world, two-sided.
+    pub fn clear_line(&self, from: Vec3, to: Vec3) -> bool {
+        let movement = to - from;
+        let Ok(dir) = Dir3::new(movement) else {
+            return true;
+        };
+        self.ms
+            .spatial_query
+            .cast_ray(from, dir, movement.length(), true, &Self::camera_filter())
+            .is_none()
+    }
+
     /// Sweep `shape` along `movement` against the body's world.
     pub fn cast_body(
         &self,
