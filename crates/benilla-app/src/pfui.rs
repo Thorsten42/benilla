@@ -9,6 +9,8 @@ mod bags;
 mod casts;
 pub(crate) mod clicks;
 mod combat_log;
+#[cfg(feature = "nampower")]
+mod disenchant;
 mod icons;
 pub(crate) mod input;
 pub(crate) mod interrupts;
@@ -189,6 +191,8 @@ impl Plugin for PfuiPlugin {
         spell_queue::register(app);
         #[cfg(feature = "nampower")]
         nampower::register(app);
+        #[cfg(feature = "nampower")]
+        disenchant::register(app);
         bags::register(app);
         loot::register(app);
         area_loot::register(app);
