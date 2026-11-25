@@ -156,6 +156,9 @@ live_reads! {
         /// ClassicAPI's spell descriptions at base values.
         #[cfg(feature = "pfui")]
         spell_text: crate::pfui::spell_text::SpellTextLive<'static>,
+        /// ClassicAPI's unit world positions.
+        #[cfg(feature = "pfui")]
+        unit_position: crate::pfui::unit_position::UnitPositionLive<'static, 'static>,
         /// The taxi map's slots and fares.
         taxi: crate::ui_taxi::TaxiLive<'static, 'static>,
         /// The dialogs' latches, clocks, meeting stone, summon and instance terms.
