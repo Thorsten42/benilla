@@ -93,6 +93,20 @@ pub fn player_is_warrior(lua: &Lua) -> bool {
 /// last feed fires ClassicAPI's `UNIT_VISIBILITY_CHANGED: unitTarget, isVisible`
 /// (`unit/VisibilityEvent.cpp`): once per token naming it, then to the frames that registered its
 /// GUID. The first feed of a VM only seeds what is in view.
+/// The units the feed reported whose name `matches`, for a search by name.
+pub(crate) fn named_units(lua: &Lua, matches: impl Fn(&str) -> bool) -> Vec<u64> {
+    lua.app_data_ref::<Metadata>()
+        .map(|metadata| {
+            metadata
+                .states
+                .iter()
+                .filter(|(_, state)| state.exists && state.name.as_deref().is_some_and(&matches))
+                .map(|(guid, _)| *guid)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The active player's `MOVEMENTFLAGS` now, which `IsSwimming` reads.
 pub fn set_player_move_flags(lua: &Lua, flags: u32) {
     if let Some(mut metadata) = lua.app_data_mut::<Metadata>() {
