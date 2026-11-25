@@ -2192,7 +2192,9 @@ fn a_death_recap_keeps_the_hits_back_to_the_last_death_the_killing_blow_first() 
         assert(C_DeathRecap.GetRecapEvents(7) == nil)
         assert(type(C_DeathRecap.GetRecapMaxHealth()) == "number" and C_DeathRecap.GetRecapMaxHealth(7) == 0)
         DEATH_RECAP_LINK = "|Hdeath:%i|h[You died.]|h"
-        assert(C_DeathRecap.GetRecapLink() == "|Hdeath:2|h[You died.]|h", C_DeathRecap.GetRecapLink())"#,
+        assert(C_DeathRecap.GetRecapLink() == "|Hdeath:2|h[You died.]|h", C_DeathRecap.GetRecapLink())
+        local ok, why = C_DamageMeter.IsDamageMeterAvailable()
+        assert(ok == false and type(why) == "string" and why ~= "")"#,
         )
         .unwrap();
 }
