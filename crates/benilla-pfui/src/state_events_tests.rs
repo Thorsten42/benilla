@@ -40,6 +40,7 @@ fn form(script: &UiScript, guid: u64, form: u8) {
                 health: Some(1),
                 form,
                 mount_display: 0,
+                sheath: 0,
                 auras: Vec::new(),
                 applications: Vec::new(),
             },
