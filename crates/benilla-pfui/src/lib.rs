@@ -257,6 +257,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "C_VoiceChat",
         "SetBagPortraitTexture",
         "UnitSelectionColor",
+        "UnitInLineOfSight",
     ] {
         if !lua.globals().get::<Value>(name)?.is_nil() {
             return Err(mlua::Error::runtime(format!(

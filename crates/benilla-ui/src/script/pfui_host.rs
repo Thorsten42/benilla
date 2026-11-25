@@ -26,6 +26,7 @@ pub mod inline_texture;
 pub(crate) mod interact;
 pub mod interrupts;
 pub mod items;
+pub mod line_of_sight;
 pub mod macro_verbs;
 pub mod maps;
 mod merchant;
@@ -409,6 +410,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     override_bindings::install(lua)?;
     area_loot::install(lua)?;
     soft_targets::install(lua);
+    line_of_sight::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;
