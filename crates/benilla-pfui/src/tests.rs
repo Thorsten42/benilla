@@ -1441,6 +1441,97 @@ fn stack_count_reads_the_items_own_stack() {
         .unwrap();
 }
 
+/// ClassicAPI's item-location calls (`item/Location.cpp` and its callers): a bag slot, an
+/// equipment slot and an item GUID each name the item; an empty place is nil or false, a value
+/// that is no location raises the usage error, and `LockItem`/`UnlockItem` set the engine's lock
+/// with its `ITEM_LOCK_CHANGED`. These are what `ItemMixin` (`Item:CreateFromBagAndSlot`) calls.
+#[test]
+fn item_locations_name_a_bag_slot_an_equipment_slot_and_a_guid() {
+    use benilla_ui::script::{ContainerSlot, ContainerState, InvSlotView, ItemTemplateView};
+    use std::collections::HashMap;
+    let mut script = extended();
+    script.set_item_template(
+        6948,
+        ItemTemplateView {
+            name: "Hearthstone".into(),
+            quality: 1,
+            stackable: 1,
+            icon: Some("Interface\\Icons\\INV_Misc_Rune_01".into()),
+            ..Default::default()
+        },
+    );
+    script.set_container(
+        0,
+        Some(ContainerState {
+            num_slots: 16,
+            slots: HashMap::from([(
+                1,
+                ContainerSlot {
+                    item_id: 6948,
+                    guid: 0x4000_0000_0000_0042,
+                    link: Some("|cffffffff|Hitem:6948:0:0:0|h[Hearthstone]|h|r".into()),
+                    count: 1,
+                    ..Default::default()
+                },
+            )]),
+            ..Default::default()
+        }),
+    );
+    let mut worn: benilla_ui::script::InventorySlots = Default::default();
+    worn[1] = Some(InvSlotView {
+        item_id: 10,
+        guid: 0x4000_0000_0000_0051,
+        name: Some("Cap".into()),
+        quality: 1,
+        ..Default::default()
+    });
+    script.set_inventory_slots(worn);
+    script
+        .run(
+            r#"
+        local bag, head = {bagID = 0, slotIndex = 1}, {equipmentSlotIndex = 1}
+        assert(C_Item.DoesItemExist(bag) and C_Item.DoesItemExist(head))
+        assert(C_Item.DoesItemExist({bagID = 0, slotIndex = 2}) == false)
+        assert(C_Item.DoesItemExist(nil) == false and C_Item.DoesItemExist(6948) == false)
+        assert(C_Item.GetItemGUID(bag) == "0x4000000000000042")
+        assert(C_Item.GetItemGUID(head) == "0x4000000000000051")
+        assert(C_Item.GetItemGUID({bagID = 0, slotIndex = 2}) == nil)
+        assert(C_Item.GetItemLink(bag) == GetContainerItemLink(0, 1))
+        assert(C_Item.GetItemLink(head) == GetInventoryItemLink("player", 1))
+        assert(C_Item.GetItemLink("0x4000000000000042") == GetContainerItemLink(0, 1))
+        assert(C_Item.GetItemIcon(bag) == "Interface\\Icons\\INV_Misc_Rune_01")
+        assert(GetItemIcon(6948) == "Interface\\Icons\\INV_Misc_Rune_01")
+        assert(C_Item.GetItemMaxStackSize(bag) == 1)
+        assert(C_Item.IsItemDataCached(bag) == true)
+        assert(C_Item.GetItemIDForItemInfo("item:6948") == 6948)
+        assert(select('#', C_Item.GetItemIDForItemInfo("Hearthstone")) == 0)
+        local at = C_Item.GetItemLocation("0x4000000000000042")
+        assert(at.bagID == 0 and at.slotIndex == 1 and at.equipmentSlotIndex == nil)
+        at = C_Item.GetItemLocation("0x4000000000000051")
+        assert(at.equipmentSlotIndex == 1 and at.bagID == nil)
+        assert(C_Item.GetItemLocation("0x4000000000000099") == nil)
+        for _, call in ipairs({"GetItemLink", "GetItemGUID", "GetItemIcon", "GetItemMaxStackSize", "LockItem", "UnlockItem"}) do
+            local ok, err = pcall(C_Item[call], 5)
+            assert(not ok and string.find(err, "Usage: C_Item." .. call .. "(itemLocation)", 1, true), call)
+        end
+        assert(not pcall(C_Item.IsItemDataCached, {bagID = 0, slotIndex = 2}))
+        assert(not pcall(GetItemIcon, "item:6948"))
+        local changes = 0
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("ITEM_LOCK_CHANGED")
+        f:SetScript("OnEvent", function() changes = changes + 1 end)
+        assert(C_Item.IsLocked(bag) == false and C_Item.IsLocked(7) == false)
+        C_Item.LockItem(bag)
+        assert(C_Item.IsLocked(bag) == true and select(3, GetContainerItemInfo(0, 1)) and changes == 1)
+        C_Item.UnlockItem("0x4000000000000042")
+        assert(C_Item.IsLocked(bag) == false and changes == 2)
+        C_Item.LockItem({bagID = 0, slotIndex = 2})
+        assert(changes == 2, "an empty place locks nothing")
+        "#,
+        )
+        .unwrap();
+}
+
 /// ClassicAPI's GUID registrations (`frame/GuidEvent.cpp`): a frame takes a unit event for a GUID
 /// it registered with `arg1` the GUID, once per event and frame of the clock whether or not a
 /// token names the unit, apart from its own event registrations; `UnregisterAllEvents` drops
