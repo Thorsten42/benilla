@@ -285,6 +285,12 @@ impl CastCore<'_> {
     /// each caller runs it first: the ladder's refusals and the failed cast's handler.
     pub(crate) fn report(&mut self, fail: CastFail, from_server: bool, reaches_tail: bool) {
         self.report_line(fail);
+        // pfUI's UNIT_SPELLCAST_FAILED / _QUIET for a refusal that never left the client; the
+        // server's come through the pfUI cast feed.
+        #[cfg(feature = "pfui")]
+        if !from_server && fail.caster == crate::ui_action::Caster::Player && !fail.redisplay {
+            self.reports.pfui_refused(fail.spell_id, fail.reason);
+        }
         self.report_tail(fail, from_server, reaches_tail);
     }
 
@@ -485,7 +491,9 @@ mod tests {
                     CastReport::AutoRepeat(false) => "STOP_AUTOREPEAT".into(),
                     CastReport::Line(e) => e.key.into(),
                     #[cfg(feature = "pfui")]
-                    CastReport::Sent { .. } => unreachable!("filtered"),
+                    CastReport::Sent { .. } | crate::ui_cast::CastReport::LocalFailure { .. } => {
+                        unreachable!("filtered")
+                    }
                 })
                 .collect()
         }
