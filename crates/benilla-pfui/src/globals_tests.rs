@@ -1236,3 +1236,21 @@ fn mouse_button_clicked_names_the_running_handlers_button() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's text-to-speech surface with no speech engine (`voicechat/Tts.cpp`): no voices,
+/// speech that plays nothing, and its three CVars at their defaults.
+#[test]
+fn text_to_speech_answers_as_without_an_engine() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        assert(next(C_VoiceChat.GetTtsVoices()) == nil and next(C_VoiceChat.GetRemoteTtsVoices()) == nil)
+        C_VoiceChat.SpeakText(0, "hello")
+        C_VoiceChat.StopSpeakingText()
+        assert(not pcall(C_VoiceChat.SpeakText, "x"))
+        assert(GetCVar("ttsVoice") == "0" and GetCVar("ttsSpeed") == "0" and GetCVar("ttsVolume") == "100")
+        "#,
+        )
+        .unwrap();
+}

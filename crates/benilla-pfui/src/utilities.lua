@@ -210,3 +210,16 @@ function table.wipe(value)
 end
 -- ClassicAPI registers it as a global too, which its addon reads back as `ClassicAPI.wipe`.
 wipe = table.wipe
+
+-- ClassicAPI's text-to-speech surface (voicechat/Tts.cpp), as it answers with no speech engine,
+-- which this client has none of: no voices, and speech that plays nothing. Its settings page reads
+-- the voice list, and the voice, rate and volume live in the ttsVoice/ttsSpeed/ttsVolume CVars.
+C_VoiceChat = C_VoiceChat or {}
+function C_VoiceChat.GetTtsVoices() return {} end
+function C_VoiceChat.GetRemoteTtsVoices() return {} end
+function C_VoiceChat.SpeakText(voiceID, text)
+  if not tonumber(voiceID) or (type(text) ~= "string" and type(text) ~= "number") then
+    error("Usage: C_VoiceChat.SpeakText(voiceID, text [, destination, rate, volume])", 2)
+  end
+end
+function C_VoiceChat.StopSpeakingText() end
