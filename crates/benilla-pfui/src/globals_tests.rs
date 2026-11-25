@@ -1174,3 +1174,39 @@ fn event_callbacks_follow_classicapi() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's `GetCursorDelta()`: the cursor's move since the last frame, the same for every
+/// OnUpdate of a frame, 0, 0 when it did not move.
+#[test]
+fn cursor_delta_is_the_move_since_the_last_frame() {
+    let mut script = extended();
+    script
+        .run(
+            r#"SEEN = {}
+        local f = CreateFrame("Frame")
+        f:SetScript("OnUpdate", function()
+            local dx, dy = GetCursorDelta()
+            local x = GetCursorPosition()
+            table.insert(SEEN, string.format("%g,%g@%g", dx, dy, x))
+        end)
+        local g = CreateFrame("Frame")
+        g:SetScript("OnUpdate", function()
+            local dx, dy = GetCursorDelta()
+            table.insert(SEEN, string.format("%g,%g", dx, dy))
+        end)"#,
+        )
+        .unwrap();
+    script.mouse_move(100.0, 100.0);
+    script.tick(0.016);
+    script.run("SEEN = {}").unwrap();
+    script.mouse_move(130.0, 90.0);
+    script.tick(0.016);
+    script.tick(0.016);
+    script
+        .run(
+            r#"local x1 = string.match(SEEN[1], "@(.+)$")
+        assert(SEEN[1] ~= "0,0@" .. x1 and SEEN[2] == string.match(SEEN[1], "^(.-)@"), table.concat(SEEN, " | "))
+        assert(SEEN[3] == "0,0@" .. x1 and SEEN[4] == "0,0", table.concat(SEEN, " | "))"#,
+        )
+        .unwrap();
+}
