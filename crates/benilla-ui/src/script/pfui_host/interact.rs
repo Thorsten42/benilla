@@ -55,7 +55,7 @@ fn nearest_named(lua: &Lua, name: &str, exact: bool) -> Option<u64> {
 }
 
 /// Click `guid` as the world's right button does; whether a unit was there to click.
-fn click(lua: &Lua, guid: u64) -> bool {
+pub(crate) fn click(lua: &Lua, guid: u64) -> bool {
     let may_cast = crate::script::protected::select_may_cast(lua);
     let call = ScriptCall::PlateClick(PlateClick {
         guid,

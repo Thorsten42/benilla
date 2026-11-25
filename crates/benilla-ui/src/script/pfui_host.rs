@@ -4,6 +4,7 @@
 use mlua::{Function, IntoLuaMulti, Lua, MultiValue, Table, Value};
 
 mod addons;
+pub mod area_loot;
 pub mod attention;
 pub mod attributes;
 pub mod auras;
@@ -405,6 +406,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     interact::install(lua)?;
     modifier_keys::install(lua)?;
     override_bindings::install(lua)?;
+    area_loot::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;

@@ -145,6 +145,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "UnitSpellHaste",
         "IsMounted",
         "IsSwimming",
+        "C_Loot",
         "SetOverrideBinding",
         "ClearOverrideBindings",
         "GetBindingByKey",
