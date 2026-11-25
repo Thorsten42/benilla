@@ -158,7 +158,7 @@ end
 -- Modified clicks: an action active while its modifier keys are held. A mouse button in a
 -- binding is not checked, as no click records it here.
 local modifiedClicks = {
-  SELFCAST = "ALT", FOCUSCAST = "NONE", AUTOLOOTTOGGLE = "SHIFT", MAILAUTOLOOTTOGGLE = "SHIFT",
+  SELFCAST = "ALT", FOCUSCAST = "NONE", MOUSEOVERCAST = "NONE", AUTOLOOTTOGGLE = "SHIFT", MAILAUTOLOOTTOGGLE = "SHIFT",
   STICKYCAMERA = "CTRL", CHATLINK = "SHIFT-BUTTON1", DRESSUP = "CTRL-BUTTON1",
   SOCKETITEM = "SHIFT-BUTTON2", SPLITSTACK = "SHIFT", PICKUPACTION = "SHIFT", PICKUPITEM = "SHIFT",
   COMPAREITEMS = "SHIFT", OPENALLBAGS = "SHIFT", QUESTWATCHTOGGLE = "SHIFT",
@@ -170,9 +170,15 @@ for action in pairs(modifiedClicks) do tinsert(modifiedClickOrder, action) end
 table.sort(modifiedClickOrder)
 
 local function modifierDown(name)
-  if name == "SHIFT" or name == "LSHIFT" or name == "RSHIFT" then return IsShiftKeyDown() end
-  if name == "CTRL" or name == "LCTRL" or name == "RCTRL" then return IsControlKeyDown() end
-  if name == "ALT" or name == "LALT" or name == "RALT" then return IsAltKeyDown() end
+  if name == "SHIFT" then return IsShiftKeyDown() end
+  if name == "CTRL" then return IsControlKeyDown() end
+  if name == "ALT" then return IsAltKeyDown() end
+  if name == "LSHIFT" then return IsLeftShiftKeyDown() end
+  if name == "RSHIFT" then return IsRightShiftKeyDown() end
+  if name == "LCTRL" then return IsLeftControlKeyDown() end
+  if name == "RCTRL" then return IsRightControlKeyDown() end
+  if name == "LALT" then return IsLeftAltKeyDown() end
+  if name == "RALT" then return IsRightAltKeyDown() end
 end
 
 local function bindingDown(binding)
