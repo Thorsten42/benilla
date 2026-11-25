@@ -21,6 +21,8 @@ pub struct SpellDisplay {
     pub rank: Option<String>,
     /// The icon's MPQ path, without extension; `None` for icon 0 or an id not in `SpellIcon.dbc`.
     pub icon: Option<String>,
+    /// `SpellIconID` (column 117), the id behind [`Self::icon`]: one id across a spell's ranks.
+    pub icon_id: u32,
     /// `SpellVisual.dbc` id (column 115); 0 is a silent cast.
     pub visual: u32,
     /// Projectile speed (column 37) in world units per second; 0 is an instant impact.
@@ -227,6 +229,7 @@ impl Default for SpellDisplay {
             name: String::new(),
             rank: None,
             icon: None,
+            icon_id: 0,
             visual: 0,
             speed: 0.0,
             attributes: 0,

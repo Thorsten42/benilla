@@ -584,6 +584,7 @@ pub fn load_spell_catalog(chain: &mut Chain) -> Result<SpellCatalog> {
                 name,
                 rank,
                 icon,
+                icon_id: u32_at(r, COL_ICON_ID).unwrap_or(0),
                 visual,
                 speed,
                 attributes,
