@@ -502,3 +502,127 @@ fn observed_sources_enrich_real_auras_and_server_duration_wins_over_dbc() {
         .run("assert(C_UnitAuras.GetAuraDataBySlot('player',1).sourceGUID==nil);local id,left,expires=GetPlayerAuraDuration(1);assert(id==139 and left==0 and expires==0)")
         .unwrap();
 }
+
+#[test]
+fn duration_rules_register_match_and_edit_the_casters_observed_aura() {
+    use crate::duration_mods::{self as mods, Facts, Op};
+    use benilla_ui::script::{pfui_host::auras as host, AuraState};
+    let mut script = fixture();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 5,
+        held: std::collections::HashMap::from([(3, 0), (5, 0)]),
+        ..Default::default()
+    });
+    script
+        .run(
+            r#"local R = C_UnitAuras.RegisterAuraDurationModifierByTrigger
+      assert(R(6, 5, 6, tonumber("4000000", 16), 9, "refresh") == true)
+      assert(R(6, 5, 6, tonumber("4000000", 16), 9, "refresh") == true, "a repeat is taken once")
+      assert(R(6, 5, 6, 1, 0, "explode") == false)
+      assert(R(6, 5, 6, 0, 0, "refresh") == false, "a whole family is refused")
+      assert(R(0, 5, 6, 1, 0, "refresh") == false)
+      assert(not pcall(R, 6, 5, 6))"#,
+        )
+        .unwrap();
+    let rules = mods::registered(script.lua());
+    assert_eq!(rules.len(), 1);
+    let shadow = Facts {
+        family: 6,
+        school: 5,
+        ..Default::default()
+    };
+    let vulnerability = Facts {
+        family: 6,
+        flags: 0x400_0000,
+        icon: 9,
+        school: 5,
+    };
+    assert!(rules[0].triggered_by(589, Some(shadow)));
+    assert!(!rules[0].triggered_by(
+        585,
+        Some(Facts {
+            school: 1,
+            ..shadow
+        })
+    ));
+    assert!(rules[0].affects(Some(vulnerability)));
+    assert!(!rules[0].affects(Some(Facts {
+        icon: 8,
+        ..vulnerability
+    })));
+    let turtle = mods::turtle(18.0);
+    assert!(turtle
+        .iter()
+        .any(|r| r.triggered_by(17962, None) && r.op == Op::Reduce(3.0)));
+    assert!(turtle
+        .iter()
+        .any(|r| r.triggered_by(19574, None) && r.op == Op::Set(18.0)));
+
+    script.tick(10.0);
+    let raw = Aura {
+        slot: 33,
+        spell: 15258,
+        stacks: 5,
+        level: 60,
+        visible: true,
+    };
+    host::set_auras(
+        script.lua(),
+        5,
+        Some(vec![host::Aura {
+            slot: 33,
+            source_guid: None,
+            crowd_control: false,
+            self_only: false,
+            applies_aura: false,
+            immunities: Vec::new(),
+            state: AuraState {
+                spell_id: 15258,
+                name: Some("Shadow Vulnerability".into()),
+                count: 5,
+                ..Default::default()
+            },
+        }]),
+    );
+    application(script.lua(), 3, 5, 15258, 15000);
+    auras(script.lua(), 5, vec![raw]);
+    let timing = |script: &UiScript| -> (f64, f64) {
+        script
+            .lua()
+            .load("local a = C_UnitAuras.GetAuraDataBySlot('target', 33); return a.duration, a.expirationTime")
+            .eval()
+            .unwrap()
+    };
+    assert_eq!(timing(&script), (15.0, 25.0));
+    script.tick(5.0);
+    let only = |s: u32| s == 15258;
+    modify(script.lua(), 5, 3, only, Op::Refresh);
+    assert_eq!(
+        timing(&script),
+        (15.0, 30.0),
+        "back to the full duration from now"
+    );
+    modify(script.lua(), 5, 3, only, Op::Reduce(3.0));
+    assert_eq!(timing(&script), (15.0, 27.0));
+    modify(script.lua(), 5, 4, only, Op::Refresh);
+    assert_eq!(
+        timing(&script),
+        (15.0, 27.0),
+        "another caster's rule leaves it"
+    );
+    modify(script.lua(), 5, 3, only, Op::Set(20.0));
+    assert_eq!(timing(&script), (20.0, 35.0));
+    modify(script.lua(), 5, 3, only, Op::Reduce(100.0));
+    assert_eq!(
+        timing(&script),
+        (20.0, 35.0),
+        "a shave past the end is the server's removal"
+    );
+    auras(script.lua(), 5, vec![raw]);
+    assert_eq!(
+        timing(&script),
+        (20.0, 35.0),
+        "the next descriptor update keeps the edit"
+    );
+}

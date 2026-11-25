@@ -238,6 +238,7 @@ fn feed(
                             );
                         }
                     }
+                    duration_mods(lua, spells, spell_id, caster, &hits);
                 }
             }
             SessionEvent::CastResult {
@@ -468,4 +469,53 @@ fn aura_edges(
         );
     }
     api::retain_units(script.lua(), &present);
+}
+
+/// ClassicAPI's duration rules at a spell-go ([`benilla_pfui::duration_mods`]): Turtle's built-in
+/// ones and those addons registered, each whose trigger is `spell` edits `caster`'s matching auras
+/// on every unit the cast hit.
+fn duration_mods(
+    lua: &benilla_pfui::Lua,
+    spells: &crate::ui_action::Spells,
+    spell: u32,
+    caster: u64,
+    hits: &[u64],
+) {
+    use benilla_pfui::duration_mods::{self as mods, Facts};
+    let facts = |id: u32| {
+        spells.catalog.get(id).map(|d| Facts {
+            family: d.spell_family,
+            flags: d.spell_family_flags,
+            icon: d.icon_id,
+            school: d.school,
+        })
+    };
+    let trigger = facts(spell);
+    let registered = mods::registered(lua);
+    if !registered.iter().any(|r| r.triggered_by(spell, trigger))
+        && !mods::turtle(0.0)
+            .iter()
+            .any(|r| r.triggered_by(spell, trigger))
+    {
+        return;
+    }
+    // Bestial Wrath's own base duration, as the server writes it onto Scent of Blood.
+    let bestial_wrath = spells
+        .catalog
+        .get(mods::BESTIAL_WRATH)
+        .map(|d| duration(spells, d, None, None))
+        .filter(|ms| *ms > 0)
+        .map_or(18.0, |ms| f64::from(ms) / 1000.0);
+    let rules = mods::turtle(bestial_wrath).into_iter().chain(registered);
+    for rule in rules.filter(|r| r.triggered_by(spell, trigger)) {
+        for &target in hits.iter().collect::<HashSet<_>>() {
+            api::modify(
+                lua,
+                target,
+                caster,
+                |aura| rule.affects(facts(aura)),
+                rule.op,
+            );
+        }
+    }
 }
