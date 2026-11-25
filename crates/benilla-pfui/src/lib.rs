@@ -144,6 +144,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "UnitSpellHaste",
         "IsMounted",
         "IsSwimming",
+        "GetCurrentKeyBoardFocus",
         "GetShapeshiftForm",
         "IsEquippedItemType",
         "GetSheathState",
