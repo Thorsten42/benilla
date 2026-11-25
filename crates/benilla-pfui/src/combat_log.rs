@@ -2,6 +2,9 @@
 //! event the client sees ([`record`]), `COMBAT_LOG_EVENT` for those its filters pass, the event's
 //! values while a handler runs (`CombatLogGetCurrentEventInfo`), and the kept entries.
 
+#[path = "death_recap.rs"]
+mod death_recap;
+
 use benilla_ui::script::{pfui_host, ScriptValue};
 use mlua::{Lua, MultiValue, Value};
 use std::collections::VecDeque;
@@ -46,6 +49,9 @@ pub struct Event {
     pub dest: Option<Unit>,
     pub spell: Option<(u32, Option<String>)>,
     pub values: Vec<ScriptValue>,
+    /// The target's health when the event was logged, before a hit lands: the death recap's
+    /// `currentHP`. `None` for a target with no health in view.
+    pub dest_health: Option<u32>,
 }
 
 struct Entry {
@@ -79,6 +85,7 @@ struct Log {
     retention: f64,
     /// The events whose handlers run now, innermost last.
     dispatching: Vec<Vec<ScriptValue>>,
+    recaps: death_recap::Recaps,
 }
 
 impl Default for Log {
@@ -89,6 +96,7 @@ impl Default for Log {
             current: None,
             retention: 300.0,
             dispatching: Vec::new(),
+            recaps: death_recap::Recaps::default(),
         }
     }
 }
@@ -202,7 +210,15 @@ fn unix_time() -> f64 {
 
 /// Keep `event` and raise `COMBAT_LOG_EVENT_UNFILTERED` with its values, then `COMBAT_LOG_EVENT`
 /// when the filters pass it.
-pub fn record(lua: &Lua, event: Event) {
+pub fn record(lua: &Lua, mut event: Event) {
+    // A death's suffix: its recap ID (the player's, made from the log before this entry is kept;
+    // -1 for any other) and unconsciousOnDeath, which 1.12 never has.
+    if matches!(event.subevent, "UNIT_DIED" | "UNIT_DESTROYED") {
+        let recap = death_recap::on_death(lua, event.dest.as_ref().map(|d| d.guid));
+        event
+            .values
+            .extend([ScriptValue::Int(recap), ScriptValue::Int(0)]);
+    }
     let at = now(lua);
     let args = args_of(unix_time(), &event);
     let ends = |u: &Option<Unit>| u.as_ref().map(|u| (u.guid, u.flags));
@@ -295,6 +311,7 @@ fn who(lua: &Lua, v: Value, which: &str) -> mlua::Result<Option<Who>> {
 
 pub(crate) fn install(lua: &Lua) -> mlua::Result<()> {
     lua.set_app_data(Log::default());
+    death_recap::install(lua)?;
     let g = lua.globals();
     g.set(
         "CombatLogGetCurrentEventInfo",
