@@ -143,6 +143,8 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "GetSpellBonusDamage",
         "UnitSpellHaste",
         "IsMounted",
+        "IsSwimming",
+        "GetSheathState",
         "IsStealthed",
         "Dismount",
         "CancelShapeshiftForm",

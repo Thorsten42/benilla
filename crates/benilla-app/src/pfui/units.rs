@@ -20,6 +20,10 @@ fn speeds(
     )>,
 ) {
     let Some(script) = script else { return };
+    benilla_ui::script::pfui_host::units::set_player_move_flags(
+        script.lua(),
+        player.as_ref().map_or(0, |player| player.move_flags()),
+    );
     benilla_ui::script::pfui_host::player_stats::set_speeds(
         script.lua(),
         units.iter().map(|(guid, speeds, motion, own)| {
@@ -125,6 +129,7 @@ fn feed(
                             health: object.0.unit_health(),
                             form: object.0.unit_shapeshift_form(),
                             mount_display: object.0.unit_mount_display_id(),
+                            sheath: object.0.unit_sheath_state().unwrap_or(0),
                             auras: object.0.unit_aura_ids().collect(),
                             applications: (0u16..48)
                                 .map(|slot| {
