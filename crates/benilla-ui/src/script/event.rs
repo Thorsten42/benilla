@@ -47,6 +47,9 @@ pub(super) fn fire_widget_handler(
     script: &str,
     extra: Vec<Value>,
 ) -> mlua::Result<()> {
+    // A ClassicAPI client's `GetMouseButtonClicked` names a mouse handler's button while it runs.
+    #[cfg(feature = "pfui")]
+    let _clicked = super::pfui_host::mouse_button::enter(lua, script, extra.first());
     fire(lua, id, script, extra)
 }
 
