@@ -32,6 +32,7 @@ mod swing;
 pub(crate) mod test_support;
 pub(crate) mod toc;
 mod totems;
+pub(crate) mod unit_position;
 mod units;
 mod weapon_events;
 
