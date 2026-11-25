@@ -3220,7 +3220,8 @@ mod tests {
                 crate::ui_cast::CastReport::AutoRepeat(false) => "STOP_AUTOREPEAT",
                 crate::ui_cast::CastReport::Line(e) => e.key,
                 #[cfg(feature = "pfui")]
-                crate::ui_cast::CastReport::Sent { .. } => unreachable!("filtered"),
+                crate::ui_cast::CastReport::Sent { .. }
+                | crate::ui_cast::CastReport::LocalFailure { .. } => unreachable!("filtered"),
             })
             .collect()
     }

@@ -73,6 +73,10 @@ pub(crate) enum CastReport {
     /// send, with its unit target; the pfUI host mints the castGUID the cast then carries.
     #[cfg(feature = "pfui")]
     Sent { spell_id: u32, target: Option<u64> },
+    /// ClassicAPI's `UNIT_SPELLCAST_FAILED` / `_QUIET` for the player's cast refused before it
+    /// left the client; the server's refusals come through the pfUI cast feed.
+    #[cfg(feature = "pfui")]
+    LocalFailure { spell_id: u32, reason: u8 },
 }
 
 impl CastReport {
@@ -80,7 +84,10 @@ impl CastReport {
     #[cfg(test)]
     pub(crate) fn is_extension(&self) -> bool {
         #[cfg(feature = "pfui")]
-        if matches!(self, CastReport::Sent { .. }) {
+        if matches!(
+            self,
+            CastReport::Sent { .. } | CastReport::LocalFailure { .. }
+        ) {
             return true;
         }
         false
@@ -122,6 +129,12 @@ impl CastReports {
     #[cfg(feature = "pfui")]
     pub(crate) fn sent(&mut self, spell_id: u32, target: Option<u64>) {
         self.push(CastReport::Sent { spell_id, target });
+    }
+
+    /// [`CastReport::LocalFailure`], at a local refusal of the player's cast.
+    #[cfg(feature = "pfui")]
+    pub(crate) fn pfui_refused(&mut self, spell_id: u32, reason: u8) {
+        self.push(CastReport::LocalFailure { spell_id, reason });
     }
 
     /// `ShowItemCastFailure 0x6e29b0`, run by the item answer of a refused line that waited on
@@ -447,6 +460,15 @@ impl CastReporter<'_, '_> {
                         self.lines.spells(),
                         spell_id,
                         target,
+                    ));
+                }
+                #[cfg(feature = "pfui")]
+                CastReport::LocalFailure { spell_id, reason } => {
+                    out.push(pfui_sent::refused(
+                        script,
+                        self.lines.spells(),
+                        spell_id,
+                        reason,
                     ));
                 }
             }
