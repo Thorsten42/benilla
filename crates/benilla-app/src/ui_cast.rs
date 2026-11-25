@@ -15,6 +15,9 @@ use crate::ui_action::{CastFail, CastFailLines, MessageSink, Shown, Spells};
 #[cfg(feature = "nampower")]
 #[path = "pfui/cast_reports.rs"]
 mod pfui;
+#[cfg(feature = "pfui")]
+#[path = "pfui/cast_sent.rs"]
+mod pfui_sent;
 mod views;
 pub(crate) use views::{slot_moves_here, CastLive, CastViews};
 
@@ -66,6 +69,22 @@ pub(crate) enum CastReport {
     /// A line the cast validator shows itself through `CGGameUI::DisplayError 0x496720`, outside
     /// `ReportCastFailure`: a learn rung's, or the tame rung's ahead of its report.
     Line(crate::ui_action::UiError),
+    /// ClassicAPI's `UNIT_SPELLCAST_SENT` (`spell/CastEvents.cpp`, `OnSend`): the player's spell
+    /// send, with its unit target; the pfUI host mints the castGUID the cast then carries.
+    #[cfg(feature = "pfui")]
+    Sent { spell_id: u32, target: Option<u64> },
+}
+
+impl CastReport {
+    /// A report of the pfUI layer's own, outside the reference's stream ([`CastReport::Sent`]).
+    #[cfg(test)]
+    pub(crate) fn is_extension(&self) -> bool {
+        #[cfg(feature = "pfui")]
+        if matches!(self, CastReport::Sent { .. }) {
+            return true;
+        }
+        false
+    }
 }
 
 /// Our cast's reports in the order they were made: one lane ([`crate::lanes`]), so a refusal's line
@@ -97,6 +116,12 @@ impl CastReports {
     /// [`CastReport::Line`].
     pub(crate) fn line(&mut self, line: crate::ui_action::UiError) {
         self.push(CastReport::Line(line));
+    }
+
+    /// [`CastReport::Sent`], at the player's spell send.
+    #[cfg(feature = "pfui")]
+    pub(crate) fn sent(&mut self, spell_id: u32, target: Option<u64>) {
+        self.push(CastReport::Sent { spell_id, target });
     }
 
     /// `ShowItemCastFailure 0x6e29b0`, run by the item answer of a refused line that waited on
@@ -414,6 +439,15 @@ impl CastReporter<'_, '_> {
                     if let Some(text) = crate::ui_action::ui_error_text(&e, &get) {
                         out.extend(self.line(script, Shown::keyed(e.key, text)));
                     }
+                }
+                #[cfg(feature = "pfui")]
+                CastReport::Sent { spell_id, target } => {
+                    out.push(pfui_sent::ready(
+                        script,
+                        self.lines.spells(),
+                        spell_id,
+                        target,
+                    ));
                 }
             }
         }
