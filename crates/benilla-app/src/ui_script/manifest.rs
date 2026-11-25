@@ -209,6 +209,9 @@ pub(super) fn load_core_bindings(script: &UiScript) -> Vec<String> {
     };
     match benilla_ui::bindings_xml::parse(&benilla_ui::source::decode(&bytes)) {
         Ok(bindings) => {
+            // A ClassicAPI client's commands join the file's TARGETING section.
+            #[cfg(feature = "pfui")]
+            let bindings = benilla_pfui::bindings::splice(bindings);
             script.register_bindings(&bindings);
             info!(
                 "bindings: {} commands registered from {}",
