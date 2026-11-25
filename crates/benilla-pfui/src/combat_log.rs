@@ -205,6 +205,8 @@ fn unix_time() -> f64 {
 pub fn record(lua: &Lua, event: Event) {
     let at = now(lua);
     let args = args_of(unix_time(), &event);
+    let ends = |u: &Option<Unit>| u.as_ref().map(|u| (u.guid, u.flags));
+    let (subevent, source, dest) = (event.subevent, ends(&event.source), ends(&event.dest));
     let passes = {
         let Some(mut log) = lua.app_data_mut::<Log>() else {
             return;
@@ -230,6 +232,8 @@ pub fn record(lua: &Lua, event: Event) {
     // The event's values stay current around its raises, which wait for the host when none is
     // lent.
     pfui_host::run_hosted(lua, move |lua| {
+        // The encounter sees the entry first: a boss it engages is `boss1` in the entry's handlers.
+        pfui_host::units::encounter::observe(lua, subevent, source, dest);
         if let Some(mut log) = lua.app_data_mut::<Log>() {
             log.dispatching.push(args.clone());
         }
