@@ -1254,3 +1254,26 @@ fn text_to_speech_answers_as_without_an_engine() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's `C_TTSSettings` over its CVars with no voices (`voicechat/Tts.cpp`), and
+/// `C_Macro.GetMacroIcon` on an empty slot, out of range and with no number (`macro/IconPath.cpp`).
+#[test]
+fn tts_settings_and_macro_icon_follow_classicapi() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        C_TTSSettings.SetSpeechRate(-3) C_TTSSettings.SetSpeechVolume(40) C_TTSSettings.SetVoiceOption(2)
+        assert(C_TTSSettings.GetSpeechRate() == -3 and C_TTSSettings.GetSpeechVolume() == 40)
+        assert(C_TTSSettings.GetSpeechVoiceID() == 2 and C_TTSSettings.GetVoiceOptionName() == "")
+        C_TTSSettings.SetSpeechRate("x")
+        assert(C_TTSSettings.GetSpeechRate() == -3)
+        C_TTSSettings.SetDefaultSettings()
+        assert(C_TTSSettings.GetSpeechRate() == 0 and C_TTSSettings.GetSpeechVolume() == 100)
+        assert(C_TTSSettings.GetSpeechVoiceID() == 0)
+        assert(C_Macro.GetMacroIcon(1) == nil and C_Macro.GetMacroIcon(37) == nil)
+        assert(not pcall(C_Macro.GetMacroIcon, "x"))
+        "#,
+        )
+        .unwrap();
+}
