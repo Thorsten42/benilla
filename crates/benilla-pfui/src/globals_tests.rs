@@ -812,3 +812,20 @@ fn a_named_but_unheld_unit_reads_as_unknown_and_nobody_as_nil() {
         .run(r#"local name = UnitName(UnitTokenFromGUID("0x0000000000000005")); string.gsub(name, name, "", 1)"#)
         .unwrap();
 }
+
+/// ClassicAPI's `C_Spell.DoesSpellExist(spellID)` (`spell/Exists.cpp`): a number, or a numeric
+/// string as `lua_isnumber` takes it, naming a record; any other value is false, never an error.
+#[test]
+fn does_spell_exist_takes_a_number_naming_a_record() {
+    let mut script = extended();
+    book(&mut script);
+    script
+        .run(
+            r#"
+        assert(C_Spell.DoesSpellExist(133) == true and C_Spell.DoesSpellExist("143") == true)
+        assert(C_Spell.DoesSpellExist(999999) == false and C_Spell.DoesSpellExist(0) == false)
+        assert(C_Spell.DoesSpellExist("Fireball") == false and C_Spell.DoesSpellExist(nil) == false)
+        "#,
+        )
+        .unwrap();
+}
