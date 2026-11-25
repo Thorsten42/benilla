@@ -1743,3 +1743,93 @@ fn a_local_refusal_is_failed_or_quiet_by_its_reason() {
     assert_eq!(failed, "UNIT_SPELLCAST_FAILED");
     assert_ne!(format!("{:?}", args[1]), format!("{:?}", again[1]));
 }
+
+/// ClassicAPI's `InteractUnit` and `C_PlayerInteractionManager.InteractUnit`
+/// (`unit/Interact.cpp`): a token's unit, or the nearest unit a name starts with, takes the world
+/// right-click (`InteractWithObjectByClick`); "anyinteract" is the target while soft interact picks
+/// nothing; "anyleftinteract" does nothing; a loose soft or any token fires
+/// `PLAYER_SOFT_TARGET_INTERACTION`.
+#[test]
+fn interact_unit_clicks_the_unit_it_names() {
+    use benilla_ui::script::nameplate::{PlateAction, PlateClick};
+    use benilla_ui::script::{pfui_host::units, ScriptCall, UnitGuids, UnitReach, UnitState};
+    use std::collections::HashMap;
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 7,
+        held: HashMap::from([(3, 0), (7, 0)]),
+        ..Default::default()
+    });
+    let unit = |guid, name: &str| UnitState {
+        guid,
+        exists: true,
+        has_object: true,
+        name: Some(name.into()),
+        ..Default::default()
+    };
+    units::set_unit_states(
+        script.lua(),
+        [
+            (7, unit(7, "Bob"), 0),
+            (9, unit(9, "Innkeeper Firebrew"), 0),
+            (11, unit(11, "Innkeeper Allison"), 0),
+        ],
+    );
+    script.set_unit_reach(HashMap::from([
+        (
+            9,
+            UnitReach {
+                dist_sq: 400.0,
+                inspectable: false,
+            },
+        ),
+        (
+            11,
+            UnitReach {
+                dist_sq: 25.0,
+                inspectable: false,
+            },
+        ),
+    ]));
+    let clicked = |script: &mut UiScript| -> Vec<u64> {
+        script
+            .take_script_calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                ScriptCall::PlateClick(PlateClick {
+                    guid,
+                    action: PlateAction::Interact,
+                    scripted: true,
+                    ..
+                }) => Some(guid),
+                _ => None,
+            })
+            .collect()
+    };
+    script
+        .run(
+            r#"SOFT = 0
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("PLAYER_SOFT_TARGET_INTERACTION")
+        f:SetScript("OnEvent", function() SOFT = SOFT + 1 end)
+        assert(InteractUnit("target") == 1)
+        assert(InteractUnit("party1") == nil)
+        assert(InteractUnit("innkeeper") == 1)
+        assert(InteractUnit("Innkeeper Firebrew", true) == 1)
+        assert(InteractUnit("Innkeeper", true) == nil)
+        assert(not pcall(InteractUnit))"#,
+        )
+        .unwrap();
+    assert_eq!(clicked(&mut script), vec![7, 11, 9]);
+    script
+        .run(
+            r#"assert(C_PlayerInteractionManager.InteractUnit("anyinteract") == true and SOFT == 1)
+        assert(C_PlayerInteractionManager.InteractUnit("target", false, false) == true and SOFT == 1)
+        assert(C_PlayerInteractionManager.InteractUnit("anyinteract", false, false) == true and SOFT == 1)
+        assert(C_PlayerInteractionManager.InteractUnit("anyleftinteract") == false)
+        assert(C_PlayerInteractionManager.InteractUnit("softinteract") == false)"#,
+        )
+        .unwrap();
+    assert_eq!(clicked(&mut script), vec![7, 7, 7]);
+}
