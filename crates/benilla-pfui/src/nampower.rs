@@ -1,7 +1,7 @@
 //! Nampower 3's pfUI event contract. No Windows code or DLL is loaded.
 
 use benilla_ui::script::{pfui_host, ScriptValue};
-use mlua::Lua;
+use mlua::{Lua, Value};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,7 +99,66 @@ pub(crate) fn install(lua: &Lua) -> mlua::Result<()> {
     )?;
     lua.load(include_str!("nampower.lua"))
         .set_name("@benilla-pfui/nampower.lua")
-        .call::<()>(bridge)
+        .call::<()>(bridge)?;
+    install_disenchant_all(lua)
+}
+
+/// The runs `DisenchantAll` asked for since the host last took them: the filter as typed and
+/// whether soulbound items count.
+#[derive(Default)]
+struct DisenchantAsks(Vec<(String, bool)>);
+
+/// The asks for the host's sequencer (`benilla-app`'s `pfui::disenchant`), which parses the filter.
+pub fn take_disenchant_asks(lua: &Lua) -> Vec<(String, bool)> {
+    lua.app_data_mut::<DisenchantAsks>()
+        .map(|mut asks| std::mem::take(&mut asks.0))
+        .unwrap_or_default()
+}
+
+/// Nampower's `DisenchantAll(itemIdOrName | quality, [includeSoulbound])` -> 1: queue a run of
+/// Disenchant over the matching bag items; the host runs it. A filter that is neither a number nor
+/// a string raises the DLL's usage text, and a player without Disenchant (13262) its "You do not
+/// have the Disenchant spell"; `includeSoulbound` counts when it is a nonzero number.
+fn install_disenchant_all(lua: &Lua) -> mlua::Result<()> {
+    lua.set_app_data(DisenchantAsks::default());
+    lua.globals().set(
+        "DisenchantAll",
+        lua.create_function(|lua, (filter, soulbound): (Value, Value)| {
+            let filter = match &filter {
+                Value::Integer(n) => n.to_string(),
+                Value::Number(n) => (*n as i64).to_string(),
+                Value::String(s) => s.to_str()?.to_string(),
+                _ => {
+                    return Err(mlua::Error::runtime(
+                        "Usage: DisenchantAll(itemIdOrName, [includeSoulbound]) or \
+                         DisenchantAll(quality, [includeSoulbound])\n\
+                         quality: \"greens\", \"blues\", \"purples\", or combinations like \
+                         \"greens|blues\" or \"greens|blues|purples\"\n\
+                         itemIdOrName: item ID (number) or item name (string)\n\
+                         includeSoulbound: optional number - pass 1 to include soulbound items \
+                         (defaults to 0)",
+                    ))
+                }
+            };
+            let knows = lua
+                .globals()
+                .get::<mlua::Function>("IsPlayerSpell")
+                .and_then(|f| f.call::<bool>(13_262))
+                .unwrap_or(false);
+            if !knows {
+                return Err(mlua::Error::runtime("You do not have the Disenchant spell"));
+            }
+            let include_soulbound = match soulbound {
+                Value::Integer(n) => n != 0,
+                Value::Number(n) => n != 0.0,
+                _ => false,
+            };
+            if let Some(mut asks) = lua.app_data_mut::<DisenchantAsks>() {
+                asks.0.push((filter, include_soulbound));
+            }
+            Ok(1)
+        })?,
+    )
 }
 
 pub fn installed(lua: &Lua) -> bool {

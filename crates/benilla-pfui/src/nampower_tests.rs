@@ -37,7 +37,7 @@ fn identity_cvars_and_events_are_per_vm_and_settings_survive_reload() {
             r#"
       local a,b,c=GetNampowerVersion();assert(a==3 and b==0 and c==0)
       assert(BenillaNampowerCompatibility.emulated and not BenillaNampowerCompatibility.fullNampower)
-      assert(type(QueueSpellByName)=='function' and DisenchantAll==nil)
+      assert(type(QueueSpellByName)=='function' and type(DisenchantAll)=='function')
       assert(GetCVar('NP_EnableSpellGoEvents')=='0')
       assert(GetCVarDefault('NP_QueueTargetingSpells')=='1')
       assert(GetCVarDefault('NP_QueueOnSwingSpells')=='0')
@@ -625,4 +625,35 @@ fn duration_rules_register_match_and_edit_the_casters_observed_aura() {
         (20.0, 35.0),
         "the next descriptor update keeps the edit"
     );
+}
+
+#[test]
+fn disenchant_all_queues_a_run_for_the_host_with_the_dlls_errors() {
+    let script = fixture();
+    script
+        .run(
+            r#"local ok, err = pcall(DisenchantAll, "greens")
+      assert(not ok and string.find(err, "You do not have the Disenchant spell", 1, true), err)"#,
+        )
+        .unwrap();
+    assert!(take_disenchant_asks(script.lua()).is_empty());
+    script
+        .run(
+            r#"IsPlayerSpell = function(id) return id == 13262 end
+      local ok, err = pcall(DisenchantAll, {})
+      assert(not ok and string.find(err, "Usage: DisenchantAll", 1, true), err)
+      assert(DisenchantAll("greens|blues") == 1)
+      assert(DisenchantAll(4338, 1) == 1)
+      assert(DisenchantAll("Linen Cloth", true) == 1)"#,
+        )
+        .unwrap();
+    assert_eq!(
+        take_disenchant_asks(script.lua()),
+        [
+            ("greens|blues".to_string(), false),
+            ("4338".to_string(), true),
+            ("Linen Cloth".to_string(), false)
+        ]
+    );
+    assert!(take_disenchant_asks(script.lua()).is_empty(), "taken once");
 }

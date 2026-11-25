@@ -438,6 +438,9 @@ pub(super) const WRITES_NO_VIEW: &[(&str, &str)] = &[
     #[cfg(feature = "nampower")]
     ("::pfui::spell_queue::release", "Nampower's queue release: its casts go through the call \
         host as calls, and it pushes no view"),
+    #[cfg(feature = "nampower")]
+    ("::pfui::disenchant::drive_disenchant", "Nampower's `DisenchantAll` run: it takes the VM's \
+        asks and sends its casts through the ladder as the bag click does, and pushes no view"),
     ("::bindings::begin_dispatch", "the input pass's head: the binding calls Lua made, then the \
         frame's key records"),
     ("::bindings::end_dispatch", "the input pass's tail: the stuck keys' release"),
