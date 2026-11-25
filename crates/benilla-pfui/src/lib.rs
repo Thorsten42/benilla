@@ -11,6 +11,7 @@ mod baselib;
 pub mod clock;
 pub mod combat_log;
 pub mod creature;
+mod cvar_bits;
 pub mod display;
 mod encoding;
 pub mod icons;
@@ -230,6 +231,10 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "GetModifiedClick",
         "SetModifiedClick",
         "LE_ITEM_QUALITY_POOR",
+        "BreakUpLargeNumbers",
+        "AbbreviateNumbers",
+        "AbbreviateLargeNumbers",
+        "C_Glue",
     ] {
         if !lua.globals().get::<Value>(name)?.is_nil() {
             return Err(mlua::Error::runtime(format!(
@@ -244,6 +249,9 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         .exec()?;
     lua.load(include_str!("utilities.lua"))
         .set_name("@benilla-pfui/utilities.lua")
+        .exec()?;
+    lua.load(include_str!("numbers.lua"))
+        .set_name("@benilla-pfui/numbers.lua")
         .exec()?;
     let globals = lua.create_table()?;
     display::install(lua, &globals)?;
@@ -444,6 +452,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     lua.load(include_str!("engine.lua"))
         .set_name("@benilla-pfui/engine.lua")
         .call::<()>(engine.clone())?;
+    cvar_bits::install(lua)?;
     lua.load(include_str!("atlases.lua"))
         .set_name("@benilla-pfui/atlases.lua")
         .call::<()>(engine.get::<mlua::Function>("define_atlas")?)?;

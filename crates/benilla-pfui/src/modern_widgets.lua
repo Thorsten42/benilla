@@ -204,6 +204,23 @@ for _, methods in ipairs({editbox, slider}) do
   function methods:SetEnabled(on) if on then self:Enable() else self:Disable() end end
 end
 function editbox:ClearHighlightText() self:HighlightText(0, 0) end
+-- ClassicAPI's `editBox:HasText()`: whether the box holds any text.
+function editbox:HasText() return (self:GetText() or "") ~= "" end
+-- ClassicAPI's `slider:SetObeyStepOnDrag(obey)` / `GetObeyStepOnDrag()` (slider/Value.cpp): true
+-- from creation; a nil or missing value is a usage error.
+-- Deviation: kept, not applied: this engine's drag always rounds to the value step, the `true`
+-- behaviour, so a slider set to false still steps.
+function slider:SetObeyStepOnDrag(obey)
+  if obey == nil then
+    error("Usage: " .. (self:GetName() or self:GetObjectType()) .. ":SetObeyStepOnDrag(obeyStepOnDrag)", 2)
+  end
+  flags(self).obeyStepOnDrag = obey and true or false
+end
+function slider:GetObeyStepOnDrag()
+  local obey = flags(self).obeyStepOnDrag
+  if obey == nil then return true end
+  return obey
+end
 
 -- Font strings.
 fontstring.GetUnboundedStringWidth = fontstring.GetStringWidth

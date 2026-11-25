@@ -829,3 +829,93 @@ fn does_spell_exist_takes_a_number_naming_a_record() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's number text (`localization/Numbers.cpp`), with the docs' own examples: the
+/// separators and labels are the globals' at the call, and `breakUpLargeNumbers` "0" drops the
+/// digit groups.
+#[test]
+fn number_text_follows_classicapi() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        LARGE_NUMBER_SEPERATOR, DECIMAL_SEPERATOR = ",", "."
+        FIRST_NUMBER_CAP_NO_SPACE, SECOND_NUMBER_CAP_NO_SPACE = "K", "M"
+        FIRST_NUMBER_CAP, SECOND_NUMBER = " K", "million"
+        local function eq(got, want) assert(got == want, tostring(got) .. " ~= " .. want) end
+        eq(BreakUpLargeNumbers(1234567), "1,234,567")
+        eq(BreakUpLargeNumbers(1234567.891), "1,234,567")
+        eq(BreakUpLargeNumbers(123.456), "123.5")
+        eq(BreakUpLargeNumbers(5), "5")
+        eq(BreakUpLargeNumbers(-1234567), "-1,234,567")
+        eq(BreakUpLargeNumbers(12345678, true), "12.3 million")
+        eq(BreakUpLargeNumbers(123456, true), "123,456")
+        eq(AbbreviateNumbers(999.9), "999.9")
+        eq(AbbreviateNumbers(1234), "1.2K")
+        eq(AbbreviateNumbers(12345), "12K")
+        eq(AbbreviateNumbers(1999999), "1.9M")
+        eq(AbbreviateNumbers(-12345), "-12345")
+        eq(AbbreviateNumbers(1234, { breakpointData = { { breakpoint = 100, abbreviation = "h",
+            significandDivisor = 10, fractionDivisor = 10, abbreviationIsGlobal = false } } }), "12.3h")
+        eq(AbbreviateLargeNumbers(123456), "123 K")
+        eq(AbbreviateLargeNumbers(9999), "9,999")
+        eq(C_StringUtil.GetDefaultAbbreviationBreakpoints()[8].breakpoint, 1000)
+        eq(Constants.MoneyFormattingConstants.GOLD_REWARD_THRESHOLD_TO_HIDE_COPPER, 10)
+        assert(not pcall(BreakUpLargeNumbers, "x"))
+        SetCVar("breakUpLargeNumbers", "0")
+        eq(BreakUpLargeNumbers(1234567), "1234567")
+        "#,
+        )
+        .unwrap();
+}
+
+/// ClassicAPI's color-space conversions (`color/Util.cpp`), the CVar bitfield
+/// (`cvar/Bitfield.cpp`), `C_Glue.IsOnGlueScreen` in the world, and the widget methods its
+/// settings call: `editBox:HasText`, `slider:Set/GetObeyStepOnDrag`.
+#[test]
+fn color_bitfield_glue_and_widget_helpers_follow_classicapi() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        local function near(a, b) return math.abs(a - b) < 1e-9 end
+        local h, s, v = C_ColorUtil.ConvertRGBToHSV(0, 1, 0)
+        assert(h == 120 and s == 1 and v == 1)
+        h, s, v = C_ColorUtil.ConvertRGBToHSV(0.5, 0.5, 0.5)
+        assert(h == -1 and s == 0 and v == 0.5)
+        local r, g, b = C_ColorUtil.ConvertHSVToRGB(240, 1, 1)
+        assert(r == 0 and g == 0 and b == 1)
+        local hl, sl, l = C_ColorUtil.ConvertHSVToHSL(120, 1, 1)
+        assert(hl == 120 and sl == 1 and l == 0.5)
+        local hv, sv, vv = C_ColorUtil.ConvertHSLToHSV(120, 1, 0.5)
+        assert(hv == 120 and sv == 1 and vv == 1)
+        r, g, b = C_ColorUtil.ConvertHSLToRGB(0, 1, 0.5)
+        assert(near(r, 1) and near(g, 0) and near(b, 0))
+        assert(not pcall(C_ColorUtil.ConvertRGBToHSV, 1, "x", 0))
+
+        RegisterCVar("myAddonFlags", "0")
+        assert(C_CVar.SetCVarBitfield("myAddonFlags", 1, true) == true)
+        assert(C_CVar.SetCVarBitfield("myAddonFlags", 5, true) == true)
+        assert(GetCVar("myAddonFlags") == "17")
+        assert(C_CVar.GetCVarBitfield("myAddonFlags", 5) == true)
+        assert(C_CVar.GetCVarBitfield("myAddonFlags", 2) == false)
+        assert(C_CVar.SetCVarBitfield("myAddonFlags", 1, false) == true and GetCVar("myAddonFlags") == "16")
+        assert(C_CVar.GetCVarBitfield("noSuchCVar", 1) == nil)
+        assert(C_CVar.GetCVarBitfield("myAddonFlags", 65) == nil)
+        assert(C_CVar.SetCVarBitfield("noSuchCVar", 1, true) == false)
+
+        assert(C_Glue.IsOnGlueScreen() == false)
+        local box = CreateFrame("EditBox")
+        assert(box:HasText() == false)
+        box:SetText("x")
+        assert(box:HasText() == true)
+        local slider = CreateFrame("Slider", "TestSlider")
+        assert(slider:GetObeyStepOnDrag() == true)
+        slider:SetObeyStepOnDrag(false)
+        assert(slider:GetObeyStepOnDrag() == false)
+        local ok, err = pcall(slider.SetObeyStepOnDrag, slider)
+        assert(not ok and string.find(err, "Usage: TestSlider:SetObeyStepOnDrag(obeyStepOnDrag)", 1, true), err)
+        "#,
+        )
+        .unwrap();
+}
