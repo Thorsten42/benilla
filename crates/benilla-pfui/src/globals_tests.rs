@@ -1049,3 +1049,39 @@ fn keyboard_focus_is_the_focused_edit_box() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's `C_ActionBar.GetSpell(actionID)` (`action/Info.cpp`): a spell slot's own spell, an
+/// item slot's on-use spell, 0 for an empty slot or one outside 1-120.
+#[test]
+fn action_bar_get_spell_reads_the_slot() {
+    use benilla_ui::script::{pfui_host::items, ActionSlot};
+    let mut script = extended();
+    book(&mut script);
+    script.set_action(
+        1,
+        Some(ActionSlot {
+            kind: 0x00,
+            action: 133,
+            ..Default::default()
+        }),
+    );
+    script.set_action(
+        2,
+        Some(ActionSlot {
+            kind: 0x80,
+            action: 6948,
+            ..Default::default()
+        }),
+    );
+    items::set_use_spell(script.lua(), 6948, 8690);
+    script
+        .run(
+            r#"
+        assert(C_ActionBar.GetSpell(1) == 133)
+        assert(C_ActionBar.GetSpell(2) == 8690)
+        assert(C_ActionBar.GetSpell(3) == 0 and C_ActionBar.GetSpell(0) == 0)
+        assert(C_ActionBar.GetSpell(121) == 0 and C_ActionBar.GetSpell("x") == 0)
+        "#,
+        )
+        .unwrap();
+}
