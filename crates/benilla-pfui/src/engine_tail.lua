@@ -603,3 +603,11 @@ do
     return api.GetAuraDataByIndex(unit, index, rest == "" and "HARMFUL" or "HARMFUL|" .. rest)
   end
 end
+
+-- ClassicAPI's `C_DamageMeter` (`damagemeter/`) keeps combat sessions for its meter window
+-- (`ClassicAPI_DamageMeter`); this client has no sessions yet, so the meter reads as unavailable,
+-- with the reason the options page shows under its checkboxes.
+C_DamageMeter = C_DamageMeter or {}
+function C_DamageMeter.IsDamageMeterAvailable()
+  return false, "The damage meter is not available in this client yet."
+end

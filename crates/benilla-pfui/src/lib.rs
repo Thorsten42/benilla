@@ -259,6 +259,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "UnitSelectionColor",
         "UnitInLineOfSight",
         "C_DeathRecap",
+        "C_DamageMeter",
     ] {
         if !lua.globals().get::<Value>(name)?.is_nil() {
             return Err(mlua::Error::runtime(format!(
