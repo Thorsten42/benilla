@@ -49,7 +49,7 @@ fn custom_token(token: &str) -> bool {
 
 /// `IsUnitToken(value)`: whether a resolver takes `value` as a token, never an error. ClassicAPI
 /// asks the engine's resolver under a protected call; a name (`"Feral"`) is no token.
-fn is_unit_token(value: &Value) -> bool {
+pub(crate) fn is_unit_token(value: &Value) -> bool {
     let Value::String(text) = value else {
         return false;
     };
