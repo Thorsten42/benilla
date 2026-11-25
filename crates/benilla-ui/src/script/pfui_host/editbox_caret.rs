@@ -1,5 +1,6 @@
 //! The EditBox caret methods a ClassicAPI client backports: `SetCursorPosition(position)` and
-//! `GetCursorPosition()`, in characters from the start of the text.
+//! `GetCursorPosition()`, in characters from the start of the text, with `HasFocus()` and the
+//! global `GetCurrentKeyBoardFocus()`.
 
 use crate::script::object::frame_handle_of;
 use crate::script::Model;
@@ -7,6 +8,21 @@ use crate::widget::KindState;
 use mlua::{Lua, Table, Value};
 
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
+    // ClassicAPI's `GetCurrentKeyBoardFocus()`: the edit box that holds the keyboard focus, nil
+    // for none.
+    lua.globals().set(
+        "GetCurrentKeyBoardFocus",
+        lua.create_function(|lua, ()| {
+            let id = {
+                let mut model = lua.app_data_mut::<Model>().expect("model");
+                model.focused_editbox.map(|h| model.frame_id(h))
+            };
+            match id {
+                Some(id) => Ok(Value::Table(crate::script::object::frame_wrapper(lua, id)?)),
+                None => Ok(Value::Nil),
+            }
+        })?,
+    )?;
     let methods: Table = lua.named_registry_value(crate::script::editbox::REG_EDITBOX_METHODS)?;
     // ClassicAPI's `editbox:HasFocus()` (`editbox/Methods.cpp`): whether this box owns the keyboard
     // focus, the one box SetFocus last gave it and ClearFocus has not taken back.
