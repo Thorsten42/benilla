@@ -260,6 +260,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "UnitSelectionColor",
         "UnitInLineOfSight",
         "UnitPosition",
+        "GetPlayerFacing",
         "C_DeathRecap",
         "C_DamageMeter",
     ] {

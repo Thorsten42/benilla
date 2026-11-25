@@ -2246,7 +2246,7 @@ fn set_display_info_shows_a_creature_display_until_set_unit() {
 #[test]
 fn unit_position_reads_the_hosts_position_in_retails_order() {
     use benilla_ui::script::live::LiveAsk;
-    use benilla_ui::script::pfui_host::unit_position::UnitPositionQuery;
+    use benilla_ui::script::pfui_host::unit_position::{PlayerFacingQuery, UnitPositionQuery};
     use benilla_ui::script::{CallHost, CallTail, ScriptCall, UnitGuids};
     struct World;
     impl CallHost for World {
@@ -2256,7 +2256,7 @@ fn unit_position_reads_the_hosts_position_in_retails_order() {
         fn read_live(&mut self, ask: &mut LiveAsk<'_>) -> bool {
             ask.answer(|q: &UnitPositionQuery| {
                 Some((q.0 == 3).then_some(([-4910.0, -973.0, 501.5], 0)))
-            })
+            }) || ask.answer(|_: &PlayerFacingQuery| Some(Some(-std::f32::consts::FRAC_PI_2)))
         }
     }
     let mut script = extended();
@@ -2266,7 +2266,7 @@ fn unit_position_reads_the_hosts_position_in_retails_order() {
         ..Default::default()
     });
     script
-        .run("assert(UnitPosition('player') == nil, 'no host, no position')")
+        .run("assert(UnitPosition('player') == nil and GetPlayerFacing() == nil, 'no host')")
         .unwrap();
     script.hosted(&mut World, |s| {
         s.run(
@@ -2274,7 +2274,8 @@ fn unit_position_reads_the_hosts_position_in_retails_order() {
             assert(y == -973 and x == -4910 and z == 501.5 and map == 0, tostring(y))
             assert(C_PlayerInfo.UnitPosition("player") == y and ClassicAPI.UnitPosition)
             assert(UnitPosition("target") == nil)
-            assert(not pcall(UnitPosition))"#,
+            assert(not pcall(UnitPosition))
+            assert(math.abs(GetPlayerFacing() - 3 * math.pi / 2) < 1e-6, GetPlayerFacing())"#,
         )
         .unwrap()
     });
