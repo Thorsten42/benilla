@@ -60,6 +60,14 @@ impl PlateLeg<'_, '_> {
         self.units.contains(entity).then_some(entity)
     }
 
+    /// Whether `entity` is a GameObject, which a ClassicAPI client's `InteractUnit` reaches
+    /// through this leg too: it is never selected (its `IsSelectable` answers 0), only used.
+    pub(crate) fn is_game_object(&self, entity: Entity) -> bool {
+        self.units.get(entity).ok().flatten().is_some_and(|s| {
+            s.0.object_type() == Some(benilla_protocol::messages::ObjectType::GameObject)
+        })
+    }
+
     /// The greeting the left button's leg plays for a unit ahead of its select (`0x4927ff` →
     /// `0x60c270`), the cursor up or not and charmed or not.
     pub(crate) fn greet(&mut self, entity: Entity) {
@@ -99,16 +107,25 @@ impl PlateLeg<'_, '_> {
 pub(crate) struct PlatePick<'w, 's> {
     press: Res<'w, PressPick>,
     inputs: cursor_mode::CursorInputs<'w, 's>,
+    stores: Query<'w, 's, &'static ObjectStore>,
 }
 
 impl PlatePick<'_, '_> {
-    /// The pick of the unit `entity`, `guid`.
+    /// The pick of the unit `entity`, `guid`; a GameObject (a ClassicAPI client's `InteractUnit`)
+    /// is the object pick, so the dispatcher takes its GameObject leg.
     pub(crate) fn of(&self, entity: Entity, guid: u64, scripted: bool) -> PressPick {
         if !scripted && self.press.hovered.target == Some(entity) {
             return *self.press;
         }
         let mut pick = PressPick::default();
-        (pick.hovered.target, pick.hovered.guid) = (Some(entity), Some(guid));
+        let game_object = self.stores.get(entity).is_ok_and(|s| {
+            s.0.object_type() == Some(benilla_protocol::messages::ObjectType::GameObject)
+        });
+        if game_object {
+            (pick.object.target, pick.object.guid) = (Some(entity), Some(guid));
+        } else {
+            (pick.hovered.target, pick.hovered.guid) = (Some(entity), Some(guid));
+        }
         (pick.cursor, pick.attack_fork) =
             cursor_mode::classify(&self.inputs, &pick.hovered, &pick.object);
         pick
