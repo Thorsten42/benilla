@@ -452,18 +452,32 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         .get("cursor_pass")?;
     lua.set_named_registry_value(
         benilla_ui::script::pfui_host::TIMER_PASS,
-        lua.create_function(move |_, ()| {
+        lua.create_function(move |lua, ()| {
             let timers = timer_pass.call::<()>(());
             let durations = duration_pass.call::<()>(());
             // Tiled textures follow the sizes the fills above just set.
             let tiles = tile_pass.call::<()>(());
             // `GetCursorDelta`'s mark for the next frame's OnUpdate walk.
             let cursor = cursor_pass.call::<()>(());
+            // ClassicAPI's encounter checks for a kill or a wipe once a frame.
+            benilla_ui::script::pfui_host::units::encounter::frame(lua);
             cursor.and(tiles).and(durations).and(timers)
         })?,
     )?;
     swing_range::install(lua)?;
     combat_log::install(lua)?;
+    // A loading screen ends an encounter as a wipe.
+    lua.load(
+        r#"local entering = ...
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("PLAYER_ENTERING_WORLD")
+        f:SetScript("OnEvent", function() entering() end)"#,
+    )
+    .set_name("@benilla-pfui/encounter")
+    .call::<()>(lua.create_function(|lua, ()| {
+        benilla_ui::script::pfui_host::units::encounter::entering_world(lua);
+        Ok(())
+    })?)?;
     resurrect::install(lua)?;
     lua.load(include_str!("cooldown.lua"))
         .set_name("@benilla-pfui/cooldown.lua")

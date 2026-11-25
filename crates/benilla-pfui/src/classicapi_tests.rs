@@ -1994,3 +1994,113 @@ fn unit_in_line_of_sight_reads_the_hosts_trace() {
         .run(r#"assert(UnitInLineOfSight("target") == true)"#)
         .unwrap();
 }
+
+#[test]
+fn the_encounter_engages_bosses_from_the_combat_log_and_ends_on_a_wipe_or_a_kill() {
+    use benilla_ui::script::pfui_host::units::{self, encounter};
+    use benilla_ui::script::{UnitGuids, UnitState};
+    const BOSS: u64 = 0xF130_0000_0000_0000 | (12_345 << 24) | 1;
+    const ADD: u64 = 0xF130_0000_0000_0000 | (777 << 24) | 2;
+    const TRASH: u64 = 0xF130_0000_0000_0000 | (555 << 24) | 3;
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        held: std::collections::HashMap::from([(3, 0), (BOSS, 0), (ADD, 0), (TRASH, 0)]),
+        ..Default::default()
+    });
+    let unit = |guid, rank, flags, dead| UnitState {
+        guid,
+        exists: true,
+        has_object: true,
+        rank,
+        flags,
+        dead,
+        health: if dead { 0 } else { 100 },
+        reaction: 2,
+        ..Default::default()
+    };
+    let feed = |script: &UiScript, fighting: bool, boss_dead: bool, add_dead: bool| {
+        units::set_unit_states(
+            script.lua(),
+            [
+                (3, unit(3, 0, if fighting { 0x80000 } else { 0 }, false), 0),
+                (BOSS, unit(BOSS, 3, 0, boss_dead), 0),
+                (ADD, unit(ADD, 1, 0, add_dead), 0),
+                (TRASH, unit(TRASH, 1, 0, false), 0),
+            ],
+        )
+    };
+    let entry = |subevent, source: u64, source_flags, dest: u64, dest_flags| {
+        let end = |guid, flags| super::combat_log::Unit {
+            guid,
+            name: Some("x".into()),
+            flags,
+            raid_flags: 0,
+        };
+        super::combat_log::Event {
+            subevent,
+            source: Some(end(source, source_flags)),
+            dest: Some(end(dest, dest_flags)),
+            spell: None,
+            values: vec![],
+        }
+    };
+    let mine = 0x1 | 0x10 | 0x100 | 0x400;
+    let hostile = 0x8 | 0x40 | 0x200 | 0x800;
+    feed(&script, true, false, false);
+    script
+        .run(
+            r#"ENGAGES = 0
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("INSTANCE_ENCOUNTER_ENGAGE_UNIT")
+        f:SetScript("OnEvent", function() ENGAGES = ENGAGES + 1 end)
+        C_InstanceEncounter.AddBossCreatureID(777)"#,
+        )
+        .unwrap();
+    let log = |e| super::combat_log::record(script.lua(), e);
+    log(entry("SWING_DAMAGE", 3, mine, TRASH, hostile));
+    script
+        .run(r#"assert(ENGAGES == 0 and not UnitExists("boss1"), "trash is no boss")"#)
+        .unwrap();
+    log(entry("SWING_DAMAGE", 3, mine, BOSS, hostile));
+    log(entry("SPELL_AURA_REMOVED", ADD, hostile, 3, mine));
+    log(entry("SWING_DAMAGE", ADD, hostile, 3, mine));
+    log(entry("SWING_DAMAGE", 3, mine, BOSS, hostile));
+    script
+        .run(
+            r#"assert(ENGAGES == 2, ENGAGES)
+        assert(UnitGUID("boss1") == "0xF130003039000001", tostring(UnitGUID("boss1")))
+        assert(UnitGUID("boss2") == "0xF130000309000002", tostring(UnitGUID("boss2")))
+        assert(UnitGUID("boss3") == nil)"#,
+        )
+        .unwrap();
+    encounter::frame(script.lua());
+    script.run(r#"assert(UnitExists("boss1"))"#).unwrap();
+    // The group stops fighting with the boss alive: a wipe, both bosses leave.
+    feed(&script, false, false, false);
+    encounter::frame(script.lua());
+    script
+        .run(r#"assert(ENGAGES == 4 and UnitGUID("boss1") == nil, ENGAGES)"#)
+        .unwrap();
+    // A second pull, ended by the bosses' deaths.
+    feed(&script, true, false, false);
+    log(entry("SWING_DAMAGE", 3, mine, BOSS, hostile));
+    log(entry("SWING_DAMAGE", 3, mine, ADD, hostile));
+    feed(&script, true, true, false);
+    log(entry("UNIT_DIED", 0, 0, BOSS, hostile));
+    script
+        .run(r#"assert(ENGAGES == 6 and UnitExists("boss1"), ENGAGES)"#)
+        .unwrap();
+    feed(&script, true, true, true);
+    log(entry("UNIT_DIED", 0, 0, ADD, hostile));
+    script
+        .run(r#"assert(ENGAGES == 8 and UnitGUID("boss1") == nil, ENGAGES)"#)
+        .unwrap();
+    // A loading screen ends a third pull.
+    feed(&script, true, false, false);
+    log(entry("SWING_DAMAGE", 3, mine, BOSS, hostile));
+    script.fire_event("PLAYER_ENTERING_WORLD", vec![]);
+    script
+        .run(r#"assert(ENGAGES == 10 and UnitGUID("boss1") == nil, ENGAGES)"#)
+        .unwrap();
+}
