@@ -1,4 +1,6 @@
 //! Overlay metadata from the owner's DBCs and tile geometry from the owner's BLP headers.
+//!
+//! Follows ClassicAPI's `map/MapExploration.cpp`, `map/Overlays.cpp`.
 
 use crate::creature::{number, rows, string};
 use mlua::{Lua, Table};

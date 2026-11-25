@@ -1,4 +1,6 @@
 //! Changes for additional tokens are measured against their actual GUID snapshots.
+//!
+//! Follows ClassicAPI's `frame/UnitEvent.cpp`.
 
 use super::{resolve, state, UnitState};
 use mlua::Lua;

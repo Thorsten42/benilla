@@ -1,4 +1,6 @@
 //! Real social GUIDs and the list-update event used by extension-owned friend notes.
+//!
+//! Follows ClassicAPI's `friendlist/Notes.cpp`, `friendlist/GetFriendInfo.cpp`.
 
 use mlua::{Lua, Table};
 

@@ -1,4 +1,6 @@
 //! Mirror real name-query replies only while the persistent cache is enabled.
+//!
+//! Follows ClassicAPI's `cache/Record.cpp`.
 
 use mlua::{Function, Lua, Table};
 

@@ -1,5 +1,7 @@
 //! `UnitHasIncomingResurrection`: whether a resurrection cast at the unit (or the corpse of a
 //! released player) is under way, as the client sees the casts ([`set`]).
+//!
+//! Follows ClassicAPI's `unit/IncomingResurrection.cpp`.
 
 use benilla_ui::script::{pfui_host, ScriptValue};
 use mlua::{Lua, Value};

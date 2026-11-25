@@ -1,3 +1,8 @@
+//! `C_AddOns`: the addon list with its optional dependencies, `DoesAddOnExist` and the
+//! namespace's other reads.
+//!
+//! Follows ClassicAPI's `addons/Info.cpp`, `addons/EnableState.cpp`.
+
 use crate::script::Model;
 use mlua::{Lua, MultiValue, Value};
 

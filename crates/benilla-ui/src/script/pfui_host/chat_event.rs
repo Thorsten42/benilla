@@ -1,6 +1,8 @@
 //! `GetCurrentChatEvent` and `GetCurrentChatGUID`: the `CHAT_MSG_*` event whose handlers run now,
 //! with the arguments they got. An event raised inside another one's handlers is the current one
 //! until its own handlers are done.
+//!
+//! Follows ClassicAPI's `chat/EventArgs.cpp`.
 
 use crate::script::ScriptValue;
 use mlua::{Lua, MultiValue, Table, Value};

@@ -1,4 +1,6 @@
 //! pfUI's profile transport: ordinary CBOR/JSON data, zlib framing, and RFC 4648 Base64.
+//!
+//! Follows ClassicAPI's `encoding/Base64.cpp`, `encoding/JSON.cpp`, `encoding/CBOR.cpp`.
 
 use std::collections::HashSet;
 use std::io::Cursor;

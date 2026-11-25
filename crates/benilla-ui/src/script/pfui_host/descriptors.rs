@@ -1,4 +1,6 @@
 //! Small extension queries over action and equipment snapshots.
+//!
+//! Follows ClassicAPI's `item/Durability.cpp`, `mail/InboxItemLink.cpp`, `mail/SendMailItemLink.cpp`.
 
 use crate::script::{action, Model};
 use mlua::{Lua, MultiValue, Value};

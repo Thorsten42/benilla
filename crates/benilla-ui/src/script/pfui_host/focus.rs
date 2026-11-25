@@ -1,5 +1,7 @@
 //! Resolve extra tokens through live snapshots while reusing the stock read-only query ABI.
 //! Aliases are private to one query and restored before addons regain control, including errors.
+//!
+//! Follows ClassicAPI's `unit/Focus.cpp`.
 
 use super::{Metadata, Model, UnitState};
 use crate::script::{ScriptCall, SelectionRequest};

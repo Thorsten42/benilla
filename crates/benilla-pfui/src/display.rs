@@ -5,6 +5,8 @@
 //! that CVar for the windowed size only and draws fullscreen at the monitor's own, so the stored
 //! string is not what is on screen: pfUI's borders came out two pixels thick on a 1800-line
 //! display. With the extension, `GetCVar("gxResolution")` answers what the window really is.
+//!
+//! Follows ClassicAPI's `screen/Info.cpp`.
 
 use mlua::Lua;
 

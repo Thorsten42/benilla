@@ -1,4 +1,6 @@
 //! Bag glow follows instance GUIDs; a login baseline excludes already-owned items.
+//!
+//! Follows ClassicAPI's `item/NewItems.cpp`.
 
 use super::{Extras, Model};
 use mlua::{Lua, Value};

@@ -1,4 +1,6 @@
 //! Read the stock cursor payload, without introducing a second cursor state.
+//!
+//! Follows ClassicAPI's `cursor/Info.cpp`.
 
 use crate::script::cursor::{CursorPayload, EQUIPMENT_BAG};
 use mlua::{Lua, MultiValue, Value};

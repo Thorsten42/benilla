@@ -1,4 +1,6 @@
 //! Additional unit metadata belongs to the extension, separate from the stock token resolver.
+//!
+//! Follows ClassicAPI's `unit/Power.cpp`, `unit/Flags.cpp`, `combatlog/BossCreatures.cpp`.
 
 use crate::script::{Model, UnitState};
 use mlua::{Lua, Value};

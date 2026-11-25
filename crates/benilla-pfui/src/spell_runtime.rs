@@ -1,4 +1,6 @@
 //! Gameplay queries read snapshots built with the engine's stock spell calculations.
+//!
+//! Follows ClassicAPI's `spell/InRange.cpp`, `spell/Usable.cpp`, `spell/Cooldown.cpp`.
 
 use benilla_ui::script::pfui_host::units;
 use benilla_ui::script::CooldownQuery;

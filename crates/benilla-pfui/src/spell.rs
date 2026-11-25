@@ -1,4 +1,6 @@
 //! pfUI's immutable spell lookups; gameplay-dependent queries live in the host bridge.
+//!
+//! Follows ClassicAPI's `spell/Info.cpp`, `spell/Lookup.cpp`.
 
 use crate::creature::{localized, number, numeric_id, rows, string};
 use mlua::{Lua, Table, Value};

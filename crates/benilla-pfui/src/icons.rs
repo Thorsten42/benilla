@@ -1,4 +1,6 @@
 //! Icon enumeration from the owner's archive listing, separate from stock macro indices.
+//!
+//! Follows ClassicAPI's `macro/Icons.cpp`.
 
 use mlua::{Lua, Table};
 use std::collections::BTreeSet;
