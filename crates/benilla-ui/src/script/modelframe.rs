@@ -191,11 +191,11 @@ pub(super) const REG_MODEL_METHODS: &str = "__benilla_model_methods";
 
 /// Registry key of the `PlayerModel` table, its own three methods only: `Model`'s 23 are reached
 /// on a miss, as `0x506260` falls through to `0x76f870`.
-pub(super) const REG_PLAYERMODEL_METHODS: &str = "__benilla_playermodel_methods";
+pub(crate) const REG_PLAYERMODEL_METHODS: &str = "__benilla_playermodel_methods";
 
 /// Run `f` on a frame's Model state under one short write borrow. Errors on a receiver that is not
 /// a live Model: a method taken off the table can be called on anything.
-pub(super) fn with_model<T>(
+pub(crate) fn with_model<T>(
     lua: &Lua,
     this: &Table,
     f: impl FnOnce(&mut ModelState) -> T,

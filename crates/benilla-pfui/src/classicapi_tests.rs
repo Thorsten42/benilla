@@ -2220,3 +2220,25 @@ fn undress_slot_hands_a_valid_inventory_slot_to_the_dressing_room() {
         ]
     );
 }
+
+#[test]
+fn set_display_info_shows_a_creature_display_until_set_unit() {
+    let mut script = extended();
+    script.set_screen_size(800.0, 600.0);
+    script
+        .run(r#"cupid = CreateFrame("PlayerModel", "Cupid") cupid:SetWidth(100) cupid:SetHeight(100)"#)
+        .unwrap();
+    script.resolve();
+    script.run("cupid:SetDisplayInfo(15990)").unwrap();
+    let pane = script.model_pane("Cupid").unwrap().character.unwrap();
+    assert_eq!((pane.guid, pane.display), (0, 15990));
+    script.run("cupid:SetDisplayInfo(0)").unwrap();
+    let pane = script.model_pane("Cupid").unwrap().character.unwrap();
+    assert_eq!(pane.display, 15990, "display 0 changes nothing");
+    script
+        .run(
+            r#"assert(not pcall(cupid.SetDisplayInfo, cupid))
+        assert(CreateFrame("Model").SetDisplayInfo == nil, "a PlayerModel's alone")"#,
+        )
+        .unwrap();
+}
