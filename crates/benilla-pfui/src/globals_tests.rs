@@ -1287,3 +1287,40 @@ fn bag_portrait_names_are_the_engines_function() {
         .run("assert(SetBagPortraitTexture == SetBagPortaitTexture and C_Container.SetBagPortraitTexture == SetBagPortaitTexture and type(SetBagPortaitTexture) == 'function')")
         .unwrap();
 }
+
+/// ClassicAPI's `SetChatColorNameByClass` (`chat/ColorNameByClass.cpp`): a registry entry's flag,
+/// matched without regard to case, with `UPDATE_CHAT_COLOR_NAME_BY_CLASS`; an unknown name changes
+/// nothing; the load seats the file's flags and announces every entry.
+#[test]
+fn chat_name_class_colour_flags_follow_classicapi() {
+    use benilla_ui::script::pfui_host::chat_name_colors;
+    let script = extended();
+    script
+        .run(
+            r#"SEEN = {}
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("UPDATE_CHAT_COLOR_NAME_BY_CLASS")
+        f:SetScript("OnEvent", function() table.insert(SEEN, arg1 .. "=" .. tostring(arg2)) end)
+        SetChatColorNameByClass("guild", true)
+        SetChatColorNameByClass("CHANNEL1", 1)
+        SetChatColorNameByClass("NOT_A_TYPE", true)
+        assert(not pcall(SetChatColorNameByClass))
+        local got = table.concat(SEEN, " ")
+        assert(got == "guild=true CHANNEL1=true", got)"#,
+        )
+        .unwrap();
+    assert!(chat_name_colors::flag(script.lua(), "GUILD"));
+    assert!(chat_name_colors::flag(script.lua(), "channel1"));
+    assert!(!chat_name_colors::flag(script.lua(), "SAY"));
+    chat_name_colors::load(
+        script.lua(),
+        [("SAY".to_string(), true), ("BOGUS".to_string(), true)],
+    );
+    assert!(chat_name_colors::flag(script.lua(), "SAY"));
+    assert!(!chat_name_colors::flag(script.lua(), "GUILD"));
+    script.run("SEEN = {}").unwrap();
+    chat_name_colors::announce(script.lua());
+    script
+        .run(r#"assert(SEEN[1] == "SAY=true" and table.getn(SEEN) == 104, table.getn(SEEN) .. " " .. tostring(SEEN[1]))"#)
+        .unwrap();
+}

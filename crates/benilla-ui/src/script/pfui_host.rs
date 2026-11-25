@@ -10,6 +10,7 @@ pub mod auras;
 mod bubbles;
 pub mod casts;
 pub(crate) mod chat_event;
+pub mod chat_name_colors;
 mod cursor;
 pub(crate) mod data_loads;
 mod descriptors;
@@ -396,6 +397,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     message_history::install(lua)?;
     editbox_caret::install(lua)?;
     mouse_button::install(lua)?;
+    chat_name_colors::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;
