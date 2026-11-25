@@ -18,6 +18,9 @@ mod state_events;
 
 #[path = "item_actions.rs"]
 mod actions;
+
+#[path = "item_locations.rs"]
+mod locations;
 pub(super) use actions::{instance, request_use};
 
 /// The host calls this once after the stock inventory feeds have delivered their events.
@@ -303,6 +306,8 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     state_events::install(lua);
     let api = lua.create_table()?;
     actions::install(lua, &api)?;
+    locations::install(lua, &api)?;
+    locations::install_global(lua)?;
     api.set("GetItemID", lua.create_function(location_id)?)?;
     api.set("GetStackCount", lua.create_function(stack_count)?)?;
     // ClassicAPI's `C_Item.DoesItemExistByID` (`item/Exists.cpp`): 1.12 has no client item
@@ -322,6 +327,7 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         "GetItemMaxStackSizeByID",
         "GetItemSellPriceByID",
         "GetCurrentItemLevel",
+        "GetDetailedItemLevelInfo",
         "GetItemFamily",
     ] {
         api.set(
@@ -337,10 +343,12 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                     "GetItemInventoryType" | "GetItemInventoryTypeByID" => item.inventory_type,
                     "GetItemMaxStackSizeByID" => item.stackable,
                     "GetItemSellPriceByID" => item.sell_price,
-                    "GetCurrentItemLevel" => match id.and_then(|id| metadata(lua, id)) {
-                        Some((level, _)) => level,
-                        None => return Ok(Value::Nil),
-                    },
+                    "GetCurrentItemLevel" | "GetDetailedItemLevelInfo" => {
+                        match id.and_then(|id| metadata(lua, id)) {
+                            Some((level, _)) => level,
+                            None => return Ok(Value::Nil),
+                        }
+                    }
                     "GetItemFamily" => {
                         let Some((_, family)) = id.and_then(|id| metadata(lua, id)) else {
                             return Ok(Value::Nil);
