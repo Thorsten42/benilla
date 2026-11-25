@@ -2284,3 +2284,64 @@ fn unit_position_reads_the_hosts_position_in_retails_order() {
         .unwrap()
     });
 }
+
+/// `COMPATIBILITY.md` lists every written deviation of the layer: each file that carries a
+/// `Deviation:` comment is named there (regenerate it with the plan's `tools/deviations.py`).
+#[test]
+fn compatibility_notes_name_every_deviation() {
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let notes = std::fs::read_to_string(crates.join("benilla-pfui/COMPATIBILITY.md")).unwrap();
+    let mut missing = Vec::new();
+    let mut stack = vec![
+        crates.join("benilla-pfui/src"),
+        crates.join("benilla-ui/src/script/pfui_host"),
+        crates.join("benilla-app/src/pfui"),
+    ];
+    let mut files = vec![
+        crates.join("benilla-ui/src/script/pfui_host.rs"),
+        crates.join("benilla-app/src/pfui.rs"),
+    ];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if matches!(
+                path.extension().and_then(|e| e.to_str()),
+                Some("rs" | "lua")
+            ) {
+                files.push(path);
+            }
+        }
+    }
+    for path in files {
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if name.contains("test") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let deviates = text.lines().any(|line| {
+            let line = line.trim_start();
+            [
+                "// Deviation",
+                "//! Deviation",
+                "/// Deviation",
+                "-- Deviation",
+            ]
+            .iter()
+            .any(|p| line.starts_with(p))
+        });
+        let rel = path
+            .strip_prefix(&crates)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        if deviates && !notes.contains(&format!("`crates/{rel}`")) {
+            missing.push(rel);
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "deviations missing from COMPATIBILITY.md (run benilla-pfui-plan/tools/deviations.py): {missing:?}"
+    );
+}
