@@ -4,6 +4,8 @@ use crate::script::{Model, UnitState};
 use mlua::{Lua, Value};
 use std::collections::{BTreeSet, HashMap};
 
+#[path = "encounter.rs"]
+pub mod encounter;
 #[path = "focus.rs"]
 mod focus;
 pub use focus::FocusMemory;
