@@ -2,6 +2,9 @@
 //! world position of any unit in view, in retail's order: posY (west), posX (north), posZ (up),
 //! and the map ID as the instance. Nil when the unit is not in view. The host reads the position
 //! at the call ([`UnitPositionQuery`]). pfUI's radar and its Prayer of Healing prediction read it.
+//!
+//! Also ClassicAPI's `GetPlayerFacing()` (`player/Facing.cpp`): the player's world facing in
+//! radians, 0 to 2π counter-clockwise from north, nothing with no player ([`PlayerFacingQuery`]).
 
 use mlua::{Lua, MultiValue, Value};
 
@@ -14,6 +17,14 @@ pub struct UnitPositionQuery(pub u64);
 
 impl LiveQuery for UnitPositionQuery {
     type Answer = Option<([f32; 3], u32)>;
+}
+
+/// The player's facing as the wire orientation carries it, `None` with no player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerFacingQuery;
+
+impl LiveQuery for PlayerFacingQuery {
+    type Answer = Option<f32>;
 }
 
 fn unit_position(lua: &Lua, unit: Value) -> mlua::Result<MultiValue> {
@@ -42,5 +53,13 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
         _ => lua.create_table()?,
     };
     info.set("UnitPosition", f)?;
-    lua.globals().set("C_PlayerInfo", info)
+    lua.globals().set("C_PlayerInfo", info)?;
+    lua.globals().set(
+        "GetPlayerFacing",
+        lua.create_function(|lua, ()| {
+            Ok(ask(lua, &PlayerFacingQuery)
+                .flatten()
+                .map(|f| f64::from(f).rem_euclid(std::f64::consts::TAU)))
+        })?,
+    )
 }
