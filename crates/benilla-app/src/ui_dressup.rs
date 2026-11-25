@@ -115,6 +115,9 @@ pub(crate) struct DressUpRoom {
     /// component slots `0..0xb` (`0x5044b0`) and detaches and zeroes both held lanes
     /// (`0x5044c2`-`0x504532`).
     bare: bool,
+    /// The equipment slots (bit = slot index) a ClassicAPI client's `UndressSlot` took off, until
+    /// the next `Dress`.
+    bare_slots: u32,
     /// Resolved body substitutions by equipment slot; the held ones are [`Self::held`].
     worn: [Option<CharEnumItem>; 19],
     /// Held try-ons in landing order, latest last: each picks its lane from the lanes the earlier
@@ -140,8 +143,32 @@ impl DressUpRoom {
             DressUpIntent::Dress => {
                 self.open = true;
                 self.bare = false;
+                self.bare_slots = 0;
                 self.worn = Default::default();
                 self.held.clear();
+            }
+            // One slot of `Undress` (ClassicAPI's map: the armor slots by their inventory slot,
+            // 16 and 17 the main and off lanes), the base piece and any try-on in it.
+            DressUpIntent::UndressSlot(slot) => {
+                self.open = true;
+                match slot {
+                    1 | 3..=10 | 15 | 19 => {
+                        let idx = usize::from(slot - 1);
+                        self.worn[idx] = None;
+                        self.bare_slots |= 1 << idx;
+                    }
+                    16 => {
+                        self.bare_slots |= 1 << 15 | 1 << 17;
+                        self.held
+                            .retain(|i| matches!(i.inventory_type, 14 | 15 | 22 | 23));
+                    }
+                    17 => {
+                        self.bare_slots |= 1 << 16;
+                        self.held
+                            .retain(|i| !matches!(i.inventory_type, 14 | 15 | 22 | 23));
+                    }
+                    _ => {}
+                }
             }
             DressUpIntent::Undress => {
                 self.open = true;
@@ -173,6 +200,7 @@ impl DressUpRoom {
     fn close(&mut self) {
         self.open = false;
         self.bare = false;
+        self.bare_slots = 0;
         self.worn = Default::default();
         self.held.clear();
         self.pending.clear();
@@ -433,7 +461,7 @@ fn player_look(
             continue;
         }
         // Undressed: the player's own pieces are off, the held ones too.
-        if room.bare {
+        if room.bare || room.bare_slots & (1 << idx) != 0 {
             continue;
         }
         // Hidden in the world, hidden here: `SetUnit` (`0x505d70`) clones the live player's
@@ -621,6 +649,46 @@ mod tests {
     /// The held pair, main hand then off hand.
     fn hands(look: &DressUpLook) -> (u32, u32) {
         (look.equipment[15].display_id, look.equipment[16].display_id)
+    }
+
+    #[test]
+    #[cfg(feature = "pfui")]
+    fn undress_slot_takes_one_piece_off_and_a_try_on_or_reset_puts_it_back() {
+        let (cmds, _rx) = commands();
+        let mut items = Items::default();
+        items.insert_template(1000, Some(worn("Worn Chest", 5000, 5)));
+        items.insert_template(2000, Some(worn("Shiny Chest", 7000, 5)));
+        items.insert_template(3000, Some(worn("Sword", 6000, 13)));
+        items.insert_template(4000, Some(worn("Worn Helm", 8000, 1)));
+        let store = player(&[(4, 1000), (15, 3000), (0, 4000)]);
+        let mut room = DressUpRoom::default();
+        room.apply(DressUpIntent::Dress, &items, &cmds);
+        room.apply(DressUpIntent::UndressSlot(5), &items, &cmds);
+        let look = player_look(&store, &net(), None, &room, &items, true).unwrap();
+        assert_eq!(
+            look.equipment[4].display_id, 0,
+            "the chest (inventory slot 5) is off"
+        );
+        assert_eq!(look.equipment[0].display_id, 8000, "the helm stays");
+        assert_eq!(look.equipment[15].display_id, 6000, "the sword stays");
+        room.apply(DressUpIntent::UndressSlot(16), &items, &cmds);
+        let look = player_look(&store, &net(), None, &room, &items, true).unwrap();
+        assert_eq!(look.equipment[15].display_id, 0, "the main hand is empty");
+        room.apply(DressUpIntent::TryOn(2000), &items, &cmds);
+        room.resolve_pending(&items);
+        let look = player_look(&store, &net(), None, &room, &items, true).unwrap();
+        assert_eq!(
+            look.equipment[4].display_id, 7000,
+            "a try-on lands in the bare slot"
+        );
+        room.apply(DressUpIntent::UndressSlot(2), &items, &cmds);
+        room.apply(DressUpIntent::Dress, &items, &cmds);
+        let look = player_look(&store, &net(), None, &room, &items, true).unwrap();
+        assert_eq!(
+            (look.equipment[4].display_id, look.equipment[15].display_id),
+            (5000, 6000),
+            "reset dresses every slot again"
+        );
     }
 
     #[test]

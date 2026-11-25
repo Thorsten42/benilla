@@ -2198,3 +2198,25 @@ fn a_death_recap_keeps_the_hits_back_to_the_last_death_the_killing_blow_first() 
         )
         .unwrap();
 }
+
+#[test]
+fn undress_slot_hands_a_valid_inventory_slot_to_the_dressing_room() {
+    use benilla_ui::script::DressUpIntent;
+    let mut script = extended();
+    script.set_screen_size(800.0, 600.0);
+    script
+        .run(
+            r#"local dm = CreateFrame("DressUpModel", "DM", UIParent)
+        dm:UndressSlot(16); dm:UndressSlot(0); dm:UndressSlot("5"); dm:UndressSlot(20)
+        assert(not pcall(dm.UndressSlot, dm))
+        assert(CreateFrame("PlayerModel").UndressSlot == nil, "a DressUpModel's alone")"#,
+        )
+        .unwrap();
+    assert_eq!(
+        script.take_dressup_intents(),
+        [
+            DressUpIntent::UndressSlot(16),
+            DressUpIntent::UndressSlot(5)
+        ]
+    );
+}
