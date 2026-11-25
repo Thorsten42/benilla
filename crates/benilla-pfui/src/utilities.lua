@@ -60,6 +60,75 @@ function C_ColorUtil.WrapTextInColor(text, color)
   return C_ColorUtil.WrapTextInColorCode(text, C_ColorUtil.GenerateTextColorCode(color))
 end
 
+-- ClassicAPI's color-space conversions (color/Util.cpp). Hue is in degrees, -1 for an achromatic
+-- color, which every conversion passes through; each argument must be a number.
+local function color_args(usage, a, b, c)
+  a, b, c = tonumber(a), tonumber(b), tonumber(c)
+  if not (a and b and c) then error(usage, 3) end
+  return a, b, c
+end
+local function fmod(a, b) return a - b * (a >= 0 and math.floor(a / b) or math.ceil(a / b)) end
+local function min_luma(l) return math.min(l, 1 - l) end
+local function sector(c, x, h)
+  local i = math.mod(math.floor(h), 6)
+  if i == 0 then return c, x, 0 elseif i == 1 then return x, c, 0 elseif i == 2 then return 0, c, x
+  elseif i == 3 then return 0, x, c elseif i == 4 then return x, 0, c end
+  return c, 0, x
+end
+function C_ColorUtil.ConvertRGBToHSV(r, g, b)
+  r, g, b = color_args("Usage: C_ColorUtil.ConvertRGBToHSV(r, g, b)", r, g, b)
+  local mx, mn = math.max(r, g, b), math.min(r, g, b)
+  local d = mx - mn
+  local s = mx <= 0 and 0 or d / mx
+  if d <= 0 then return -1, s, mx end
+  local h
+  if mx == r then h = 60 * fmod((g - b) / d, 6)
+  elseif mx == g then h = 60 * ((b - r) / d + 2)
+  else h = 60 * ((r - g) / d + 4) end
+  if h < 0 then h = h + 360 end
+  return h, s, mx
+end
+function C_ColorUtil.ConvertHSVToRGB(h, s, v)
+  h, s, v = color_args("Usage: C_ColorUtil.ConvertHSVToRGB(h, s, v)", h, s, v)
+  if s <= 0 or h < 0 then return v, v, v end
+  h = fmod(h, 360)
+  if h < 0 then h = h + 360 end
+  local hh = h / 60
+  local f = hh - math.floor(hh)
+  local p, q, t = v * (1 - s), v * (1 - s * f), v * (1 - s * (1 - f))
+  local i = math.mod(math.floor(hh), 6)
+  if i == 0 then return v, t, p elseif i == 1 then return q, v, p elseif i == 2 then return p, v, t
+  elseif i == 3 then return p, q, v elseif i == 4 then return t, p, v end
+  return v, p, q
+end
+function C_ColorUtil.ConvertHSVToHSL(h, s, v)
+  h, s, v = color_args("Usage: C_ColorUtil.ConvertHSVToHSL(h, s, v)", h, s, v)
+  local l = v * (1 - s / 2)
+  return h, (l <= 0 or l >= 1) and 0 or (v - l) / min_luma(l), l
+end
+function C_ColorUtil.ConvertHSLToHSV(h, s, l)
+  h, s, l = color_args("Usage: C_ColorUtil.ConvertHSLToHSV(h, s, l)", h, s, l)
+  local v = l + s * min_luma(l)
+  return h, v <= 0 and 0 or 2 * (1 - l / v), v
+end
+function C_ColorUtil.ConvertHSLToRGB(h, s, l)
+  h, s, l = color_args("Usage: C_ColorUtil.ConvertHSLToRGB(h, s, l)", h, s, l)
+  if s <= 0 or h < 0 then return l, l, l end
+  h = fmod(h, 360)
+  if h < 0 then h = h + 360 end
+  local c = (1 - math.abs(2 * l - 1)) * s
+  local hh = h / 60
+  local x = c * (1 - math.abs(fmod(hh, 2) - 1))
+  local r1, g1, b1 = sector(c, x, hh)
+  local m = l - c / 2
+  return r1 + m, g1 + m, b1 + m
+end
+
+-- ClassicAPI's `C_Glue.IsOnGlueScreen()` (glue/Session.cpp): fixed per Lua state, false in the
+-- world's, where this layer runs.
+C_Glue = C_Glue or {}
+function C_Glue.IsOnGlueScreen() return false end
+
 CallbackRegistryMixin = {}
 function CallbackRegistryMixin:OnLoad()
   self.callbacks, self.definedEvents = {}, {}
