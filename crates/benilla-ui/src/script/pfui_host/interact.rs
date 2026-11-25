@@ -10,8 +10,9 @@
 //! "soft…" or "any…" token fires `PLAYER_SOFT_TARGET_INTERACTION`. The click is the nameplate
 //! click's script call, the same engine leg. `InteractUnit` answers 1 or nil, the manager's
 //! form true or false: whether a unit was found to click.
-// Deviation: ClassicAPI's "mouseover" and name search also reach game objects and corpses, which
-// this client's click script call does not take; they answer false.
+// A soft interact pick that is a GameObject (a herb, a mailbox) is clicked too: the engine leg
+// uses it without selecting it. Deviation: ClassicAPI's "mouseover" and name search also reach
+// game objects and corpses; here they find units only.
 
 use mlua::{Lua, Value};
 
