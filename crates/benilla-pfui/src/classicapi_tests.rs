@@ -1962,3 +1962,35 @@ fn soft_target_tokens_and_events_follow_the_hosts_picks() {
         )
         .unwrap();
 }
+
+#[test]
+fn unit_in_line_of_sight_reads_the_hosts_trace() {
+    use benilla_ui::script::pfui_host::line_of_sight;
+    use benilla_ui::script::UnitGuids;
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 7,
+        held: std::collections::HashMap::from([(3, 0), (7, 0)]),
+        ..Default::default()
+    });
+    line_of_sight::set(
+        script.lua(),
+        std::collections::HashMap::from([(7, false), (9, true)]),
+    );
+    script
+        .run(
+            r#"assert(UnitInLineOfSight("player") == true)
+        assert(UnitInLineOfSight("target") == false)
+        assert(UnitInLineOfSight("0x0000000000000009") == true)
+        assert(UnitInLineOfSight("0x000000000000000A") == false, "untraced: past 150 yd")
+        assert(UnitInLineOfSight("0xF110022B16000362") == nil, "a GameObject")
+        assert(UnitInLineOfSight("focus") == nil)
+        assert(not pcall(UnitInLineOfSight))"#,
+        )
+        .unwrap();
+    line_of_sight::set(script.lua(), std::collections::HashMap::from([(7, true)]));
+    script
+        .run(r#"assert(UnitInLineOfSight("target") == true)"#)
+        .unwrap();
+}

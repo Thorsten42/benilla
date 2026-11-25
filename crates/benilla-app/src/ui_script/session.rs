@@ -187,6 +187,8 @@ mod tests {
         // The soft-target candidate list and picks, host state: the picks are pushed every
         // frame and diffed against the VM's own copy, so a fresh VM fires its events anew.
         ("pfui/soft_target/mod.rs", "state"),
+        // The line-of-sight pass's clock; its verdicts are pushed whole each pass.
+        ("pfui/line_of_sight.rs", "last"),
         // A raster fact; a fresh VM re-seats its measurer on `!has_text_measurer()` anyway.
         ("ui_script/extract/mod.rs", "last_seam"),
         // The plate driver's anti-overlap scratch, cleared at the top of every run.
