@@ -40,6 +40,7 @@ pub mod professions;
 pub mod quests;
 mod sizes;
 pub mod social;
+pub mod soft_targets;
 pub mod spell_description;
 pub mod tiling;
 pub(crate) mod tooltip_subjects;
@@ -407,6 +408,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     modifier_keys::install(lua)?;
     override_bindings::install(lua)?;
     area_loot::install(lua)?;
+    soft_targets::install(lua);
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;

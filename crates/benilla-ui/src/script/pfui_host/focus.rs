@@ -57,6 +57,12 @@ pub(super) fn resolve(lua: &Lua, token: &str) -> Option<Option<u64>> {
         && !token
             .get(..5)
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("totem"))
+        && !token
+            .get(..4)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("soft"))
+        && !token
+            .get(..3)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("any"))
     {
         return None;
     }
@@ -68,7 +74,26 @@ pub(super) fn resolve(lua: &Lua, token: &str) -> Option<Option<u64>> {
             None
         });
     }
-    let (mut guid, mut suffix) = if let Some(rest) = token.strip_prefix("nameplate") {
+    // ClassicAPI's soft targets and their `any…` forms (`target/SoftUnit.cpp`, `SoftInteract.cpp`),
+    // with a `target` chain after the base name.
+    let soft = [
+        "softenemy",
+        "softfriend",
+        "softinteract",
+        "anyenemy",
+        "anyfriend",
+        "anyinteract",
+    ]
+    .into_iter()
+    .chain(["anyleftinteract"])
+    .filter(|name| token.starts_with(name))
+    .max_by_key(|name| name.len());
+    let (mut guid, mut suffix) = if let Some(name) = soft {
+        (
+            crate::script::pfui_host::soft_targets::base(lua, name)?,
+            &token[name.len()..],
+        )
+    } else if let Some(rest) = token.strip_prefix("nameplate") {
         let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
         let index = rest[..digits].parse::<usize>().ok();
         (
