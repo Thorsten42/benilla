@@ -1,6 +1,8 @@
 //! A frame-valued extension event (`NAME_PLATE_CREATED`): the stock event walk
 //! ([`crate::script::tick::fire_event_into`]) with a frame table as `arg1`, which a
 //! [`crate::script::ScriptValue`] cannot carry.
+//!
+//! Follows ClassicAPI's `nameplate/Events.cpp`.
 
 use super::Model;
 use mlua::{Lua, Table, Value};

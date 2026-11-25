@@ -1,6 +1,8 @@
 //! `C_SwingTimer`: whether the current target is in range for each `Enum.PlayerSwingType`, as the
 //! client measures it each frame ([`set`]), and `PLAYER_SWING_RANGE_UPDATE` when an enabled
 //! type's answer changes.
+//!
+//! Follows ClassicAPI's `combat/SwingRange.cpp`.
 
 use benilla_ui::script::{pfui_host, ScriptValue};
 use mlua::{Lua, Value};

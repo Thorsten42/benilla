@@ -1,5 +1,7 @@
 //! Merchant queries and paced junk sales read the open vendor live (the window's head and its
 //! buy-back rows, as the stock getters do) and reuse the sell queue.
+//!
+//! Follows ClassicAPI's `merchant/Frame.cpp`.
 
 use crate::script::Model;
 use mlua::Lua;

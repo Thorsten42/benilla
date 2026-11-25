@@ -1,3 +1,8 @@
+//! Frame attributes as a ClassicAPI client has them: `SetAttribute`, `GetAttribute`,
+//! `ClearAttribute`, `SetAttributeNoHandler`, and the `OnAttributeChanged` script they raise.
+//!
+//! Follows ClassicAPI's `frame/Attributes.cpp`.
+
 use mlua::{Function, Lua, Table};
 
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {

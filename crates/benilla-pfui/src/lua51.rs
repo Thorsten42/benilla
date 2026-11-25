@@ -1,3 +1,7 @@
+//! The Lua 5.1 library functions pfUI calls that 1.12's libraries lack.
+//!
+//! Follows ClassicAPI's `baselib/MathLib.cpp`, `baselib/StringLib.cpp`, `baselib/Select.cpp`.
+
 use mlua::{Lua, MultiValue, Table, Value, Variadic};
 
 /// The Lua 5.1 functions pfUI's code calls that the 1.12 libraries lack, each set only where the

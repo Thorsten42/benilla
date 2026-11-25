@@ -1,4 +1,6 @@
 //! Quest details are a pure cache probe over server templates, separate from the visible log.
+//!
+//! Follows ClassicAPI's `quest/TurnedIn.cpp`, `quest/Log.cpp`.
 
 use crate::script::{Model, ScriptValue};
 use mlua::{Lua, Table};

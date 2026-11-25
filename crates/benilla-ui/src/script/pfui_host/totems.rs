@@ -1,4 +1,6 @@
 //! The optional bar reads observed summons and carried tools, never a synthetic timer.
+//!
+//! Follows ClassicAPI's `totem/Tracker.cpp`.
 
 use crate::script::{ScriptCall, ScriptValue, SelectionRequest};
 use mlua::{Lua, MultiValue, Value};

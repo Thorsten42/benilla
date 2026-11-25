@@ -1,4 +1,6 @@
 //! Attribute-script delivery through the same legacy/modern argument bridge as stock scripts.
+//!
+//! Follows ClassicAPI's `frame/Attributes.cpp`.
 
 use crate::script::{Model, ScriptCall, ScriptValue};
 use mlua::{Function, Lua, MultiValue, Table};

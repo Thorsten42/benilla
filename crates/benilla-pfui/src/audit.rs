@@ -1,4 +1,6 @@
 //! Reproducible source and VM checks, deliberately distinct from gameplay verification.
+//!
+//! benilla's own tool; ClassicAPI has no counterpart.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

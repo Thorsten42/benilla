@@ -1,4 +1,6 @@
 //! In-memory group-roll history, reconstructed exclusively from received roll packets.
+//!
+//! Follows ClassicAPI's `loot/History.cpp`.
 
 use benilla_ui::script::{pfui_host, ScriptValue};
 use mlua::{Lua, MultiValue, Value};
