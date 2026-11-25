@@ -10,6 +10,14 @@ use crate::net::{ClientCommand, NetCommands, NetHandlerApp, SelfGuid};
 use crate::query_cache::Ask;
 use crate::ui_action::{UiError, UiErrorKeys};
 
+/// ClassicAPI's corpse walk, which claims the windows of the corpses it opens (the pfUI build's
+/// [`crate::pfui::area_loot::AreaLootWalk`]); elsewhere a type no app inserts, so it reads `None`.
+#[cfg(feature = "pfui")]
+type AreaLootWalk = crate::pfui::area_loot::AreaLootWalk;
+#[cfg(not(feature = "pfui"))]
+#[derive(Resource)]
+struct AreaLootWalk;
+
 pub(super) fn register(app: &mut App) {
     use SessionEventKind as K;
     app.net_handler(K::LootResponse, on_response)
@@ -42,6 +50,8 @@ fn on_response(
         // Absent in a harness without the cast ladder, which binds nothing.
         Option<crate::spell::PickBind<'static, 'static>>,
     >,
+    walk: Option<ResMut<AreaLootWalk>>,
+    net: Res<NetCommands>,
 ) {
     let SessionEvent::LootResponse {
         guid,
@@ -52,6 +62,15 @@ fn on_response(
     else {
         return;
     };
+    // A ClassicAPI client's corpse walk takes the window of the corpse it opened, silently.
+    #[cfg(feature = "pfui")]
+    if let Some(mut walk) = walk {
+        if crate::pfui::area_loot::claim(&mut walk, &net, guid, gold, &rows) {
+            return;
+        }
+    }
+    #[cfg(not(feature = "pfui"))]
+    let _ = (walk, net);
     let Some(latch_before) = set.p0().select(guid, loot_type) else {
         return;
     };
@@ -252,8 +271,16 @@ fn on_release_response(
     objects: crate::net::Objects,
     // The record fetches the close's teardown cancels; absent in a harness without the cache.
     items: Option<Res<crate::items::Items>>,
+    walk: Option<ResMut<AreaLootWalk>>,
 ) {
     if let SessionEvent::LootReleaseResponse { guid, result } = ev {
+        // The release of a corpse a ClassicAPI client's walk read, which no window waits for.
+        #[cfg(feature = "pfui")]
+        if walk.is_some_and(|mut walk| crate::pfui::area_loot::claim_release(&mut walk, guid)) {
+            return;
+        }
+        #[cfg(not(feature = "pfui"))]
+        let _ = walk;
         let items = items.as_deref();
         let closed = loot_release_response(guid, result, &mut loot, &mut latch, &objects, items);
         dead.after_close(closed);
