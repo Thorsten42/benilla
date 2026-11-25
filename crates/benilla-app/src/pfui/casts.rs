@@ -245,8 +245,16 @@ fn receive(
         SessionEvent::CastResult {
             spell_id,
             success: false,
+            reason,
             ..
         } => {
+            // ClassicAPI reports CHARMED, DONT_REPORT and SPELL_IN_PROGRESS as the quiet failure.
+            let failed = if reason.is_some_and(benilla_ui::script::pfui_host::casts::quiet_failure)
+            {
+                "UNIT_SPELLCAST_FAILED_QUIET"
+            } else {
+                "UNIT_SPELLCAST_FAILED"
+            };
             if let Some(guid) = me.0 {
                 if state
                     .stop(guid, spell_id, "UNIT_SPELLCAST_INTERRUPTED")
@@ -260,7 +268,7 @@ fn receive(
                         let record = recent.map(|(cast, _, _)| cast).unwrap_or_else(|| {
                             state.record(guid, spell_id, 0, false, now, spells.as_deref())
                         });
-                        state.edges.push((guid, "UNIT_SPELLCAST_FAILED", record));
+                        state.edges.push((guid, failed, record));
                     }
                 }
             }
