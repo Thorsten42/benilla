@@ -1277,3 +1277,13 @@ fn tts_settings_and_macro_icon_follow_classicapi() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's `SetBagPortraitTexture` names (`container/Portrait.cpp`): the engine's
+/// `SetBagPortaitTexture`.
+#[test]
+fn bag_portrait_names_are_the_engines_function() {
+    let script = extended();
+    script
+        .run("assert(SetBagPortraitTexture == SetBagPortaitTexture and C_Container.SetBagPortraitTexture == SetBagPortaitTexture and type(SetBagPortaitTexture) == 'function')")
+        .unwrap();
+}
