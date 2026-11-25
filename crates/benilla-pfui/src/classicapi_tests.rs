@@ -1722,3 +1722,24 @@ fn a_send_mints_the_cast_guid_its_cast_then_shows() {
     assert!(matches!(&first[1], ScriptValue::Str(t) if t.is_empty()));
     assert_ne!(format!("{:?}", first[2]), format!("{:?}", second[2]));
 }
+
+/// ClassicAPI's local cast failures (`spell/CastEvents.cpp`, `SpellFailed_h`): CHARMED,
+/// DONT_REPORT and SPELL_IN_PROGRESS are `UNIT_SPELLCAST_FAILED_QUIET`, any other reason
+/// `UNIT_SPELLCAST_FAILED`, each with a castGUID of its own.
+#[test]
+fn a_local_refusal_is_failed_or_quiet_by_its_reason() {
+    use benilla_ui::script::pfui_host::casts;
+    let script = extended();
+    for reason in [0x14, 0x17, 0x61] {
+        assert!(casts::quiet_failure(reason));
+    }
+    assert!(!casts::quiet_failure(0x0c));
+    let (quiet, args) = casts::refused(script.lua(), 133, 0x61, "Fireball".into(), "Rank 1".into());
+    assert_eq!(quiet, "UNIT_SPELLCAST_FAILED_QUIET");
+    assert!(matches!(&args[0], ScriptValue::Str(u) if u == "player"));
+    assert!(matches!(&args[1], ScriptValue::Str(g) if g.starts_with("Cast-")));
+    assert!(matches!(args[2], ScriptValue::Int(133)));
+    let (failed, again) = casts::refused(script.lua(), 133, 0x0c, String::new(), String::new());
+    assert_eq!(failed, "UNIT_SPELLCAST_FAILED");
+    assert_ne!(format!("{:?}", args[1]), format!("{:?}", again[1]));
+}

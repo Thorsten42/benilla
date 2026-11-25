@@ -175,6 +175,51 @@ pub fn sent(
     ]
 }
 
+/// Whether a cast failure's `SpellCastResult` is one ClassicAPI reports as
+/// `UNIT_SPELLCAST_FAILED_QUIET` rather than `UNIT_SPELLCAST_FAILED` (`spell/CastEvents.cpp`,
+/// `IsQuietResult`): CHARMED (0x14), DONT_REPORT (0x17) and SPELL_IN_PROGRESS (0x61), the failures
+/// the client shows no text for.
+pub fn quiet_failure(reason: u8) -> bool {
+    matches!(reason, 0x14 | 0x17 | 0x61)
+}
+
+/// The event and arguments of the player's cast refused before it left the client
+/// (`Spell_C_SpellFailed` with nothing in flight, `CastEvents.cpp`): `UNIT_SPELLCAST_FAILED`, or
+/// `_QUIET` for a quiet reason, with `unit, castGUID, spellID, spellName, rank` and a castGUID of
+/// its own, since no send minted one.
+pub fn refused(
+    lua: &Lua,
+    spell_id: u32,
+    reason: u8,
+    name: String,
+    rank: String,
+) -> (&'static str, Vec<ScriptValue>) {
+    let player = super::auras::unit_guid(lua, "player").unwrap_or(0);
+    let cast_guid = {
+        if lua.app_data_ref::<SentCasts>().is_none() {
+            lua.set_app_data(SentCasts::default());
+        }
+        let mut sent = lua.app_data_mut::<SentCasts>().expect("set above");
+        sent.serial += 1;
+        format!("Cast-{player:016X}-L{}", sent.serial)
+    };
+    let event = if quiet_failure(reason) {
+        "UNIT_SPELLCAST_FAILED_QUIET"
+    } else {
+        "UNIT_SPELLCAST_FAILED"
+    };
+    (
+        event,
+        vec![
+            ScriptValue::Str("player".into()),
+            ScriptValue::Str(cast_guid),
+            ScriptValue::Int(i64::from(spell_id)),
+            ScriptValue::Str(name),
+            ScriptValue::Str(rank),
+        ],
+    )
+}
+
 /// The castGUID the player's cast shows: its minted one once taken, taking the pending one on a
 /// cast's first event (`claim`).
 fn shown_guid(lua: &Lua, caster: u64, cast: &Cast, claim: bool) -> String {
