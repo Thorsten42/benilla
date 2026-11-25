@@ -321,7 +321,13 @@ pub(crate) fn fire_event_into(lua: &Lua, event: &str, args: Vec<ScriptValue>) {
     let guid_unit = super::pfui_host::guid_events::unit_of(lua, event, args.first());
     #[cfg(not(feature = "pfui"))]
     let guid_unit: Option<u64> = None;
-    if at.is_none() && guid_unit.is_none() {
+    // ClassicAPI's callback events run their callbacks after the walk ([`event_callbacks`]); a
+    // walk with only those still runs.
+    #[cfg(feature = "pfui")]
+    let callbacks = super::pfui_host::event_callbacks::listened(lua, event);
+    #[cfg(not(feature = "pfui"))]
+    let callbacks = false;
+    if at.is_none() && guid_unit.is_none() && !callbacks {
         return;
     }
     if super::host::holding(lua) {
@@ -355,8 +361,12 @@ pub(crate) fn fire_event_into(lua: &Lua, event: &str, args: Vec<ScriptValue>) {
     if let Some(guid) = guid_unit {
         super::pfui_host::guid_events::signal(lua, event, guid, args.get(1..).unwrap_or(&[]));
     }
+    #[cfg(feature = "pfui")]
+    if callbacks {
+        super::pfui_host::event_callbacks::dispatch(lua, event, &args);
+    }
     #[cfg(not(feature = "pfui"))]
-    let _ = guid_unit;
+    let _ = (guid_unit, callbacks);
     if let Some(saved) = saved {
         let _ = globals.set("event", saved);
     }
