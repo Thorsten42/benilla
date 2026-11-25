@@ -48,7 +48,7 @@ pub(crate) use live::TargetingLive;
 pub(crate) use corpse::fixture as corpse_fixture;
 pub(crate) use corpse::{corpse_pick_admits, publish_corpse_pick, CorpsePick};
 pub(crate) use cursor::{drive_targeting_cursor, ground_cast_radius};
-pub(crate) use item::EnchantConfirmItem;
+pub(crate) use item::{pick_item, EnchantConfirmItem};
 pub(crate) use pick::{
     publish_go_pick, publish_unit_pick, spell_opens_go, GoPick, GoPickChecks, PickChecks, UnitPick,
 };
