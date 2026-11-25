@@ -6,7 +6,7 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use benilla_ui::script::pfui_host::unit_position::UnitPositionQuery;
+use benilla_ui::script::pfui_host::unit_position::{PlayerFacingQuery, UnitPositionQuery};
 
 #[derive(SystemParam)]
 pub(crate) struct UnitPositionLive<'w, 's> {
@@ -42,5 +42,9 @@ impl UnitPositionLive<'_, '_> {
 impl crate::script_calls::live::LiveFamily for UnitPositionLive<'_, '_> {
     fn answer(&mut self, ask: &mut benilla_ui::script::live::LiveAsk<'_>) -> bool {
         ask.answer(|q: &UnitPositionQuery| Some(self.position(q.0)))
+            || ask.answer(|_: &PlayerFacingQuery| {
+                // The facing is the wire orientation itself (`net::motion::wire_yaw`).
+                Some(self.player.as_deref().map(|p| p.facing()))
+            })
     }
 }
