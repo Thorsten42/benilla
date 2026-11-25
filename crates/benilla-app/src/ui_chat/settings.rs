@@ -93,6 +93,10 @@ pub(super) struct ChatWindowFile {
 pub(super) struct Parsed {
     pub(super) looks: Vec<(usize, ChatWindowLook)>,
     pub(super) colors: Vec<(String, [u8; 3])>,
+    /// Each `COLORS` row's trailing Y or N, where it has one: ClassicAPI's sender-name class
+    /// colour flag (`chat/ColorNameByClass.cpp`). The reference's reader takes the three numbers
+    /// and ignores what follows.
+    pub(super) class_names: Vec<(String, bool)>,
     pub(super) joined: Vec<String>,
     /// The header's `ZONECHANNELS` word, the reference's `[0xb6e5e0]`, overwritten from the file
     /// (`0x498d83`); `None` without the line, so the loader seeds from the DBC rather than 0.
@@ -110,6 +114,7 @@ impl Default for Parsed {
         Self {
             looks: Vec::new(),
             colors: Vec::new(),
+            class_names: Vec::new(),
             joined: Vec::new(),
             zone_mask: None,
             // The boot value: the reference writes `AUTO` for characters that never set it.
@@ -123,12 +128,33 @@ impl Default for Parsed {
 /// channels only: a zone channel travels as its bit (`0x499ba1`). `zone_mask` goes raw into the
 /// header (`0x499c19`) and is ANDed with each window's bits (`0x49a133`, `0x49a138`). Both are the
 /// durable lists, never the live roster, which the session end clears before the flush reads it.
+#[cfg(test)]
 fn render(
     looks: &[ChatWindowLook],
     colors: &[ChatTypeColor],
     custom: &[String],
     zone_mask: u32,
     guild_recruitment_auto: bool,
+) -> String {
+    render_with(
+        looks,
+        colors,
+        custom,
+        zone_mask,
+        guild_recruitment_auto,
+        &|_| None,
+    )
+}
+
+/// [`render`] with each `COLORS` row's trailing Y or N where `class_name` answers one: the pfUI
+/// build's ClassicAPI flag; the plain build writes the reference's rows.
+fn render_with(
+    looks: &[ChatWindowLook],
+    colors: &[ChatTypeColor],
+    custom: &[String],
+    zone_mask: u32,
+    guild_recruitment_auto: bool,
+    class_name: &dyn Fn(&str) -> Option<bool>,
 ) -> String {
     let mut out = String::from(HEADER);
     // The repair marker, a comment line.
@@ -150,9 +176,13 @@ fn render(
     out.push_str(&format!("END\n\nZONECHANNELS {zone_mask}\n\nCOLORS\n"));
     for c in colors {
         out.push_str(&format!(
-            "{} {} {} {}\n",
+            "{} {} {} {}",
             c.name, c.rgb[0], c.rgb[1], c.rgb[2]
         ));
+        if let Some(on) = class_name(&c.name) {
+            out.push_str(if on { " Y" } else { " N" });
+        }
+        out.push('\n');
     }
     out.push_str("END\n\n");
     for (i, l) in looks.iter().enumerate() {
@@ -232,6 +262,11 @@ fn parse(text: &str, rows: &[(u32, String)]) -> Parsed {
                 } else {
                     let rgb = [byte(it.next()), byte(it.next()), byte(it.next())];
                     out.colors.push((head.to_ascii_uppercase(), rgb));
+                    match it.next().and_then(|word| word.bytes().next()) {
+                        Some(b'Y') => out.class_names.push((head.to_ascii_uppercase(), true)),
+                        Some(b'N') => out.class_names.push((head.to_ascii_uppercase(), false)),
+                        _ => {}
+                    }
                 }
                 continue;
             }
@@ -543,6 +578,8 @@ fn restore_chat_looks_again(world: &mut World, script: &mut UiScript, again: boo
         parsed.colors,
         parsed.looks,
     );
+    #[cfg(feature = "pfui")]
+    let class_names = parsed.class_names;
     // The option line's store runs the cascade on AUTO (`0x498e35` → `0x49ea70` → `0x49ea7b`), in
     // the file's order: ahead of the windows and the burst.
     let line = parsed.guild_recruitment_line;
@@ -553,6 +590,8 @@ fn restore_chat_looks_again(world: &mut World, script: &mut UiScript, again: boo
             cascade.run(script);
         }
         script.set_chat_colors(colors);
+        #[cfg(feature = "pfui")]
+        benilla_ui::script::pfui_host::chat_name_colors::load(script.lua(), class_names);
         script.set_chat_window_looks(looks);
         // `UPDATE_CHAT_WINDOWS` once, then `UPDATE_CHAT_COLOR` for every registry entry, file or
         // no file (`0x4996b9`, `0x499934`).
@@ -569,6 +608,9 @@ fn restore_chat_looks_again(world: &mut World, script: &mut UiScript, again: boo
                 ],
             );
         }
+        // ClassicAPI announces each entry's sender-name class colour as the settings load.
+        #[cfg(feature = "pfui")]
+        benilla_ui::script::pfui_host::chat_name_colors::announce(script.lua());
     });
     if let Some(cascade) = cascade {
         world.insert_resource(cascade);
@@ -606,12 +648,22 @@ fn write(script: &UiScript, channels: &super::edit::ChannelState, path: &std::pa
         );
         return;
     };
-    let body = render(
+    #[cfg(feature = "pfui")]
+    let class_name = |name: &str| {
+        Some(benilla_ui::script::pfui_host::chat_name_colors::flag(
+            script.lua(),
+            name,
+        ))
+    };
+    #[cfg(not(feature = "pfui"))]
+    let class_name = |_: &str| None;
+    let body = render_with(
         &script.chat_window_looks(),
         &script.chat_colors(),
         &channels.cache_channels(),
         zone_mask,
         script.guild_recruitment_mode() != 0,
+        &class_name,
     );
     if let Err(e) = crate::local_state::write_atomic(path, &body) {
         warn!("chat cache: cannot write {}: {e}", path.display());
@@ -1742,6 +1794,41 @@ mod tests {
              CHANNELS\nMine\nEND\n\nZONECHANNELS 3\n\nCOLORS\nSAY 255 254 253\nEND\n\n\
              WINDOW 1\nNAME General\nSIZE 14\nCOLOR 1 2 3 4\nLOCKED 1\nDOCKED 1\nSHOWN 1\n\n\
              MESSAGES\nSAY\nYELL\nEND\n\nCHANNELS\nMine\nEND\n\nZONECHANNELS 1\n\nEND\n\n"
+        );
+    }
+
+    /// ClassicAPI's flag rides each `COLORS` row as a trailing Y or N: read where a row has one,
+    /// written where the build answers one, and absent from the reference's rows.
+    #[test]
+    fn colors_rows_carry_the_class_name_flag() {
+        let parsed = parse(
+            "COLORS\nSAY 255 255 255 Y\nGUILD 64 255 64 N\nYELL 255 64 64\nEND\n",
+            &[],
+        );
+        assert_eq!(
+            parsed.class_names,
+            vec![("SAY".to_string(), true), ("GUILD".to_string(), false)]
+        );
+        assert_eq!(parsed.colors.len(), 3);
+        let colors = [
+            ChatTypeColor {
+                name: "SAY".into(),
+                rgb: [255, 255, 255],
+            },
+            ChatTypeColor {
+                name: "GUILD".into(),
+                rgb: [64, 255, 64],
+            },
+        ];
+        let with = render_with(&[], &colors, &[], 0, true, &|name| Some(name == "SAY"));
+        assert!(
+            with.contains("SAY 255 255 255 Y\nGUILD 64 255 64 N\n"),
+            "{with}"
+        );
+        let plain = render(&[], &colors, &[], 0, true);
+        assert!(
+            plain.contains("SAY 255 255 255\nGUILD 64 255 64\n"),
+            "{plain}"
         );
     }
 }
