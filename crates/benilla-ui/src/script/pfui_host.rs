@@ -17,6 +17,7 @@ pub mod durations;
 mod editbox_caret;
 mod engine;
 pub(crate) mod equipment_actions;
+pub mod event_callbacks;
 pub mod gossip_info;
 pub(crate) mod guid_events;
 pub mod inline_texture;

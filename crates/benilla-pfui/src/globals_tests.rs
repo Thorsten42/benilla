@@ -1085,3 +1085,92 @@ fn action_bar_get_spell_reads_the_slot() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's event callbacks (`event/Callback.cpp`) and function containers
+/// (`event/FunctionContainer.cpp`): after the frames' OnEvent, the global callbacks, then the
+/// frames', then for MINIMAP_PING the sender's unit; owner first, no event name; a change made
+/// while firing applies after it; containers match by identity; UnregisterEvent drops a frame's.
+#[test]
+fn event_callbacks_follow_classicapi() {
+    use benilla_ui::script::ScriptValue;
+    let mut script = extended();
+    script
+        .run(
+            r#"
+        SEEN = {}
+        local function log(s) table.insert(SEEN, s) end
+        local listener = CreateFrame("Frame", "PingFrame")
+        listener:RegisterEvent("MINIMAP_PING")
+        listener:SetScript("OnEvent", function() log("frame:" .. event) end)
+        local plain = function(owner, unit, x) log("plain:" .. tostring(owner) .. ":" .. tostring(unit) .. ":" .. tostring(x)) end
+        RegisterEventCallback("MINIMAP_PING", plain)
+        RegisterEventCallback("MINIMAP_PING", plain)
+        CB = C_FunctionContainers.CreateCallback(function() log("container") end)
+        RegisterEventCallback("minimap_ping", CB)
+        RegisterEventCallback("MINIMAP_PING", CB)
+        listener:RegisterEventCallback("MINIMAP_PING", function(owner) log("own:" .. owner:GetName()) end)
+        RegisterUnitEventCallback("MINIMAP_PING", function() log("party1") end, "PARTY1")
+        RegisterUnitEventCallback("MINIMAP_PING", function() log("party2") end, "party2")
+        RegisterEventCallback("MINIMAP_PING", function()
+            log("adder")
+            RegisterEventCallback("MINIMAP_PING", function() log("late") end)
+        end)
+        local function fails(f, ...) local ok, err = pcall(f, unpack(arg)) return not ok and err end
+        assert(string.find(fails(RegisterEventCallback, "PLAYER_LOGIN", plain), 'RegisterEventCallback Attempt to register unknown event "PLAYER_LOGIN"', 1, true))
+        assert(string.find(fails(RegisterEventCallback, "MINIMAP_PING", 5), "invalid callback", 1, true))
+        assert(string.find(fails(RegisterUnitEventCallback, "MINIMAP_PING", plain, "nobody"), "unknown event", 1, true))
+        assert(string.find(fails(UnregisterUnitEventCallback, "COMBAT_LOG_EVENT", plain, "player"), 'Attempt to unregister unknown event', 1, true))
+        assert(string.find(fails(C_FunctionContainers.CreateCallback, 5), "Usage: C_FunctionContainers.CreateCallback(func)", 1, true))
+        assert(C_EventUtils.IsCallbackEvent("combat_log_event") and not C_EventUtils.IsCallbackEvent("PLAYER_LOGIN"))
+        "#,
+        )
+        .unwrap();
+    let ping = |script: &mut UiScript| {
+        script.fire_event(
+            "MINIMAP_PING",
+            vec![
+                ScriptValue::Str("party1".into()),
+                ScriptValue::Number(0.5),
+                ScriptValue::Number(0.25),
+            ],
+        )
+    };
+    ping(&mut script);
+    script
+        .run(
+            r#"local got = table.concat(SEEN, " ") SEEN = {}
+        assert(got == "frame:MINIMAP_PING plain:nil:party1:0.5 plain:nil:party1:0.5 container adder own:PingFrame party1", got)"#,
+        )
+        .unwrap();
+    script
+        .run(
+            r#"UnregisterEventCallback("MINIMAP_PING", CB)
+        CB2 = CB
+        PingFrame:UnregisterEvent("MINIMAP_PING")"#,
+        )
+        .unwrap();
+    ping(&mut script);
+    script
+        .run(
+            r#"local got = table.concat(SEEN, " ") SEEN = {}
+        assert(got == "plain:nil:party1:0.5 plain:nil:party1:0.5 adder late party1", got)
+        local errors = {}
+        local old = geterrorhandler()
+        seterrorhandler(function(e) table.insert(errors, e) end)
+        local c = C_FunctionContainers.CreateCallback(function(owner, ...) assert(arg.n == 0) error("boom") end)
+        RegisterEventCallback("COMBAT_LOG_EVENT_UNFILTERED", c)
+        CB_C = c"#,
+        )
+        .unwrap();
+    script.fire_event(
+        "COMBAT_LOG_EVENT_UNFILTERED",
+        vec![ScriptValue::Str("SPELL_DAMAGE".into())],
+    );
+    script
+        .run(
+            r#"assert(CB_C:IsCancelled() == false)
+        CB_C:Cancel()
+        assert(CB_C:IsCancelled() == true)"#,
+        )
+        .unwrap();
+}
