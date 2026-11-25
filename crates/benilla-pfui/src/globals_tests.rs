@@ -1210,3 +1210,29 @@ fn cursor_delta_is_the_move_since_the_last_frame() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's `GetMouseButtonClicked()`: the button of the mouse handler running now, read in a
+/// helper it calls too; "UNKNOWN" for another name, nil outside one. `GetRunningMacroButton()` is
+/// nil for a macro no button started.
+#[test]
+fn mouse_button_clicked_names_the_running_handlers_button() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        SEEN = {}
+        local function helper() table.insert(SEEN, tostring(GetMouseButtonClicked())) end
+        local b = CreateFrame("Button", "ClickTestButton")
+        b:SetScript("OnClick", helper)
+        assert(GetMouseButtonClicked() == nil)
+        b:Click()
+        b:Click("rightbutton")
+        b:Click("Foo")
+        assert(GetMouseButtonClicked() == nil)
+        local got = table.concat(SEEN, " ")
+        assert(got == "LeftButton RightButton UNKNOWN", got)
+        assert(GetRunningMacroButton() == nil)
+        "#,
+        )
+        .unwrap();
+}
