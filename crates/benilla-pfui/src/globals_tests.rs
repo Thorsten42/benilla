@@ -1031,3 +1031,21 @@ fn shapeshift_form_and_equipped_item_type_follow_classicapi() {
         .run(r#"assert(IsEquippedItemType("Shields") == nil, "a broken item does not count")"#)
         .unwrap();
 }
+
+/// ClassicAPI's `GetCurrentKeyBoardFocus()`: the focused edit box, nil when none holds the focus.
+#[test]
+fn keyboard_focus_is_the_focused_edit_box() {
+    let script = extended();
+    script
+        .run(
+            r#"
+        assert(GetCurrentKeyBoardFocus() == nil)
+        local box = CreateFrame("EditBox", "FocusTestBox")
+        box:SetFocus()
+        assert(GetCurrentKeyBoardFocus() == box)
+        box:ClearFocus()
+        assert(GetCurrentKeyBoardFocus() == nil)
+        "#,
+        )
+        .unwrap();
+}
