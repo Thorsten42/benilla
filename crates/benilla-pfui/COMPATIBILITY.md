@@ -6,6 +6,7 @@ the source and this list is generated from it (`benilla-pfui-plan/tools/deviatio
 Deliberately unbuilt features and open hand checks live in the plan's `OPEN.md`.
 
 - **app / area_loot** (`crates/benilla-app/src/pfui/area_loot.rs`): ClassicAPI also forgets a skipped corpse when the quest log changes; here only leaving view does. A walk asked while a loot window is open ends at once with no corpse.
+- **app / disenchant** (`crates/benilla-app/src/pfui/disenchant.rs`): the DLL prints each step's line through a Lua chunk with the item's link; here the host posts it as a system line with the item's name in brackets, not a clickable link.
 - **app / soft_target** (`crates/benilla-app/src/pfui/soft_target/mod.rs`): 1.12 has no loose targets, so every target counts as one the player chose (locked); the model box is the bounding radius and the box height (`OverheadFallback`) times the scale, 1 x 2 yd for a GameObject, where ClassicAPI reads the model's bounds; the boss, critter, party and PvP classes are not built; the icons, circles, names, tooltip and nameplate dim, and the soft cast and soft attack, are not drawn or built.
 - **app / priority** (`crates/benilla-app/src/pfui/soft_target/priority.rs`): party and raid membership are not classified yet; nothing sets these.
 - **pfui / death_recap** (`crates/benilla-pfui/src/death_recap.rs`): a drain's amount is read as ClassicAPI reads it (its power type), and its overkill is 0, as this log carries no alternate power type.

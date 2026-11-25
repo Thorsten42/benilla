@@ -252,6 +252,12 @@ pub(crate) struct SelectionRadius(pub(crate) f32);
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct TargetUpdate;
 
+/// Inside [`TargetUpdate`]: an engine cast placed from outside this module (Nampower's
+/// `DisenchantAll` run) sends among the frame's other engine casts, after the arrival's and the
+/// melee probe's and before the last-enemy stamp and the ring read the selection.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct EngineCasts;
+
 /// `deselectOnClick`, 1.12's CVar behind the "Sticky Targeting" checkbox, which shows it inverted
 /// (`UIOptionsFrame.lua:250`). On by default, as in the reference: an empty-world click clears the
 /// target.
@@ -405,6 +411,13 @@ impl Plugin for TargetPlugin {
                     .chain()
                     .in_set(TargetUpdate)
                     .after(WorldStage::Input),
+            )
+            .configure_sets(
+                Update,
+                EngineCasts
+                    .in_set(TargetUpdate)
+                    .after(crate::ui_action::attack_nearest_probe)
+                    .before(scan::remember_last_enemy),
             )
             // PostUpdate: the brighten sets MeshTag bit 31 after every Update writer that
             // overwrites the whole tag.
