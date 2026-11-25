@@ -1897,3 +1897,57 @@ fn c_loot_queues_walks_and_reads_the_hosts_results() {
         })
     )));
 }
+
+/// ClassicAPI's soft-target tokens and events (`target/SoftUnit.cpp`, `SoftInteract.cpp`): the
+/// host's picks behind `softenemy`, `softfriend`, `softinteract` and the `any…` forms, a `target`
+/// chain after them; each change fires its event, the interact one with the old and new GUID;
+/// with no feed an `any…` token is the target.
+#[test]
+fn soft_target_tokens_and_events_follow_the_hosts_picks() {
+    use benilla_ui::script::pfui_host::{soft_targets, units};
+    use benilla_ui::script::{UnitGuids, UnitState};
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 7,
+        held: std::collections::HashMap::from([(3, 0), (7, 0)]),
+        ..Default::default()
+    });
+    let unit = |guid| UnitState {
+        guid,
+        exists: true,
+        has_object: true,
+        ..Default::default()
+    };
+    units::set_unit_states(script.lua(), [(9, unit(9), 0), (11, unit(11), 0)]);
+    script
+        .run(
+            r#"SEEN = {}
+        local f = CreateFrame("Frame")
+        for _, e in ipairs({"PLAYER_SOFT_ENEMY_CHANGED", "PLAYER_SOFT_FRIEND_CHANGED", "PLAYER_SOFT_INTERACT_CHANGED"}) do f:RegisterEvent(e) end
+        f:SetScript("OnEvent", function() table.insert(SEEN, event .. "(" .. tostring(arg1) .. "," .. tostring(arg2) .. ")") end)
+        assert(UnitGUID("anyenemy") == UnitGUID("target") and UnitGUID("softenemy") == nil)"#,
+        )
+        .unwrap();
+    soft_targets::set(
+        script.lua(),
+        soft_targets::SoftPicks {
+            enemy: Some(9),
+            interact: Some(11),
+            any_enemy: Some(7),
+            any_friend: Some(7),
+            any_interact: Some(11),
+            ..Default::default()
+        },
+    );
+    script
+        .run(
+            r#"assert(UnitGUID("softenemy") == "0x0000000000000009", tostring(UnitGUID("softenemy")))
+        assert(UnitGUID("softinteract") == "0x000000000000000B" and UnitGUID("softfriend") == nil)
+        assert(UnitGUID("anyenemy") == "0x0000000000000007" and UnitGUID("anyinteract") == "0x000000000000000B")
+        assert(UnitExists("softenemy"))
+        local got = table.concat(SEEN, " ")
+        assert(got == "PLAYER_SOFT_ENEMY_CHANGED(nil,nil) PLAYER_SOFT_INTERACT_CHANGED(,0x000000000000000B)", got)"#,
+        )
+        .unwrap();
+}

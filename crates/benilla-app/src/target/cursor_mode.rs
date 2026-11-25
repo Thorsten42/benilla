@@ -753,6 +753,49 @@ pub(super) struct CursorInputs<'w, 's> {
     stone: Option<Res<'w, crate::ui_dialog_verbs::MeetingStone>>,
 }
 
+/// What the cursor over an object would offer: no interact mode, one grayed as out of reach, or
+/// one usable now (ClassicAPI's `Cursor::Hover::InteractReach`).
+#[cfg(feature = "pfui")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Reach {
+    None,
+    Unable,
+    Now,
+}
+
+/// The classifier asked of any object, not only the one under the cursor: ClassicAPI's soft
+/// interact picks among what would show an interact cursor.
+#[cfg(feature = "pfui")]
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct InteractReach<'w, 's> {
+    inputs: CursorInputs<'w, 's>,
+}
+
+#[cfg(feature = "pfui")]
+impl InteractReach<'_, '_> {
+    /// The interact cursor over `entity` (`guid`), a GameObject or a unit; an attack, the plain
+    /// pointer and the casting cursor offer no interaction.
+    pub(crate) fn of(&self, entity: Entity, guid: u64, game_object: bool) -> Reach {
+        let mut hovered = Hovered::default();
+        let mut object = HoveredObject::default();
+        if game_object {
+            (object.target, object.guid) = (Some(entity), Some(guid));
+        } else {
+            (hovered.target, hovered.guid) = (Some(entity), Some(guid));
+        }
+        let (cursor, _) = classify(&self.inputs, &hovered, &object);
+        match cursor.kind {
+            CursorKind::Point
+            | CursorKind::Attack
+            | CursorKind::Cast
+            | CursorKind::Custom
+            | CursorKind::Repair => Reach::None,
+            _ if cursor.unable => Reach::Unable,
+            _ => Reach::Now,
+        }
+    }
+}
+
 /// The cursor and the attack fork over a pick; no pick, or nothing resolvable, reads Point, the
 /// classifier's clear (`0x523d30`), which [`crate::cursor`] shows as the base mode.
 pub(super) fn classify(

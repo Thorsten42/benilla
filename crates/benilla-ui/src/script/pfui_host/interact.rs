@@ -4,8 +4,8 @@
 //! (`0x492820`), which selects the unit and runs its interaction: a vendor opens, a corpse loots.
 //!
 //! The unit is a unit token, or any other text naming the nearest unit whose name starts with it
-//! (the whole name with `exactMatch`). "anyinteract" is what the Interact Key uses: the target,
-//! while soft interact (`SoftTargetInteract`) picks nothing; "softinteract" names nothing yet;
+//! (the whole name with `exactMatch`). "anyinteract" is what the Interact Key uses: the target
+//! you can interact with now, else the soft interact object ([`super::soft_targets`]);
 //! "anyleftinteract" does nothing and answers false. A loose call (the manager's default) with a
 //! "soft…" or "any…" token fires `PLAYER_SOFT_TARGET_INTERACTION`. The click is the nameplate
 //! click's script call, the same engine leg. `InteractUnit` answers 1 or nil, the manager's
@@ -21,10 +21,8 @@ use crate::script::{Model, ScriptCall};
 /// The unit `token` names for an interaction, by ClassicAPI's rules.
 fn resolve(lua: &Lua, token: &str, exact: bool) -> Option<u64> {
     let lower = token.to_ascii_lowercase();
-    match lower.as_str() {
-        "anyinteract" => return super::auras::unit_guid(lua, "target"),
-        "softinteract" | "anyleftinteract" => return None,
-        _ => {}
+    if lower == "anyleftinteract" {
+        return None;
     }
     if let Some(guid) = super::auras::unit_guid(lua, &lower) {
         return Some(guid);
