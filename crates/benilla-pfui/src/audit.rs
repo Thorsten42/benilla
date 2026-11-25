@@ -42,6 +42,9 @@ pub struct Report {
     pub preloads: Vec<String>,
     pub preload_errors: Vec<Failure>,
     pub session_errors: Vec<String>,
+    /// What the `probe` chunk returned ([`inspect_probed`]), run last in the audit VM; an error
+    /// reads `error: <message>`. `None` without a probe.
+    pub probe: Option<String>,
     /// An audit never proves gameplay, rendering, or working inventory operations.
     pub gameplay_verified: bool,
 }
@@ -68,6 +71,20 @@ pub fn inspect_with(
     data: Option<&Path>,
     turtle: bool,
     preload: &[PathBuf],
+) -> Result<Report, Box<dyn std::error::Error>> {
+    inspect_probed(root, data, turtle, preload, None)
+}
+
+/// As [`inspect_with`], then runs the Lua chunk `probe` in the audit VM after everything else
+/// (the stock UI, the preloads and pfUI's session, when `data` was given) and keeps its return
+/// value, as a string, in [`Report::probe`]. A probe reads state no report field covers, such as
+/// the module errors pfUI's `securecallfunction` swallows when a preload wraps it.
+pub fn inspect_probed(
+    root: &Path,
+    data: Option<&Path>,
+    turtle: bool,
+    preload: &[PathBuf],
+    probe: Option<&str>,
 ) -> Result<Report, Box<dyn std::error::Error>> {
     let root = root.canonicalize()?;
     let manifest = if turtle {
@@ -157,6 +174,7 @@ pub fn inspect_with(
         preloads: Vec::new(),
         preload_errors: Vec::new(),
         session_errors: Vec::new(),
+        probe: None,
         gameplay_verified: false,
     };
     if let Some(data) = data {
@@ -213,6 +231,13 @@ pub fn inspect_with(
             bootstrap(&mut compat, &root, &toc, &mut report)?;
         }
     }
+    report.probe = probe.map(|chunk| match compat.eval::<mlua::Value>(chunk) {
+        Ok(value) => match value {
+            Value::Nil => "nil".to_string(),
+            value => value.to_string().unwrap_or_else(|e| format!("error: {e}")),
+        },
+        Err(e) => format!("error: {e}"),
+    });
     Ok(report)
 }
 

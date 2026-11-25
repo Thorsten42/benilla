@@ -4825,6 +4825,38 @@ fn continuations_are_once_and_login_callbacks_work_before_and_after_login() {
     assert!(script.errors().is_empty(), "{:?}", script.errors());
 }
 
+/// `--eval`'s chunk runs last in the audit VM and its return value lands in the report: a value as
+/// text, `nil` as "nil", a Lua error as "error: ...". Without data the VM holds the layer only.
+#[cfg(feature = "audit")]
+#[test]
+fn an_audit_probe_reports_its_return_value() {
+    let root = std::env::temp_dir().join(format!("benilla-audit-probe-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        root.join("pfUI_Turtle.toc"),
+        "## Interface: 11200\npfUI.lua\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("pfUI.lua"), "pfUI = {}\n").unwrap();
+    let probe = |chunk| {
+        crate::audit::inspect_probed(&root, None, true, &[], chunk)
+            .unwrap()
+            .probe
+    };
+    assert_eq!(probe(None), None);
+    assert_eq!(
+        probe(Some("return type(C_Timer) .. ' ' .. 2 + 3")).as_deref(),
+        Some("table 5")
+    );
+    assert_eq!(probe(Some("return nil")).as_deref(), Some("nil"));
+    let failed = probe(Some("error('boom')")).unwrap();
+    assert!(
+        failed.starts_with("error: ") && failed.contains("boom"),
+        "{failed}"
+    );
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 #[cfg(feature = "audit")]
 #[test]
 fn scanner_ignores_comments_and_strings_and_keeps_value_references() {
