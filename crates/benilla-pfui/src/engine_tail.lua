@@ -478,3 +478,128 @@ function C_Macro.GetMacroIcon(slot)
   end
   return icon
 end
+
+-- ClassicAPI's aura lists (`aura/Api.cpp`), over `GetAuraDataByIndex`: `GetUnitAuras` and
+-- `GetUnitAuraInstanceIDs(unit, filter [, maxCount, sortRule, sortDirection])` collect the buffs,
+-- then the debuffs, that the filter selects (a filter naming neither HELPFUL nor HARMFUL selects
+-- both), sort them by the rule (own first, then canApplyAura, then the expiration with the
+-- soonest first and none last, or the name; the instance ID breaks ties), reverse them for
+-- Reverse and cut them to maxCount. `GetUnitAuraBySpellID` / `GetPlayerAuraBySpellID` are the
+-- first aura of that spell; `GetBuffDataByIndex` / `GetDebuffDataByIndex` the indexed one of
+-- that polarity.
+do
+  local api = C_UnitAuras
+  local function rest_of(filter)
+    local parts, helpful, harmful = {}, false, false
+    for word in string.gfind(strupper(filter or ""), "[^|%s]+") do
+      if word == "HELPFUL" or word == "!HARMFUL" then helpful = true
+      elseif word == "HARMFUL" or word == "!HELPFUL" then harmful = true
+      else table.insert(parts, word) end
+    end
+    if not helpful and not harmful then helpful, harmful = true, true end
+    return table.concat(parts, "|"), helpful, harmful
+  end
+  local function collect(unit, filter)
+    local rest, helpful, harmful = rest_of(filter)
+    local list = {}
+    for _, polarity in ipairs({ helpful and "HELPFUL" or false, harmful and "HARMFUL" or false }) do
+      if polarity then
+        local f = rest == "" and polarity or polarity .. "|" .. rest
+        for i = 1, 40 do
+          local aura = api.GetAuraDataByIndex(unit, i, f)
+          if not aura then break end
+          table.insert(list, aura)
+        end
+      end
+    end
+    return list
+  end
+  local function own(a) return a.sourceUnit == "player" end
+  local function lead(a, b)
+    if own(a) ~= own(b) then return own(a) and -1 or 1 end
+    if (a.canApplyAura and true) ~= (b.canApplyAura and true) then return a.canApplyAura and -1 or 1 end
+    return 0
+  end
+  local function expiration(a, b)
+    local ea, eb = (a.expirationTime or 0) > 0, (b.expirationTime or 0) > 0
+    if ea ~= eb then return ea and -1 or 1 end
+    if not ea or a.expirationTime == b.expirationTime then return 0 end
+    return a.expirationTime < b.expirationTime and -1 or 1
+  end
+  local function names(a, b)
+    local na, nb = a.name, b.name
+    if not na or not nb then return na and -1 or nb and 1 or 0 end
+    local la, lb = strlower(na), strlower(nb)
+    if la ~= lb then return la < lb and -1 or 1 end
+    if na == nb then return 0 end
+    return na < nb and -1 or 1
+  end
+  local rules = {
+    [1] = lead,
+    [2] = function(a, b)
+      if own(a) ~= own(b) then return own(a) and 1 or -1 end
+      return -expiration(a, b)
+    end,
+    [3] = function(a, b) local c = lead(a, b); if c ~= 0 then return c end return expiration(a, b) end,
+    [4] = expiration,
+    [5] = function(a, b) local c = lead(a, b); if c ~= 0 then return c end return names(a, b) end,
+    [6] = names,
+  }
+  local function listed(usage, unit, filter, maxCount, rule, direction)
+    local function enum(v, count)
+      if v == nil then return 0 end
+      if type(v) ~= "number" or v < 0 or v >= count then error(usage, 3) end
+      return math.floor(v)
+    end
+    rule, direction = enum(rule, 7), enum(direction, 2)
+    if type(unit) ~= "string" then return {} end
+    local list = collect(unit, filter)
+    local compare = rules[rule]
+    if compare then
+      for i, a in ipairs(list) do a.__order = i end
+      table.sort(list, function(a, b)
+        local c = compare(a, b)
+        if c ~= 0 then return c < 0 end
+        local ia, ib = a.auraInstanceID or 0, b.auraInstanceID or 0
+        if ia ~= ib then return ia < ib end
+        return a.__order < b.__order
+      end)
+      for _, a in ipairs(list) do a.__order = nil end
+    end
+    if direction == 1 then
+      local n = table.getn(list)
+      for i = 1, math.floor(n / 2) do list[i], list[n + 1 - i] = list[n + 1 - i], list[i] end
+    end
+    if type(maxCount) == "number" then
+      for i = table.getn(list), math.max(math.floor(maxCount), 0) + 1, -1 do table.remove(list, i) end
+    end
+    return list
+  end
+  function api.GetUnitAuras(unit, filter, maxCount, rule, direction)
+    return listed("Usage: local auras = C_UnitAuras.GetUnitAuras(unit, filter [, maxCount, sortRule, sortDirection])",
+      unit, filter, maxCount, rule, direction)
+  end
+  function api.GetUnitAuraInstanceIDs(unit, filter, maxCount, rule, direction)
+    local ids = {}
+    for _, aura in ipairs(listed("Usage: local auraInstanceIDs = C_UnitAuras.GetUnitAuraInstanceIDs(unit, filter [, maxCount, sortRule, sortDirection])",
+      unit, filter, maxCount, rule, direction)) do
+      if aura.auraInstanceID then table.insert(ids, aura.auraInstanceID) end
+    end
+    return ids
+  end
+  function api.GetUnitAuraBySpellID(unit, spellID)
+    if type(unit) ~= "string" or type(spellID) ~= "number" or spellID <= 0 then return nil end
+    for _, aura in ipairs(collect(unit, "")) do
+      if aura.spellId == spellID then return aura end
+    end
+  end
+  function api.GetPlayerAuraBySpellID(spellID) return api.GetUnitAuraBySpellID("player", spellID) end
+  function api.GetBuffDataByIndex(unit, index, filter)
+    local rest = rest_of(filter)
+    return api.GetAuraDataByIndex(unit, index, rest == "" and "HELPFUL" or "HELPFUL|" .. rest)
+  end
+  function api.GetDebuffDataByIndex(unit, index, filter)
+    local rest = rest_of(filter)
+    return api.GetAuraDataByIndex(unit, index, rest == "" and "HARMFUL" or "HARMFUL|" .. rest)
+  end
+end
