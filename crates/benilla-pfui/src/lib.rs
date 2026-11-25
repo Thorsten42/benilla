@@ -144,6 +144,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "UnitSpellHaste",
         "IsMounted",
         "IsSwimming",
+        "GetCursorDelta",
         "C_FunctionContainers",
         "RegisterEventCallback",
         "RegisterUnitEventCallback",
@@ -432,13 +433,19 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         ))?;
     let timer_pass: mlua::Function =
         lua.named_registry_value(benilla_ui::script::pfui_host::TIMER_PASS)?;
+    let cursor_pass: mlua::Function = lua
+        .named_registry_value::<mlua::Table>("benilla.pfui.globals_bridge")?
+        .get("cursor_pass")?;
     lua.set_named_registry_value(
         benilla_ui::script::pfui_host::TIMER_PASS,
         lua.create_function(move |_, ()| {
             let timers = timer_pass.call::<()>(());
             let durations = duration_pass.call::<()>(());
             // Tiled textures follow the sizes the fills above just set.
-            tile_pass.call::<()>(()).and(durations).and(timers)
+            let tiles = tile_pass.call::<()>(());
+            // `GetCursorDelta`'s mark for the next frame's OnUpdate walk.
+            let cursor = cursor_pass.call::<()>(());
+            cursor.and(tiles).and(durations).and(timers)
         })?,
     )?;
     swing_range::install(lua)?;
