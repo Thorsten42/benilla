@@ -408,3 +408,48 @@ function GetInstanceInfo()
   local cap = instanceCaps[kind] or 0
   return GetRealZoneText(), kind, 1, "Normal", cap, 0, false, 0, cap
 end
+
+-- ClassicAPI's `C_TTSSettings` (voicechat/Tts.cpp) over the ttsVoice/ttsSpeed/ttsVolume CVars. This
+-- client has no speech engine and so no voices: the saved voice has no name, a voice chosen by
+-- name never matches, and a refresh finds nothing new.
+C_TTSSettings = C_TTSSettings or {}
+local function cvar_int(name, default) return math.floor(tonumber(GetCVar(name)) or default) end
+function C_TTSSettings.GetSpeechRate() return cvar_int("ttsSpeed", 0) end
+function C_TTSSettings.GetSpeechVolume() return cvar_int("ttsVolume", 100) end
+function C_TTSSettings.GetSpeechVoiceID() return cvar_int("ttsVoice", 0) end
+function C_TTSSettings.GetVoiceOptionName() return "" end
+local function cvar_setter(name)
+  return function(value)
+    if tonumber(value) then SetCVar(name, tostring(math.floor(tonumber(value)))) end
+  end
+end
+C_TTSSettings.SetSpeechRate = cvar_setter("ttsSpeed")
+C_TTSSettings.SetSpeechVolume = cvar_setter("ttsVolume")
+C_TTSSettings.SetVoiceOption = cvar_setter("ttsVoice")
+function C_TTSSettings.SetVoiceOptionByName() end
+function C_TTSSettings.RefreshVoices() end
+-- Voice 1 when more than one voice is installed, else 0; rate 0, volume 100.
+function C_TTSSettings.SetDefaultSettings()
+  SetCVar("ttsVoice", "0")
+  SetCVar("ttsSpeed", "0")
+  SetCVar("ttsVolume", "100")
+  bridge.fire("VOICE_CHAT_TTS_VOICES_UPDATE")
+end
+
+-- ClassicAPI's `C_Macro.GetMacroIcon(macroSlot)` (macro/IconPath.cpp): the icon path a macro slot
+-- shows, nil for an empty slot; a question-mark icon shows the icon of the spell its
+-- #showtooltip names (`GetMacroSpell`).
+C_Macro = C_Macro or {}
+function C_Macro.GetMacroIcon(slot)
+  if not tonumber(slot) then error("Usage: C_Macro.GetMacroIcon(macroSlot)", 2) end
+  slot = math.floor(tonumber(slot))
+  if slot < 1 or slot > 36 then return nil end
+  local name, icon = GetMacroInfo(slot)
+  if not name or not icon or icon == "" then return nil end
+  if string.find(string.lower(icon), "inv_misc_questionmark", 1, true) then
+    local _, _, spell = GetMacroSpell(slot)
+    local texture = spell and C_Spell.GetSpellTexture(spell)
+    if texture then return texture end
+  end
+  return icon
+end
