@@ -36,6 +36,7 @@ pub mod professions;
 pub mod quests;
 mod sizes;
 pub mod social;
+pub mod spell_description;
 pub mod tiling;
 pub(crate) mod tooltip_subjects;
 pub mod totems;
