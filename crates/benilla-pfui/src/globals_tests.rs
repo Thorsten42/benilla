@@ -1341,3 +1341,38 @@ fn spell_description_needs_the_host_and_a_location() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's sided modifier keys (`input/Modifier.cpp`): each side 1 or nil, and
+/// `MODIFIER_STATE_CHANGED(key, 1|0)` for each side that changed, in LSHIFT..RALT order; the
+/// modified clicks read the sided names and know MOUSEOVERCAST.
+#[test]
+fn modifier_sides_and_their_event_follow_classicapi() {
+    use benilla_ui::script::pfui_host::modifier_keys;
+    let script = extended();
+    script
+        .run(
+            r#"SEEN = {}
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("MODIFIER_STATE_CHANGED")
+        f:SetScript("OnEvent", function() table.insert(SEEN, arg1 .. "=" .. arg2) end)
+        assert(IsLeftShiftKeyDown() == nil and IsRightAltKeyDown() == nil)
+        assert(GetModifiedClick("MOUSEOVERCAST") == "NONE")"#,
+        )
+        .unwrap();
+    modifier_keys::set_sides(script.lua(), 0b10_0001);
+    script
+        .run(
+            r#"assert(IsLeftShiftKeyDown() == 1 and IsRightAltKeyDown() == 1 and IsRightShiftKeyDown() == nil)
+        assert(IsLeftControlKeyDown() == nil and IsRightControlKeyDown() == nil and IsLeftAltKeyDown() == nil)"#,
+        )
+        .unwrap();
+    modifier_keys::set_sides(script.lua(), 0b10_0001);
+    modifier_keys::set_sides(script.lua(), 0b00_0100);
+    script
+        .run(
+            r#"local got = table.concat(SEEN, " ")
+        assert(got == "LSHIFT=1 RALT=1 LSHIFT=0 LCTRL=1 RALT=0", got)
+        assert(IsLeftControlKeyDown() == 1)"#,
+        )
+        .unwrap();
+}
