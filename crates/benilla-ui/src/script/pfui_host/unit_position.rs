@@ -5,6 +5,9 @@
 //!
 //! Also ClassicAPI's `GetPlayerFacing()` (`player/Facing.cpp`): the player's world facing in
 //! radians, 0 to 2π counter-clockwise from north, nothing with no player ([`PlayerFacingQuery`]).
+//! And `IsIndoors()` / `IsOutdoors()` (`unit/State.cpp`): 1 when the player is under a WMO roof
+//! (or not), nil for the other and before the player exists ([`PlayerIndoorsQuery`]); ClassicAPI's
+//! `[indoors]` / `[outdoors]` macro conditions call them.
 
 use mlua::{Lua, MultiValue, Value};
 
@@ -25,6 +28,15 @@ pub struct PlayerFacingQuery;
 
 impl LiveQuery for PlayerFacingQuery {
     type Answer = Option<f32>;
+}
+
+/// Whether the player stands indoors (not `CWorld::IsEntityOutdoors`, the spell validator's place
+/// answer), `None` with no player.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlayerIndoorsQuery;
+
+impl LiveQuery for PlayerIndoorsQuery {
+    type Answer = Option<bool>;
 }
 
 fn unit_position(lua: &Lua, unit: Value) -> mlua::Result<MultiValue> {
@@ -61,5 +73,15 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 .flatten()
                 .map(|f| f64::from(f).rem_euclid(std::f64::consts::TAU)))
         })?,
-    )
+    )?;
+    for (name, indoors) in [("IsIndoors", true), ("IsOutdoors", false)] {
+        lua.globals().set(
+            name,
+            lua.create_function(move |lua, ()| {
+                let here = ask(lua, &PlayerIndoorsQuery).flatten();
+                Ok((here == Some(indoors)).then_some(1))
+            })?,
+        )?;
+    }
+    Ok(())
 }
