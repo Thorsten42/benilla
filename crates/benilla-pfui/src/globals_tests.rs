@@ -952,3 +952,82 @@ fn swimming_and_sheath_read_the_player() {
         .run("assert(IsSwimming() == false and GetSheathState() == 1)")
         .unwrap();
 }
+
+/// ClassicAPI's `GetShapeshiftForm` (`unit/ShapeshiftForm.cpp`) over the stance bar and the form
+/// byte, and `IsEquippedItemType` (`item/Equipment.cpp`) over the worn items: a key or a location
+/// name compares inventory types, else the class or subclass name; a broken item does not count.
+#[test]
+fn shapeshift_form_and_equipped_item_type_follow_classicapi() {
+    use benilla_ui::script::{
+        pfui_host::units, InvSlotView, InventorySlots, ItemTemplateView, ShapeshiftFormView,
+        UnitGuids,
+    };
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        held: std::collections::HashMap::from([(3, 0)]),
+        ..Default::default()
+    });
+    let form = |active| ShapeshiftFormView {
+        spell_id: 1,
+        texture: None,
+        name: "Stance".into(),
+        active,
+        castable: true,
+        cooldown: None,
+    };
+    let raw = |form| units::RawUnit {
+        health: Some(10),
+        form,
+        mount_display: 0,
+        sheath: 0,
+        auras: vec![],
+        applications: vec![],
+    };
+    script.set_shapeshift_forms(vec![form(false), form(true), form(false)]);
+    units::set_raw_units(script.lua(), [(3, raw(0))]);
+    script
+        .run("assert(GetShapeshiftForm() == 2 and GetShapeshiftForm(true) == 0)")
+        .unwrap();
+    script.set_shapeshift_forms(vec![form(false), form(false)]);
+    units::set_raw_units(script.lua(), [(3, raw(5))]);
+    script
+        .run("assert(GetShapeshiftForm() == 3 and GetShapeshiftForm(true) == 3)")
+        .unwrap();
+
+    script.set_item_template(
+        2129,
+        ItemTemplateView {
+            name: "Large Round Shield".into(),
+            quality: 1,
+            inventory_type: 14,
+            item_type: Some("Armor".into()),
+            item_sub_type: Some("Shields".into()),
+            ..Default::default()
+        },
+    );
+    let mut worn: InventorySlots = Default::default();
+    worn[17] = Some(InvSlotView {
+        item_id: 2129,
+        name: Some("Large Round Shield".into()),
+        link: Some("|cffffffff|Hitem:2129:0:0:0|h[Large Round Shield]|h|r".into()),
+        quality: 1,
+        durability: Some((10, 40)),
+        ..Default::default()
+    });
+    script.set_inventory_slots(worn.clone());
+    script
+        .run(
+            r#"INVTYPE_SHIELD = "Off Hand"
+        assert(IsEquippedItemType("INVTYPE_SHIELD") == 1 and IsEquippedItemType("off hand") == 1)
+        assert(IsEquippedItemType("Shields") == 1 and IsEquippedItemType("armor") == 1)
+        assert(IsEquippedItemType("INVTYPE_HEAD") == nil and IsEquippedItemType("Plate") == nil)
+        assert(not pcall(IsEquippedItemType, "") and not pcall(IsEquippedItemType))"#,
+        )
+        .unwrap();
+    worn[17].as_mut().unwrap().durability = Some((0, 40));
+    script.set_inventory_slots(worn);
+    script
+        .run(r#"assert(IsEquippedItemType("Shields") == nil, "a broken item does not count")"#)
+        .unwrap();
+}
