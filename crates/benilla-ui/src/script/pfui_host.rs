@@ -30,6 +30,7 @@ pub mod maps;
 mod merchant;
 mod message_history;
 pub mod mirror_timers;
+pub mod modifier_keys;
 pub(crate) mod mouse_button;
 pub(crate) mod mouse_pass;
 pub mod player_stats;
@@ -401,6 +402,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     mouse_button::install(lua)?;
     chat_name_colors::install(lua)?;
     interact::install(lua)?;
+    modifier_keys::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;
