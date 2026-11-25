@@ -33,6 +33,7 @@ pub mod maps;
 mod merchant;
 mod message_history;
 pub mod mirror_timers;
+mod model_display;
 pub mod modifier_keys;
 pub(crate) mod mouse_button;
 pub(crate) mod mouse_pass;
@@ -413,6 +414,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     soft_targets::install(lua);
     line_of_sight::install(lua)?;
     dressup_slots::install(lua)?;
+    model_display::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;
