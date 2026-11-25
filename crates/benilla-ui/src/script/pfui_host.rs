@@ -22,6 +22,7 @@ pub mod event_callbacks;
 pub mod gossip_info;
 pub(crate) mod guid_events;
 pub mod inline_texture;
+pub(crate) mod interact;
 pub mod interrupts;
 pub mod items;
 pub mod macro_verbs;
@@ -399,6 +400,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     editbox_caret::install(lua)?;
     mouse_button::install(lua)?;
     chat_name_colors::install(lua)?;
+    interact::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;
