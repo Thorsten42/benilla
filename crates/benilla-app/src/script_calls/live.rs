@@ -153,6 +153,9 @@ live_reads! {
         bank: crate::ui_bank::BankLive<'static, 'static>,
         /// The gossip message's slots and drawn text.
         gossip: crate::ui_gossip::GossipLive<'static>,
+        /// ClassicAPI's spell descriptions at base values.
+        #[cfg(feature = "pfui")]
+        spell_text: crate::pfui::spell_text::SpellTextLive<'static>,
         /// The taxi map's slots and fares.
         taxi: crate::ui_taxi::TaxiLive<'static, 'static>,
         /// The dialogs' latches, clocks, meeting stone, summon and instance terms.

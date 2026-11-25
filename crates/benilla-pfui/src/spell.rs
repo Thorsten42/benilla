@@ -320,6 +320,33 @@ impl Catalog {
                 Ok(id.is_some_and(|id| r.contains_key(&id)))
             })?,
         )?;
+        // ClassicAPI's `C_Spell.GetSpellDescription(spellIdentifier)` (`spell/Description.cpp`): the
+        // description at base values, nil for no such spell or none; `...ForItemLocation` gives
+        // the same text and raises its usage error when the location is not a table or a string.
+        let description = |lua: &mlua::Lua, spell: Value| -> mlua::Result<Option<String>> {
+            Ok(
+                benilla_ui::script::pfui_host::units::spell_identifier(lua, spell)?.and_then(
+                    |id| {
+                        benilla_ui::script::pfui_host::spell_description::spell_description(lua, id)
+                    },
+                ),
+            )
+        };
+        api.set(
+            "GetSpellDescription",
+            lua.create_function(move |lua, spell: Value| description(lua, spell))?,
+        )?;
+        api.set(
+            "GetSpellDescriptionForItemLocation",
+            lua.create_function(move |lua, (spell, location): (Value, Value)| {
+                if !matches!(location, Value::Table(_) | Value::String(_)) {
+                    return Err(mlua::Error::runtime(
+                        "Usage: local description = C_Spell.GetSpellDescriptionForItemLocation(spellIdentifier, itemLocation)",
+                    ));
+                }
+                description(lua, spell)
+            })?,
+        )?;
         // ClassicAPI's `C_Spell.DoesSpellExist(spellID)` (`spell/Exists.cpp`): a number naming a
         // `Spell.dbc` record; any other value, or an id below 1, is false.
         let r = records.clone();

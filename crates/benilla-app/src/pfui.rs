@@ -22,6 +22,7 @@ mod session_events;
 mod social;
 #[cfg(feature = "nampower")]
 pub(crate) mod spell_queue;
+pub(crate) mod spell_text;
 mod spells;
 mod swing;
 #[cfg(test)]
