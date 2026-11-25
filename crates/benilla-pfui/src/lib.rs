@@ -144,6 +144,9 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "UnitSpellHaste",
         "IsMounted",
         "IsSwimming",
+        "C_FunctionContainers",
+        "RegisterEventCallback",
+        "RegisterUnitEventCallback",
         "GetCurrentKeyBoardFocus",
         "GetShapeshiftForm",
         "IsEquippedItemType",
@@ -406,6 +409,14 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
                 benilla_ui::script::pfui_host::tiling::TILE_ENGINE,
             )?,
         ))?;
+    let callbacks: mlua::Function = lua
+        .load(include_str!("callbacks.lua"))
+        .set_name("@benilla-pfui/callbacks.lua")
+        .call(tables.clone())?;
+    lua.set_named_registry_value(
+        benilla_ui::script::pfui_host::event_callbacks::EVENT_CALLBACKS,
+        callbacks,
+    )?;
     lua.load(include_str!("animations.lua"))
         .set_name("@benilla-pfui/animations.lua")
         .call::<()>(tables.clone())?;
