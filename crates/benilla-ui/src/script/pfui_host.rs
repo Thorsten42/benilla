@@ -28,6 +28,7 @@ pub mod maps;
 mod merchant;
 mod message_history;
 pub mod mirror_timers;
+pub(crate) mod mouse_button;
 pub(crate) mod mouse_pass;
 pub mod player_stats;
 pub mod professions;
@@ -394,6 +395,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     xml::install(lua)?;
     message_history::install(lua)?;
     editbox_caret::install(lua)?;
+    mouse_button::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;
