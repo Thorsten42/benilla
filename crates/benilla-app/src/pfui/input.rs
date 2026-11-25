@@ -1,6 +1,7 @@
 //! The ClassicAPI input the extension's VM sees beside 1.12's: `GLOBAL_MOUSE_DOWN` and
 //! `GLOBAL_MOUSE_UP` for every button press and release, the clipboard `CopyToClipboard` fills,
-//! and the ground under the cursor that the `AtCursor` verbs place at.
+//! the ground under the cursor that the `AtCursor` verbs place at, and the left and right modifier
+//! keys (`MODIFIER_STATE_CHANGED`).
 
 use benilla_ui::script::{ScriptValue, UiScript};
 use bevy::prelude::*;
@@ -9,10 +10,36 @@ use bevy::window::{PrimaryWindow, RawHandleWrapper};
 pub(super) fn register(app: &mut App) {
     app.add_systems(
         Update,
-        (copy_to_clipboard, cursor_point)
+        (copy_to_clipboard, cursor_point, modifier_sides)
             .in_set(crate::ui_script::UiFeed)
             .run_if(crate::ui_script::ingame_ui_up),
     );
+}
+
+/// The held modifier keys by side, for ClassicAPI's left/right functions and its
+/// `MODIFIER_STATE_CHANGED`, once a frame.
+fn modifier_sides(keys: Option<Res<ButtonInput<KeyCode>>>, script: Option<NonSend<UiScript>>) {
+    let Some(script) = script else { return };
+    let held = keys.map_or(0u8, |keys| {
+        [
+            KeyCode::ShiftLeft,
+            KeyCode::ShiftRight,
+            KeyCode::ControlLeft,
+            KeyCode::ControlRight,
+            KeyCode::AltLeft,
+            KeyCode::AltRight,
+        ]
+        .iter()
+        .enumerate()
+        .fold(0, |mask, (bit, key)| {
+            if keys.pressed(*key) {
+                mask | (1 << bit)
+            } else {
+                mask
+            }
+        })
+    });
+    benilla_ui::script::pfui_host::modifier_keys::set_sides(script.lua(), held);
 }
 
 /// The world point under the cursor as the frame's pick left it, in wire coordinates.
