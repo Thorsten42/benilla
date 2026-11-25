@@ -674,11 +674,22 @@ impl CastLadder<'_, '_> {
                     attack_guid: a.attack_guid.filter(|_| send.spell_id == a.spell_id),
                     ..a
                 });
+                #[cfg(feature = "pfui")]
+                let sent_target = match &send.packet {
+                    ClientCommand::CastSpell { target, .. } => *target,
+                    _ => None,
+                };
                 let _ = self.commands.0.send(send.packet);
                 let now = attempt.map_or_else(Instant::now, |a| a.now);
                 if let Some(caster) = send.commit.unit_caster() {
                     self.unit_send_tail(send.spell_id, caster, now);
                     return Some(CastStage::UnitSent { attempt, caster });
+                }
+                // pfUI's `UNIT_SPELLCAST_SENT`, on the cast's report lane: the player's spell
+                // sends, not an item's use.
+                #[cfg(feature = "pfui")]
+                if !send.commit.is_item() {
+                    self.reports.sent(send.spell_id, sent_target);
                 }
                 // The send's precast (`0x6e5898`) and own signal (`0x6e589d`), for the active
                 // player's send. The reference signals only beside the precast it starts, so not
@@ -3197,6 +3208,7 @@ mod tests {
             .resource_mut::<CastReports>()
             .take()
             .into_iter()
+            .filter(|r| !r.is_extension())
             .map(|r| match r {
                 crate::ui_cast::CastReport::Changed => "CHANGED",
                 crate::ui_cast::CastReport::Bar(crate::ui_cast::CastBarEdge::Failed) => "FAILED",
@@ -3207,6 +3219,8 @@ mod tests {
                 crate::ui_cast::CastReport::AutoRepeat(true) => "START_AUTOREPEAT",
                 crate::ui_cast::CastReport::AutoRepeat(false) => "STOP_AUTOREPEAT",
                 crate::ui_cast::CastReport::Line(e) => e.key,
+                #[cfg(feature = "pfui")]
+                crate::ui_cast::CastReport::Sent { .. } => unreachable!("filtered"),
             })
             .collect()
     }

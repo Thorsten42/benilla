@@ -472,6 +472,7 @@ mod tests {
             self.reports
                 .take()
                 .into_iter()
+                .filter(|r| !r.is_extension())
                 .map(|r| match r {
                     CastReport::Changed => "CHANGED".into(),
                     CastReport::Bar(CastBarEdge::Stop) => "STOP".into(),
@@ -483,6 +484,8 @@ mod tests {
                     CastReport::AutoRepeat(true) => "START_AUTOREPEAT".into(),
                     CastReport::AutoRepeat(false) => "STOP_AUTOREPEAT".into(),
                     CastReport::Line(e) => e.key.into(),
+                    #[cfg(feature = "pfui")]
+                    CastReport::Sent { .. } => unreachable!("filtered"),
                 })
                 .collect()
         }
