@@ -3,6 +3,7 @@
 use benilla_ui::script::UiScript;
 use bevy::prelude::*;
 
+pub(crate) mod area_loot;
 mod attention;
 mod bags;
 mod casts;
@@ -187,6 +188,7 @@ impl Plugin for PfuiPlugin {
         nampower::register(app);
         bags::register(app);
         loot::register(app);
+        area_loot::register(app);
         quests::register(app);
         session_events::register(app);
         crate::ui_text::inline_texture::register(app);

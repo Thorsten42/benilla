@@ -1833,3 +1833,67 @@ fn interact_unit_clicks_the_unit_it_names() {
         .unwrap();
     assert_eq!(clicked(&mut script), vec![7, 7, 7]);
 }
+
+/// ClassicAPI's `C_Loot` calls (`loot/`): a walk queues once and reads in progress until the host
+/// ends it, mounted refuses it, the results read as ClassicAPI's tables, `LootUnit` is the
+/// right-click on the corpse, and a bad GUID is the usage error.
+#[test]
+fn c_loot_queues_walks_and_reads_the_hosts_results() {
+    use benilla_ui::script::nameplate::{PlateAction, PlateClick};
+    use benilla_ui::script::pfui_host::area_loot::{self, LootRequest, ScannedCorpse};
+    use benilla_ui::script::ScriptCall;
+    let mut script = extended();
+    area_loot::set_nearby(script.lua(), vec![0xF130_0000_0000_0007]);
+    script
+        .run(
+            r#"local near = C_Loot.GetNearbyLootableUnits()
+        assert(near[1].guid == "0xF130000000000007" and near[2] == nil)
+        assert(C_Loot.IsScanInProgress() == false)
+        assert(C_Loot.LootAllCorpses(3) == true and C_Loot.IsScanInProgress() == true)
+        assert(C_Loot.ScanNearbyLoot() == false and C_Loot.LootAllCorpses() == false)
+        assert(C_Loot.LootUnitItem("0xF130000000000007", 2589) == true)
+        assert(not pcall(C_Loot.LootUnit, "nope") and not pcall(C_Loot.LootUnitItem, "0x1"))"#,
+        )
+        .unwrap();
+    assert_eq!(
+        area_loot::take_requests(script.lua()),
+        vec![
+            LootRequest::LootAll { max: Some(3) },
+            LootRequest::UnitItem {
+                guid: 0xF130_0000_0000_0007,
+                item_id: 2589
+            },
+        ]
+    );
+    area_loot::set_results(
+        script.lua(),
+        vec![ScannedCorpse {
+            guid: 7,
+            coin: 120,
+            items: vec![(
+                2589,
+                4,
+                Some("|cffffffff|Hitem:2589:0:0:0|h[Linen Cloth]|h|r".into()),
+            )],
+        }],
+    );
+    area_loot::set_in_progress(script.lua(), false);
+    script
+        .run(
+            r#"local r = C_Loot.GetLastScanResults()
+        assert(r[1].guid == "0x0000000000000007" and r[1].coin == 120)
+        assert(r[1].items[1].itemID == 2589 and r[1].items[1].count == 4)
+        assert(string.find(r[1].items[1].link, "Linen Cloth", 1, true))
+        assert(C_Loot.IsScanInProgress() == false)
+        C_Loot.LootUnit("0xF130000000000007")"#,
+        )
+        .unwrap();
+    assert!(script.take_script_calls().iter().any(|call| matches!(
+        call,
+        ScriptCall::PlateClick(PlateClick {
+            guid: 0xF130_0000_0000_0007,
+            action: PlateAction::Interact,
+            ..
+        })
+    )));
+}
