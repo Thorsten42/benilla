@@ -160,6 +160,19 @@ pub(crate) struct KeybindState {
 }
 
 impl KeybindState {
+    /// Move the generation with no change to the table, for a layer over it the dispatch reads
+    /// (ClassicAPI's override bindings).
+    #[cfg(feature = "pfui")]
+    pub(crate) fn bump(&mut self) {
+        self.generation += 1;
+    }
+
+    /// Whether `command` is a declared command.
+    #[cfg(feature = "pfui")]
+    pub(crate) fn knows(&self, command: &str) -> bool {
+        self.by_name.contains_key(&command.to_ascii_uppercase())
+    }
+
     /// A verb's change, signalled in place: `UPDATE_BINDINGS` (`0x182`) before the verb returns.
     fn signal(model: &mut Model) {
         model.raise("UPDATE_BINDINGS", Vec::new());
@@ -416,7 +429,11 @@ impl super::UiScript {
 
     /// The live keys as `(chord, command)` in bind order, for dispatch.
     pub fn binding_keys(&self) -> Vec<KeyBinding> {
-        self.model_mut().keybinds.live.clone()
+        let live = self.model_mut().keybinds.live.clone();
+        // A ClassicAPI client's override bindings stand in front of the saved ones.
+        #[cfg(feature = "pfui")]
+        let live = super::pfui_host::override_bindings::overlay(self.lua(), live);
+        live
     }
 
     /// The live table as `(command, chords)`: every declared command in registration order, then
