@@ -232,3 +232,55 @@ fn the_getters_list_own_auras_then_what_the_player_could_apply_then_the_rest() {
         )
         .unwrap();
 }
+
+#[test]
+fn unit_aura_lists_filter_sort_reverse_and_cut() {
+    let script = fixture();
+    let timed = |slot, spell, name: &str, expiration_time: f64, helpful| {
+        let mut a = aura(slot, spell, helpful, false);
+        a.state.name = Some(name.into());
+        a.state.expiration_time = expiration_time;
+        a.state.duration = if expiration_time > 0.0 { 30.0 } else { 0.0 };
+        a
+    };
+    let mut mine = timed(2, 12, "Blessing", 20.0, true);
+    mine.source_guid = Some(3);
+    auras::set_auras(
+        script.lua(),
+        5,
+        Some(vec![
+            timed(0, 10, "Zeal", 50.0, true),
+            timed(1, 11, "arcane", 0.0, true),
+            mine,
+            timed(16, 13, "Curse", 40.0, false),
+        ]),
+    );
+    script
+        .run(
+            r#"local A = C_UnitAuras
+        local function names(list) local t = {} for i, a in ipairs(list) do t[i] = a.name end return table.concat(t, ",") end
+        local function check(got, want) assert(got == want, got .. " for " .. want) end
+        check(names(A.GetUnitAuras("target", "")), "Blessing,Zeal,arcane,Curse")
+        check(names(A.GetUnitAuras("target", "HELPFUL")), "Blessing,Zeal,arcane")
+        check(names(A.GetUnitAuras("target", "HARMFUL")), "Curse")
+        check(names(A.GetUnitAuras("target", "!HELPFUL")), "Curse")
+        check(names(A.GetUnitAuras("target", "PLAYER")), "Blessing")
+        local E = Enum.UnitAuraSortRule
+        check(names(A.GetUnitAuras("target", "", nil, E.NameOnly)), "arcane,Blessing,Curse,Zeal")
+        check(names(A.GetUnitAuras("target", "", nil, E.ExpirationOnly)), "Blessing,Curse,Zeal,arcane")
+        check(names(A.GetUnitAuras("target", "", nil, E.Default)), "Blessing,Zeal,arcane,Curse")
+        check(names(A.GetUnitAuras("target", "", 2, E.ExpirationOnly, Enum.UnitAuraSortDirection.Reverse)), "arcane,Zeal")
+        assert(table.getn(A.GetUnitAuras("target", "", 0)) == 0)
+        assert(not pcall(A.GetUnitAuras, "target", "", nil, 7))
+        assert(not pcall(A.GetUnitAuraInstanceIDs, "target", "", nil, nil, "x"))
+        local ids = A.GetUnitAuraInstanceIDs("target", "HELPFUL")
+        assert(table.getn(ids) == 3, table.getn(ids))
+        assert(A.GetAuraDataByAuraInstanceID("target", ids[1]).name == "Blessing")
+        assert(A.GetUnitAuraBySpellID("target", 13).name == "Curse")
+        assert(A.GetUnitAuraBySpellID("target", 99) == nil)
+        assert(A.GetBuffDataByIndex("target", 3).name == "arcane")
+        assert(A.GetDebuffDataByIndex("target", 1).name == "Curse")
+        assert(table.getn(A.GetUnitAuras("nobody", "")) == 0)"#,
+        )
+        .unwrap();
+}
