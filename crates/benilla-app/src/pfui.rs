@@ -21,6 +21,7 @@ mod quests;
 mod resurrect;
 mod session_events;
 mod social;
+pub(crate) mod soft_target;
 #[cfg(feature = "nampower")]
 pub(crate) mod spell_queue;
 pub(crate) mod spell_text;
@@ -189,6 +190,7 @@ impl Plugin for PfuiPlugin {
         bags::register(app);
         loot::register(app);
         area_loot::register(app);
+        soft_target::register(app);
         quests::register(app);
         session_events::register(app);
         crate::ui_text::inline_texture::register(app);
