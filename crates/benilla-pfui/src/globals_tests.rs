@@ -1324,3 +1324,20 @@ fn chat_name_class_colour_flags_follow_classicapi() {
         .run(r#"assert(SEEN[1] == "SAY=true" and table.getn(SEEN) == 104, table.getn(SEEN) .. " " .. tostring(SEEN[1]))"#)
         .unwrap();
 }
+
+/// ClassicAPI's `C_Spell.GetSpellDescription` without a host answers nil (the host expands the
+/// text); `GetSpellDescriptionForItemLocation` raises its usage error for a location that is no
+/// table or string.
+#[test]
+fn spell_description_needs_the_host_and_a_location() {
+    let mut script = extended();
+    book(&mut script);
+    script
+        .run(
+            r#"assert(C_Spell.GetSpellDescription(133) == nil)
+        assert(C_Spell.GetSpellDescriptionForItemLocation(133, {bagID = 0, slotIndex = 1}) == nil)
+        local ok, err = pcall(C_Spell.GetSpellDescriptionForItemLocation, 133, 5)
+        assert(not ok and string.find(err, "GetSpellDescriptionForItemLocation(spellIdentifier, itemLocation)", 1, true))"#,
+        )
+        .unwrap();
+}
