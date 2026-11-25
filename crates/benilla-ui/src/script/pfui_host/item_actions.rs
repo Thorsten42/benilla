@@ -1,4 +1,6 @@
 //! Item references bind a carried instance at request time, then the engine re-resolves its slot.
+//!
+//! Follows ClassicAPI's `item/Use.cpp`.
 
 use super::{id, Extras, Instance, Model};
 use crate::script::{pfui_host::attributes::ClickAction, ScriptCall, EQUIPMENT_BAG};

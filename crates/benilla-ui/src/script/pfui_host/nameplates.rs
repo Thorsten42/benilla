@@ -1,4 +1,6 @@
 //! Expose the engine's actual plate pool with stable slots and canonical frame wrappers.
+//!
+//! Follows ClassicAPI's `nameplate/Info.cpp`, `nameplate/Events.cpp`.
 
 use super::{Model, PlateState};
 use crate::{script::ScriptValue, widget::FrameHandle};

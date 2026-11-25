@@ -1,4 +1,6 @@
 //! Queries and operations over the stock item cache and inventory-operation queue.
+//!
+//! Follows ClassicAPI's `item/Info.cpp`, `item/Quality.cpp`, `item/InventoryType.cpp`.
 
 use crate::script::{ContainerMove, ItemTemplateView, Model};
 use mlua::{Lua, MultiValue, Value};

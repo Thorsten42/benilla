@@ -1,4 +1,6 @@
 //! Caster displays read streamed school modifiers and each unit's casting-speed descriptor.
+//!
+//! Follows ClassicAPI's `unit/SpellHaste.cpp`, `unit/Speed.cpp`, `spell/BonusDamage.cpp`.
 
 use mlua::{Lua, Value};
 use std::collections::HashMap;
