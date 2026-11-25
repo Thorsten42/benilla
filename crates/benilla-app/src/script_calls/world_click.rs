@@ -379,10 +379,17 @@ impl ScriptCallHost<'_, '_> {
         entity: bevy::prelude::Entity,
         click: PlateClick,
     ) {
+        // A GameObject (a ClassicAPI client's `InteractUnit`) is used, never selected.
+        let game_object = self
+            .appliers
+            .click()
+            .plate()
+            .is_some_and(|plate| plate.is_game_object(entity));
         let owed = self
             .appliers
             .click()
             .plate()
+            .filter(|_| !game_object)
             .and_then(|mut plate| plate.select(entity, click.guid));
         if let Some(owed) = owed {
             self.settle_selection(script, at, owed);
