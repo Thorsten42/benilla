@@ -46,6 +46,8 @@ local cvars = {
   -- spell/AutoPrepare.cpp, Placement.cpp; combat/TargetChange.cpp; frame/Cooldown.cpp
   autoDismount = "0", autoStand = "0", autoUnshift = "0", spellClampingEnable = "1",
   spellClampingMinRange = "0.0f", stopAutoAttackOnTargetChange = "0", countdownForCooldowns = "0",
+  -- voicechat/Tts.cpp (registered through named constants)
+  ttsVoice = "0", ttsSpeed = "0", ttsVolume = "100",
   -- gx/MaxFps.cpp, MaxFpsLoading.cpp; profile/Cpu.cpp
   maxFPS = "120", maxFPSBk = "30", maxFPSLoading = "10", useMaxFPS = "0", useMaxFPSBk = "0",
   scriptProfile = "0",
