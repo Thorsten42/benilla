@@ -320,6 +320,22 @@ impl Catalog {
                 Ok(id.is_some_and(|id| r.contains_key(&id)))
             })?,
         )?;
+        // ClassicAPI's `C_Spell.DoesSpellExist(spellID)` (`spell/Exists.cpp`): a number naming a
+        // `Spell.dbc` record; any other value, or an id below 1, is false.
+        let r = records.clone();
+        api.set(
+            "DoesSpellExist",
+            lua.create_function(move |lua, spell: Value| {
+                let id = match spell {
+                    Value::Integer(_) | Value::Number(_) => lua.coerce_number(spell)?,
+                    Value::String(_) => lua.coerce_number(spell)?,
+                    _ => None,
+                };
+                Ok(id
+                    .filter(|id| id.is_finite() && *id >= 1.0 && *id <= f64::from(u32::MAX))
+                    .is_some_and(|id| r.contains_key(&(id as u32))))
+            })?,
+        )?;
         let r = records.clone();
         api.set(
             "RequestLoadSpellData",
