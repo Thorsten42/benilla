@@ -1631,3 +1631,94 @@ fn a_script_method_the_frame_lacks_is_skipped() {
         .unwrap();
     assert!(script.errors().is_empty(), "{:?}", script.errors());
 }
+
+/// ClassicAPI's `UNIT_SPELLCAST_SENT` (`spell/CastEvents.cpp`, `OnSend`): the send mints the
+/// castGUID and the target's token; the player's next cast of that spell takes it at its first
+/// event, and its later events show it. Another spell's or another caster's
+/// cast keeps its own GUID, and a send replaces an unclaimed one.
+#[test]
+fn a_send_mints_the_cast_guid_its_cast_then_shows() {
+    use benilla_ui::script::{pfui_host::casts, UnitGuids};
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        target: 7,
+        ..Default::default()
+    });
+    let cast = |spell_id, own: &str| casts::Cast {
+        spell_id,
+        name: "Fireball".into(),
+        rank: "Rank 1".into(),
+        icon: None,
+        start_ms: 0.0,
+        end_ms: 3000.0,
+        tradeskill: false,
+        cast_guid: own.into(),
+        delay_ms: 0,
+        channel: false,
+        silenceable: false,
+    };
+    let args = casts::sent(
+        script.lua(),
+        133,
+        Some(7),
+        "Fireball".into(),
+        "Rank 1".into(),
+    );
+    let ScriptValue::Str(minted) = args[2].clone() else {
+        panic!("castGUID: {args:?}")
+    };
+    assert!(matches!(&args[0], ScriptValue::Str(u) if u == "player"));
+    assert!(matches!(&args[1], ScriptValue::Str(t) if t == "target"));
+    assert!(matches!(args[3], ScriptValue::Int(133)));
+    script
+        .run(
+            r#"SEEN = {}
+            local f = CreateFrame("Frame")
+            f:RegisterEvent("UNIT_SPELLCAST_START")
+            f:RegisterEvent("UNIT_SPELLCAST_STOP")
+            f:SetScript("OnEvent", function() table.insert(SEEN, arg1 .. ":" .. arg2) end)"#,
+        )
+        .unwrap();
+    casts::event(
+        script.lua(),
+        7,
+        "UNIT_SPELLCAST_START",
+        &cast(133, "Cast-7-1"),
+    );
+    casts::event(
+        script.lua(),
+        3,
+        "UNIT_SPELLCAST_START",
+        &cast(116, "Cast-3-1"),
+    );
+    casts::event(
+        script.lua(),
+        3,
+        "UNIT_SPELLCAST_START",
+        &cast(133, "Cast-3-2"),
+    );
+    casts::set_casts(script.lua(), [(3, cast(133, "Cast-3-2"))]);
+    casts::event(
+        script.lua(),
+        3,
+        "UNIT_SPELLCAST_STOP",
+        &cast(133, "Cast-3-2"),
+    );
+    casts::event(
+        script.lua(),
+        3,
+        "UNIT_SPELLCAST_START",
+        &cast(133, "Cast-3-3"),
+    );
+    script
+        .run(&format!(
+            r#"local got = table.concat(SEEN, " ")
+            assert(got == "target:Cast-7-1 player:Cast-3-1 player:{minted} player:{minted} player:Cast-3-3", got)"#
+        ))
+        .unwrap();
+    let first = casts::sent(script.lua(), 133, None, String::new(), String::new());
+    let second = casts::sent(script.lua(), 133, None, String::new(), String::new());
+    assert!(matches!(&first[1], ScriptValue::Str(t) if t.is_empty()));
+    assert_ne!(format!("{:?}", first[2]), format!("{:?}", second[2]));
+}
