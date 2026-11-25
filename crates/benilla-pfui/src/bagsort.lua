@@ -277,3 +277,8 @@ function C_Container.SortBankBags()
   for bag = 5, 10 do table.insert(bags, bag) end
   start(bags, true)
 end
+
+-- ClassicAPI's `SetBagPortraitTexture` and `C_Container.SetBagPortraitTexture`
+-- (container/Portrait.cpp): the engine's own `SetBagPortaitTexture`, under the corrected name.
+SetBagPortraitTexture = SetBagPortaitTexture
+C_Container.SetBagPortraitTexture = SetBagPortaitTexture
