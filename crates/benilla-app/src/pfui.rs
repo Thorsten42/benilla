@@ -13,6 +13,7 @@ mod icons;
 pub(crate) mod input;
 pub(crate) mod interrupts;
 mod item_sets;
+pub(crate) mod line_of_sight;
 mod lockout;
 mod loot;
 #[cfg(feature = "nampower")]
@@ -191,6 +192,7 @@ impl Plugin for PfuiPlugin {
         loot::register(app);
         area_loot::register(app);
         soft_target::register(app);
+        line_of_sight::register(app);
         quests::register(app);
         session_events::register(app);
         crate::ui_text::inline_texture::register(app);
