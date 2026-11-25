@@ -247,6 +247,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "AbbreviateLargeNumbers",
         "C_Glue",
         "C_VoiceChat",
+        "SetBagPortraitTexture",
     ] {
         if !lua.globals().get::<Value>(name)?.is_nil() {
             return Err(mlua::Error::runtime(format!(
