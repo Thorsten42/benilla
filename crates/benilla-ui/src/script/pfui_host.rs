@@ -48,6 +48,7 @@ pub mod spell_description;
 pub mod tiling;
 pub(crate) mod tooltip_subjects;
 pub mod totems;
+pub mod unit_position;
 pub mod units;
 pub(crate) mod xml;
 
@@ -415,6 +416,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     line_of_sight::install(lua)?;
     dressup_slots::install(lua)?;
     model_display::install(lua)?;
+    unit_position::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;

@@ -259,6 +259,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "SetBagPortraitTexture",
         "UnitSelectionColor",
         "UnitInLineOfSight",
+        "UnitPosition",
         "C_DeathRecap",
         "C_DamageMeter",
     ] {
