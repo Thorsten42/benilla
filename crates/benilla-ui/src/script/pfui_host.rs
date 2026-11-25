@@ -15,6 +15,7 @@ pub mod chat_name_colors;
 mod cursor;
 pub(crate) mod data_loads;
 mod descriptors;
+mod dressup_slots;
 pub mod durations;
 mod editbox_caret;
 mod engine;
@@ -411,6 +412,7 @@ pub fn install(lua: &Lua) -> mlua::Result<()> {
     area_loot::install(lua)?;
     soft_targets::install(lua);
     line_of_sight::install(lua)?;
+    dressup_slots::install(lua)?;
     chat_event::install(lua)?;
     social::install(lua)?;
     units::install(lua)?;
