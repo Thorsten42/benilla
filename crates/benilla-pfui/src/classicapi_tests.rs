@@ -212,7 +212,7 @@ fn modified_clicks_have_the_documented_actions_and_defaults() {
         .run(
             r#"
         assert(GetModifiedClick("SELFCAST") == "ALT" and GetModifiedClick("CHATLINK") == "SHIFT-BUTTON1")
-        assert(GetNumModifiedClickActions() == 18)
+        assert(GetNumModifiedClickActions() == 19 and GetModifiedClick("MOUSEOVERCAST") == "NONE")
         SetModifiedClick("SELFCAST", "ctrl")
         assert(GetModifiedClick("SELFCAST") == "CTRL")
         assert(not pcall(SetModifiedClick, "NOSUCHACTION", "ALT"))

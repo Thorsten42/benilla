@@ -1383,7 +1383,7 @@ fn modifier_sides_and_their_event_follow_classicapi() {
 /// `GetBindingByKey` see them.
 #[test]
 fn override_bindings_stand_in_front_of_the_saved_ones() {
-    let mut script = extended();
+    let script = extended();
     script.register_bindings(
         &benilla_ui::bindings_xml::parse(
             r#"<Bindings><Binding name="ACTIONBUTTON1">x()</Binding><Binding name="JUMP">x()</Binding></Bindings>"#,
