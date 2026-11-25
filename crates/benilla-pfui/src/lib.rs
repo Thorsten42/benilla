@@ -261,6 +261,8 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "UnitInLineOfSight",
         "UnitPosition",
         "GetPlayerFacing",
+        "IsIndoors",
+        "IsOutdoors",
         "C_DeathRecap",
         "C_DamageMeter",
     ] {

@@ -2246,7 +2246,9 @@ fn set_display_info_shows_a_creature_display_until_set_unit() {
 #[test]
 fn unit_position_reads_the_hosts_position_in_retails_order() {
     use benilla_ui::script::live::LiveAsk;
-    use benilla_ui::script::pfui_host::unit_position::{PlayerFacingQuery, UnitPositionQuery};
+    use benilla_ui::script::pfui_host::unit_position::{
+        PlayerFacingQuery, PlayerIndoorsQuery, UnitPositionQuery,
+    };
     use benilla_ui::script::{CallHost, CallTail, ScriptCall, UnitGuids};
     struct World;
     impl CallHost for World {
@@ -2257,6 +2259,7 @@ fn unit_position_reads_the_hosts_position_in_retails_order() {
             ask.answer(|q: &UnitPositionQuery| {
                 Some((q.0 == 3).then_some(([-4910.0, -973.0, 501.5], 0)))
             }) || ask.answer(|_: &PlayerFacingQuery| Some(Some(-std::f32::consts::FRAC_PI_2)))
+                || ask.answer(|_: &PlayerIndoorsQuery| Some(Some(true)))
         }
     }
     let mut script = extended();
@@ -2275,7 +2278,8 @@ fn unit_position_reads_the_hosts_position_in_retails_order() {
             assert(C_PlayerInfo.UnitPosition("player") == y and ClassicAPI.UnitPosition)
             assert(UnitPosition("target") == nil)
             assert(not pcall(UnitPosition))
-            assert(math.abs(GetPlayerFacing() - 3 * math.pi / 2) < 1e-6, GetPlayerFacing())"#,
+            assert(math.abs(GetPlayerFacing() - 3 * math.pi / 2) < 1e-6, GetPlayerFacing())
+            assert(IsIndoors() == 1 and IsOutdoors() == nil)"#,
         )
         .unwrap()
     });
