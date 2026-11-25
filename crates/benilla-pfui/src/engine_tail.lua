@@ -359,10 +359,20 @@ end
 -- 1 unfriendly, 2 neutral, 3 friendly), 9 when dead with the extended ladder. A player-controlled
 -- one: 0 when each can attack the other, 4 (5 extended) when only it can attack the player, 2 when
 -- only the player can attack it, else 3 when PvP-flagged and 4 (5) when not; the extended ladder
--- puts a party or raid member (not the player) on 6, or 7 when PvP-flagged. A unit the client
--- holds no object for reads as an unflagged player, as its no-object branch does.
+-- puts a party or raid member (not the player) on 6, or 7 when PvP-flagged, and a friends-list
+-- player on 8. A unit the client holds no object for reads as an unflagged player, as its
+-- no-object branch does.
 local reactionTypes = { [1] = 0, [2] = 0, [3] = 1, [4] = 2, [5] = 3, [6] = 3, [7] = 3, [8] = 3 }
+local function onFriendsList(unit)
+  local name = UnitName(unit)
+  if not name then return false end
+  for i = 1, GetNumFriends() do
+    if GetFriendInfo(i) == name then return true end
+  end
+  return false
+end
 function UnitSelectionType(unit, extended)
+  if type(unit) ~= "string" then error('Usage: UnitSelectionType("unit")', 2) end
   local player = extended and 5 or 4
   if not UnitExists(unit) or not UnitIsVisible(unit) then return player end
   if not UnitPlayerControlled(unit) then
@@ -377,7 +387,22 @@ function UnitSelectionType(unit, extended)
   if extended and not UnitIsUnit(unit, "player") and (UnitInParty(unit) or UnitInRaid(unit)) then
     return pvp and 7 or 6
   end
+  if extended and not UnitIsUnit(unit, "player") and onFriendsList(unit) then return 8 end
   return pvp and 3 or player
+end
+
+-- `UnitSelectionColor(unit [, useExtendedColors])`: r, g, b, a of that rung. Hostile, unfriendly,
+-- neutral and friendly are the reaction colours, a player pure blue (#6060FF extended), a party
+-- member #AAAAFF (#AAFFAA PvP-flagged), a friend #53C8FF, the dead #7F7F7F.
+local selectionColors = {
+  [0] = { 1, 0, 0 }, { 1, 128 / 255, 0 }, { 1, 1, 0 }, { 0, 1, 0 }, { 0, 0, 1 },
+  { 96 / 255, 96 / 255, 1 }, { 170 / 255, 170 / 255, 1 }, { 170 / 255, 1, 170 / 255 },
+  { 83 / 255, 200 / 255, 1 }, { 127 / 255, 127 / 255, 127 / 255 },
+}
+function UnitSelectionColor(unit, extended)
+  if type(unit) ~= "string" then error('Usage: UnitSelectionColor("unit")', 2) end
+  local c = selectionColors[UnitSelectionType(unit, extended)]
+  return c[1], c[2], c[3], 1
 end
 
 -- `GetSpellLink(spell [, bookType])`: the spell's link, with the trailing sub-data field modern
