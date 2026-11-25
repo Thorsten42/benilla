@@ -1376,3 +1376,67 @@ fn modifier_sides_and_their_event_follow_classicapi() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's override bindings (`bindings/Api.cpp`): owner-scoped, newest priority binding
+/// first, then the newest normal one, in front of the saved binding for the dispatch, never saved;
+/// a winner with an unknown command unbinds its key; `GetBindingAction(key, true)` and
+/// `GetBindingByKey` see them.
+#[test]
+fn override_bindings_stand_in_front_of_the_saved_ones() {
+    let script = extended();
+    script.register_bindings(
+        &benilla_ui::bindings_xml::parse(
+            r#"<Bindings><Binding name="ACTIONBUTTON1">x()</Binding><Binding name="JUMP">x()</Binding></Bindings>"#,
+        )
+        .unwrap(),
+    );
+    let key_of = |script: &UiScript, key: &str| {
+        script
+            .binding_keys()
+            .into_iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, c)| c)
+    };
+    script
+        .run(
+            r#"SetBinding("1", "ACTIONBUTTON1")
+        A = CreateFrame("Frame", "OverrideA")
+        B = CreateFrame("Frame", "OverrideB")
+        SetOverrideBinding(A, false, "shift-1", "ACTIONBUTTON1")"#,
+        )
+        .unwrap();
+    let generation = script.keybinds_generation();
+    assert_eq!(key_of(&script, "SHIFT-1").as_deref(), Some("ACTIONBUTTON1"));
+    assert_eq!(key_of(&script, "1").as_deref(), Some("ACTIONBUTTON1"));
+    script
+        .run(r#"SetOverrideBinding(B, true, "SHIFT-1", "JUMP") SetOverrideBinding(A, false, "1", "JUMP")"#)
+        .unwrap();
+    assert!(script.keybinds_generation() > generation);
+    assert_eq!(key_of(&script, "SHIFT-1").as_deref(), Some("JUMP"));
+    assert_eq!(key_of(&script, "1").as_deref(), Some("JUMP"));
+    script
+        .run(
+            r#"assert(GetBindingAction("1") == "ACTIONBUTTON1" and GetBindingAction("1", true) == "JUMP")
+        assert(GetBindingByKey("SHIFT-1") == "JUMP" and GetBindingByKey("CTRL-9") == nil)
+        ClearOverrideBindings(B)"#,
+        )
+        .unwrap();
+    assert_eq!(
+        key_of(&script, "SHIFT-1").as_deref(),
+        Some("ACTIONBUTTON1"),
+        "an owner's binding is per key: A's SHIFT-1 stays under B's cleared one"
+    );
+    assert_eq!(key_of(&script, "1").as_deref(), Some("JUMP"));
+    script
+        .run(r#"SetOverrideBinding(A, false, "1") SetOverrideBinding(B, false, "2", "NOSUCHCOMMAND")"#)
+        .unwrap();
+    assert_eq!(key_of(&script, "1").as_deref(), Some("ACTIONBUTTON1"));
+    assert_eq!(key_of(&script, "2"), None);
+    script
+        .run(
+            r#"assert(not pcall(SetOverrideBinding, nil, false, "1", "JUMP"))
+        assert(not pcall(SetOverrideBinding, A, false, nil))
+        assert(not pcall(ClearOverrideBindings, {}))"#,
+        )
+        .unwrap();
+}
