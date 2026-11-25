@@ -6,7 +6,9 @@
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
-use benilla_ui::script::pfui_host::unit_position::{PlayerFacingQuery, UnitPositionQuery};
+use benilla_ui::script::pfui_host::unit_position::{
+    PlayerFacingQuery, PlayerIndoorsQuery, UnitPositionQuery,
+};
 
 #[derive(SystemParam)]
 pub(crate) struct UnitPositionLive<'w, 's> {
@@ -16,6 +18,10 @@ pub(crate) struct UnitPositionLive<'w, 's> {
     player: Option<Res<'w, crate::player::Player>>,
     transforms: bevy::transform::helper::TransformHelper<'w, 's>,
     map: Option<Res<'w, benilla_world::world_map::CurrentMap>>,
+    /// The player's `CWorld::IsEntityOutdoors`, the spell validator's place answer, which
+    /// ClassicAPI's `IsIndoors` reads (`FUN_UNIT_IS_OUTDOORS`); optional, so a harness without it
+    /// cannot take the whole live-reads family down.
+    outdoors: Option<Res<'w, crate::player::PlayerOutdoors>>,
 }
 
 impl UnitPositionLive<'_, '_> {
@@ -45,6 +51,15 @@ impl crate::script_calls::live::LiveFamily for UnitPositionLive<'_, '_> {
             || ask.answer(|_: &PlayerFacingQuery| {
                 // The facing is the wire orientation itself (`net::motion::wire_yaw`).
                 Some(self.player.as_deref().map(|p| p.facing()))
+            })
+            || ask.answer(|_: &PlayerIndoorsQuery| {
+                Some(
+                    self.me
+                        .single()
+                        .ok()
+                        .and(self.outdoors.as_deref())
+                        .map(|outdoors| !outdoors.0),
+                )
             })
     }
 }
