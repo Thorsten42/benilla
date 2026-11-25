@@ -3,6 +3,8 @@
 //! draws art. The stock decoder ([`crate::markup`]) has neither token, so the scan rides its
 //! token walk: an escaped pipe (`||T`) and an escape with no closing tag are ordinary text. An
 //! atlas escape draws as the `|T` escape of its atlas's file and rectangle ([`atlas_body`]).
+//!
+//! Follows ClassicAPI's `text/InlineTexture.cpp`.
 
 use mlua::Lua;
 use std::borrow::Cow;

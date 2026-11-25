@@ -1,5 +1,7 @@
 //! The hyperlink form of the stock compare bindings: the offered item is named by a link, an
 //! entry or another tooltip's item, and the worn candidate is chosen by the same walk.
+//!
+//! Follows ClassicAPI's `tooltip/CompareItem.cpp`.
 
 use super::compare::{compare_against_worn, offered_view};
 use crate::script::object::frame_handle_of;

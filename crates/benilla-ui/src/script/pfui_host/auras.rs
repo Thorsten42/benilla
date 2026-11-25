@@ -1,4 +1,6 @@
 //! The modern aura projection, with real descriptor slots kept separately from stock DTOs.
+//!
+//! Follows ClassicAPI's `aura/Api.cpp`, `aura/Delta.cpp`.
 
 use crate::script::{AuraState, Model};
 use mlua::{Lua, MultiValue, Table, Value};

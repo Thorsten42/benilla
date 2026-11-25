@@ -1,5 +1,8 @@
 //! Gated connections from the optional pfUI extension to the stock VM's state.
 //! A feature-enabled build still uses the stock ABI until the extension installs its VM flag.
+//!
+//! The layer's root: install order, the timer pass and the event raise. Each module names the
+//! ClassicAPI source it follows in its own header.
 
 use mlua::{Function, IntoLuaMulti, Lua, MultiValue, Table, Value};
 

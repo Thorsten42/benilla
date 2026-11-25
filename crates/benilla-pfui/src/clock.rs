@@ -1,4 +1,6 @@
 //! Server-calendar display time. This deliberately differs from UTC unix timestamps.
+//!
+//! Follows ClassicAPI's `time/DateAndTime.cpp`.
 
 use mlua::Lua;
 const CLOCK: &str = "benilla.pfui.server_local_time";

@@ -1,4 +1,6 @@
 //! Equipment sets use a local cursor tag and character bindings, never a server action type.
+//!
+//! Follows ClassicAPI's `equipmentset/Action.cpp`, `cursor/Changed.cpp`.
 
 use crate::script::{
     cursor::{self, CursorAction, CursorPayload},

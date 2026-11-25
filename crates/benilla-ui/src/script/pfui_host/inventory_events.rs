@@ -1,4 +1,6 @@
 //! Aggregate stock bag events and compare actual equipment instance GUIDs after the stock feeds.
+//!
+//! Follows ClassicAPI's `bag/UpdateDelayed.cpp`.
 
 use super::Model;
 use crate::script::ScriptValue;
