@@ -3,6 +3,8 @@
 //! The modern signatures differ in their arguments (`CreateMacro(name, icon, body, perCharacter)`
 //! has no `local` flag and an optional icon, `EditMacro` also names its macro by name) and in
 //! their failures, which answer nil: a full table, or a macro that is not there.
+//!
+//! Follows ClassicAPI's `macro/Edit.cpp`.
 
 use mlua::{Function, Lua, MultiValue, Value};
 

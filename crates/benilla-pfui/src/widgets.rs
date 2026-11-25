@@ -1,3 +1,8 @@
+//! The modern frame methods a ClassicAPI client adds to 1.12's: `SetSize`/`GetSize`, `SetShown`,
+//! `HookScript`, `RegisterUnitEvent`, `UnregisterEvent` and the rest of the frame surface.
+//!
+//! Follows ClassicAPI's `frame/Modern.cpp`.
+
 use mlua::{Function, Lua, MultiValue, Table, Value};
 
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {

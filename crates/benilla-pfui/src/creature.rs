@@ -1,4 +1,6 @@
 //! The race/class/faction subset pfUI needs, read from the owner's localized DBCs.
+//!
+//! Follows ClassicAPI's `creature/Info.cpp`, `guid/CreatureInfo.cpp`.
 
 use std::collections::BTreeMap;
 use std::io::Cursor;

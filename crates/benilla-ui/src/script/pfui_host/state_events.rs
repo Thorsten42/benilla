@@ -1,6 +1,8 @@
 //! Edge events for player state the stock client changes without an event of its own: the
 //! shapeshift form, worn durability and reputation standing. Each compares the stock snapshots
 //! after their feeds; a new VM or another character sets a baseline and announces nothing.
+//!
+//! Follows ClassicAPI's `unit/ShapeshiftForm.cpp`, `item/Durability.cpp`.
 
 use super::Model;
 use crate::script::ScriptValue;

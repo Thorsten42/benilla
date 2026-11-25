@@ -1,4 +1,6 @@
 //! Read the engine's viewed map; the player's current zone is a separate selection.
+//!
+//! Follows ClassicAPI's `map/Info.cpp`, `map/MapInfo.cpp`.
 
 pub fn viewed_area(lua: &mlua::Lua) -> Option<u32> {
     let model = lua.app_data_ref::<crate::script::Model>()?;

@@ -1,4 +1,6 @@
 //! Observed cast/channel snapshots and the modern lifecycle event projection.
+//!
+//! Follows ClassicAPI's `spell/CastEvents.cpp`, `spell/Cast.cpp`.
 
 use crate::script::{Model, ScriptValue};
 use mlua::{Lua, MultiValue, Table, Value};

@@ -1,6 +1,8 @@
 //! `GameTooltip:SetSpellByID` through the stock spell builder, and `SetUnitAura` through the stock
 //! aura tooltips (`SetUnitBuff`, `SetUnitDebuff`), its `C_UnitAuras` index turned into the stock
 //! one first.
+//!
+//! Follows ClassicAPI's `unit/Tooltip.cpp`, `spell/Tooltip.cpp`.
 
 use mlua::{Function, Lua, MultiValue, Table, Value};
 

@@ -1,4 +1,6 @@
 //! Equipment operations select live item GUIDs and enter the existing atomic swap queue.
+//!
+//! Follows ClassicAPI's `equipmentset/Api.cpp`, `equipmentset/Action.cpp`.
 
 use super::{Extras, Model};
 use crate::script::{ContainerMove, ScriptValue, EQUIPMENT_BAG};

@@ -1,4 +1,6 @@
 //! The open profession windows, as the extension's profession links (`|Htrade:…|h`) read them.
+//!
+//! Follows ClassicAPI's `tradeskill/Link.cpp`.
 
 use crate::script::Model;
 use mlua::Lua;

@@ -1,4 +1,6 @@
 //! Item subjects follow the stock builders and clear/hide lifecycle, outside stock widget state.
+//!
+//! Follows ClassicAPI's `item/Tooltip.cpp`, `unit/Tooltip.cpp`, `spell/Tooltip.cpp`.
 
 use crate::script::{object::frame_handle_of, tooltip::REG_TOOLTIP_METHODS, Model};
 use crate::widget::{FrameHandle, KindState};
