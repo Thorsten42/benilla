@@ -1143,6 +1143,7 @@ fn raw_fields_and_minion_queries_preserve_server_values() {
                 health: Some(1337),
                 form: 0,
                 mount_display: 0,
+                sheath: 0,
                 auras,
                 applications,
             },
@@ -1557,6 +1558,7 @@ fn guid_registrations_take_their_units_events() {
                 health: Some(1),
                 form: 0,
                 mount_display: 0,
+                sheath: 0,
                 auras: Vec::new(),
                 applications: Vec::new(),
             },
@@ -3883,6 +3885,7 @@ fn mount_stealth_and_form_helpers_follow_live_descriptors_and_authorized_dbc_aur
                 RawUnit {
                     form,
                     mount_display,
+                    sheath: 0,
                     auras,
                     health: Some(10),
                     applications: vec![],
@@ -3902,6 +3905,7 @@ fn mount_stealth_and_form_helpers_follow_live_descriptors_and_authorized_dbc_aur
             RawUnit {
                 form: 28,
                 mount_display: 0,
+                sheath: 0,
                 auras: vec![101, 103, 102],
                 health: Some(10),
                 applications: vec![],
@@ -3945,6 +3949,7 @@ fn mount_stealth_and_form_helpers_follow_live_descriptors_and_authorized_dbc_aur
             RawUnit {
                 form: 0,
                 mount_display: 0,
+                sheath: 0,
                 auras,
                 health: Some(10),
                 applications: vec![],
@@ -3978,6 +3983,7 @@ fn shapeshift_id_reads_player_descriptor_instead_of_stance_bar_index() {
                     3,
                     RawUnit {
                         mount_display: 0,
+                        sheath: 0,
                         form,
                         health: Some(10),
                         auras: vec![],
@@ -3988,6 +3994,7 @@ fn shapeshift_id_reads_player_descriptor_instead_of_stance_bar_index() {
                     4,
                     RawUnit {
                         mount_display: 0,
+                        sheath: 0,
                         form: 2,
                         health: Some(10),
                         auras: vec![],
