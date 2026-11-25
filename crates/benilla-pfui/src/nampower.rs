@@ -195,6 +195,46 @@ pub fn application(lua: &Lua, caster: u64, target: u64, spell: u32, duration_ms:
     }
 }
 
+/// A duration rule's edit ([`crate::duration_mods`]) of `caster`'s observed applications on
+/// `target` whose spell `affected` names: the record the descriptor edges re-read is changed with
+/// the aura's shown timing, so the next aura update keeps it.
+pub fn modify(
+    lua: &Lua,
+    target: u64,
+    caster: u64,
+    affected: impl Fn(u32) -> bool,
+    op: crate::duration_mods::Op,
+) {
+    use crate::duration_mods::Op;
+    let now = now(lua);
+    let edits: Vec<(u32, Application)> = {
+        let Some(mut state) = lua.app_data_mut::<State>() else {
+            return;
+        };
+        state
+            .applications
+            .iter_mut()
+            .filter(|((t, spell), app)| *t == target && app.caster == caster && affected(*spell))
+            .filter_map(|(&(_, spell), app)| {
+                match op {
+                    Op::Refresh if app.duration > 0.0 => app.expires = now + app.duration,
+                    Op::Set(v) => {
+                        app.duration = v;
+                        app.expires = now + v;
+                    }
+                    // Shaved to or past the end, the server removes it, which the descriptor shows.
+                    Op::Reduce(v) if app.expires > 0.0 && app.expires - now > v => app.expires -= v,
+                    _ => return None,
+                }
+                Some((spell, *app))
+            })
+            .collect()
+    };
+    for (spell, app) in edits {
+        pfui_host::auras::annotate(lua, target, spell, app.caster, app.duration, app.expires);
+    }
+}
+
 /// Descriptor edges use raw slots; Lua indices skip hidden auras and holes in each half.
 pub fn auras(lua: &Lua, guid: u64, incoming: Vec<Aura>) {
     auras_at(lua, guid, incoming, now(lua), player(lua));

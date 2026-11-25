@@ -14,6 +14,7 @@ pub mod combat_log;
 pub mod creature;
 mod cvar_bits;
 pub mod display;
+pub mod duration_mods;
 mod encoding;
 pub mod icons;
 pub mod loot;
@@ -304,6 +305,7 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
     widgets::install(lua)?;
     baselib::install(lua)?;
     benilla_ui::script::pfui_host::install(lua)?;
+    duration_mods::install(lua)?;
     let engine = lua.create_table()?;
     engine.set(
         "class_names",
