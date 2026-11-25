@@ -2242,3 +2242,40 @@ fn set_display_info_shows_a_creature_display_until_set_unit() {
         )
         .unwrap();
 }
+
+#[test]
+fn unit_position_reads_the_hosts_position_in_retails_order() {
+    use benilla_ui::script::live::LiveAsk;
+    use benilla_ui::script::pfui_host::unit_position::UnitPositionQuery;
+    use benilla_ui::script::{CallHost, CallTail, ScriptCall, UnitGuids};
+    struct World;
+    impl CallHost for World {
+        fn apply(&mut self, _: &mut UiScript, _: ScriptCall) -> Option<CallTail> {
+            None
+        }
+        fn read_live(&mut self, ask: &mut LiveAsk<'_>) -> bool {
+            ask.answer(|q: &UnitPositionQuery| {
+                Some((q.0 == 3).then_some(([-4910.0, -973.0, 501.5], 0)))
+            })
+        }
+    }
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        held: std::collections::HashMap::from([(3, 0)]),
+        ..Default::default()
+    });
+    script
+        .run("assert(UnitPosition('player') == nil, 'no host, no position')")
+        .unwrap();
+    script.hosted(&mut World, |s| {
+        s.run(
+            r#"local y, x, z, map = UnitPosition("player")
+            assert(y == -973 and x == -4910 and z == 501.5 and map == 0, tostring(y))
+            assert(C_PlayerInfo.UnitPosition("player") == y and ClassicAPI.UnitPosition)
+            assert(UnitPosition("target") == nil)
+            assert(not pcall(UnitPosition))"#,
+        )
+        .unwrap()
+    });
+}
