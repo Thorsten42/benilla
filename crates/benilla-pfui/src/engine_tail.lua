@@ -319,6 +319,25 @@ function C_Item.GetItemSpell(item)
 end
 if not GetItemSpell then GetItemSpell = C_Item.GetItemSpell end
 
+-- ClassicAPI's `C_ActionBar.GetSpell(actionID)` (action/Info.cpp): the spell a 1-based slot casts:
+-- a spell its own, a macro the spell its button shows (`GetMacroSpell`), an item its on-use spell;
+-- 0 for an empty slot, one without a spell, one outside 1-120, or an item not cached yet.
+C_ActionBar = C_ActionBar or {}
+function C_ActionBar.GetSpell(slot)
+  slot = tonumber(slot)
+  if not slot or slot < 1 or slot > 120 or slot ~= math.floor(slot) then return 0 end
+  local kind, id = GetActionInfo(slot)
+  local spell
+  if kind == "spell" then
+    spell = id
+  elseif kind == "macro" and id then
+    spell = select(3, GetMacroSpell(id))
+  elseif kind == "item" and id then
+    spell = select(2, C_Item.GetItemSpell(id))
+  end
+  return spell or 0
+end
+
 -- `/cancelaura`: the player's helpful aura of that name, a rank suffix ignored, cancelled through
 -- its spell.
 function CancelSpellByName(name)
