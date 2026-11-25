@@ -19,6 +19,8 @@ struct Metadata {
     focus: Option<u64>,
     restored_focus_pending: bool,
     raw: HashMap<u64, RawUnit>,
+    /// The active player's `MOVEMENTFLAGS`, for `IsSwimming`.
+    player_move_flags: u32,
     /// The units last reported in view, `None` until the first feed seeds it.
     in_view: Option<std::collections::HashSet<u64>>,
     /// The units of `boss1`..`boss5`, in order ([`focus::resolve`]).
@@ -60,6 +62,8 @@ pub struct RawUnit {
     pub health: Option<u32>,
     pub form: u8,
     pub mount_display: u32,
+    /// `UNIT_FIELD_BYTES_2` byte 0, the sheath state: 0 put away, 1 melee, 2 ranged.
+    pub sheath: u8,
     pub auras: Vec<u32>,
     pub applications: Vec<u8>,
 }
@@ -89,6 +93,13 @@ pub fn player_is_warrior(lua: &Lua) -> bool {
 /// last feed fires ClassicAPI's `UNIT_VISIBILITY_CHANGED: unitTarget, isVisible`
 /// (`unit/VisibilityEvent.cpp`): once per token naming it, then to the frames that registered its
 /// GUID. The first feed of a VM only seeds what is in view.
+/// The active player's `MOVEMENTFLAGS` now, which `IsSwimming` reads.
+pub fn set_player_move_flags(lua: &Lua, flags: u32) {
+    if let Some(mut metadata) = lua.app_data_mut::<Metadata>() {
+        metadata.player_move_flags = flags;
+    }
+}
+
 pub fn set_raw_units(lua: &Lua, units: impl IntoIterator<Item = (u64, RawUnit)>) {
     let changed: Vec<(u64, bool)> = {
         let Some(mut metadata) = lua.app_data_mut::<Metadata>() else {
@@ -773,6 +784,23 @@ pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
                 .player;
             let metadata = lua.app_data_ref::<Metadata>().expect("unit metadata");
             Ok(metadata.raw.get(&player).map_or(0, |unit| unit.form))
+        })?,
+    )?;
+    // ClassicAPI's `IsSwimming()` (`unit/State.cpp`): the player's `MOVEFLAG_SWIMMING` (0x200000).
+    lua.globals().set(
+        "IsSwimming",
+        lua.create_function(|lua, ()| {
+            let metadata = lua.app_data_ref::<Metadata>().expect("unit metadata");
+            Ok(metadata.player_move_flags & 0x0020_0000 != 0)
+        })?,
+    )?;
+    // ClassicAPI's `GetSheathState()` (`unit/Sheath.cpp`): the player's sheath state plus one, 1
+    // (put away) before the world and for a value past 2.
+    lua.globals().set(
+        "GetSheathState",
+        lua.create_function(|lua, ()| {
+            let state = player_raw(lua).map_or(0, |unit| unit.sheath);
+            Ok(if state > 2 { 1 } else { state + 1 })
         })?,
     )?;
     lua.globals().set(

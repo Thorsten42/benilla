@@ -919,3 +919,36 @@ fn color_bitfield_glue_and_widget_helpers_follow_classicapi() {
         )
         .unwrap();
 }
+
+/// ClassicAPI's `IsSwimming()` (`unit/State.cpp`: the player's `MOVEFLAG_SWIMMING`) and
+/// `GetSheathState()` (`unit/Sheath.cpp`: the sheath state plus one, 1 before the world).
+#[test]
+fn swimming_and_sheath_read_the_player() {
+    use benilla_ui::script::{pfui_host::units, UnitGuids};
+    let mut script = extended();
+    script
+        .run("assert(IsSwimming() == false and GetSheathState() == 1)")
+        .unwrap();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        ..Default::default()
+    });
+    units::set_player_move_flags(script.lua(), 0x0020_0001);
+    let raw = |sheath| units::RawUnit {
+        health: Some(10),
+        form: 0,
+        mount_display: 0,
+        sheath,
+        auras: vec![],
+        applications: vec![],
+    };
+    units::set_raw_units(script.lua(), [(3, raw(2))]);
+    script
+        .run("assert(IsSwimming() == true and GetSheathState() == 3)")
+        .unwrap();
+    units::set_player_move_flags(script.lua(), 0x1);
+    units::set_raw_units(script.lua(), [(3, raw(7))]);
+    script
+        .run("assert(IsSwimming() == false and GetSheathState() == 1)")
+        .unwrap();
+}
