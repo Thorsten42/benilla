@@ -304,3 +304,16 @@ function IsEquippedItemType(kind)
   end
   return nil
 end
+
+-- ClassicAPI's `GetCursorDelta()`: how far the cursor moved since the last frame, in
+-- `GetCursorPosition`'s units, 0, 0 when it did not. The frame pass records the position after
+-- the frame's OnUpdate walk, so every OnUpdate of the next frame reads the same delta.
+local last_x, last_y
+function GetCursorDelta()
+  local x, y = GetCursorPosition()
+  if not last_x or not x then return 0, 0 end
+  return x - last_x, y - last_y
+end
+function bridge.cursor_pass()
+  last_x, last_y = GetCursorPosition()
+end
