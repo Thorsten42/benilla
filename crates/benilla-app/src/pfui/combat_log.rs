@@ -304,6 +304,7 @@ impl Emit<'_, '_, '_> {
                 dest: self.d.unit(dest, self.focus),
                 spell: spell.map(|id| (id, self.d.spell_name(id))),
                 values,
+                dest_health: self.d.health(dest).map(|(hp, _)| hp),
             },
         );
     }

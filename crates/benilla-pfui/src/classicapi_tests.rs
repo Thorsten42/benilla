@@ -794,6 +794,7 @@ fn combat_event(
             ScriptValue::Int(4),
             ScriptValue::Int(amount),
         ],
+        dest_health: None,
     }
 }
 
@@ -2043,6 +2044,7 @@ fn the_encounter_engages_bosses_from_the_combat_log_and_ends_on_a_wipe_or_a_kill
             dest: Some(end(dest, dest_flags)),
             spell: None,
             values: vec![],
+            dest_health: None,
         }
     };
     let mine = 0x1 | 0x10 | 0x100 | 0x400;
@@ -2102,5 +2104,95 @@ fn the_encounter_engages_bosses_from_the_combat_log_and_ends_on_a_wipe_or_a_kill
     script.fire_event("PLAYER_ENTERING_WORLD", vec![]);
     script
         .run(r#"assert(ENGAGES == 10 and UnitGUID("boss1") == nil, ENGAGES)"#)
+        .unwrap();
+}
+
+#[test]
+fn a_death_recap_keeps_the_hits_back_to_the_last_death_the_killing_blow_first() {
+    use benilla_ui::script::{ScriptValue as V, UnitGuids};
+    let mut script = extended();
+    script.set_unit_guids(&UnitGuids {
+        player: 3,
+        held: std::collections::HashMap::from([(3, 0)]),
+        ..Default::default()
+    });
+    let end = |guid, flags| super::combat_log::Unit {
+        guid,
+        name: Some(if guid == 3 { "Me" } else { "Ogre" }.into()),
+        flags,
+        raid_flags: 0,
+    };
+    let mob = 0xF130_0000_0100_0009;
+    let hit = |subevent, spell: bool, amount: i64, overkill: i64, health| {
+        let mut values = if spell {
+            vec![V::Int(133), V::Str("Fireball".into()), V::Int(4)]
+        } else {
+            vec![]
+        };
+        values.extend([
+            V::Int(amount),
+            V::Int(overkill),
+            V::Int(1),
+            V::Nil,
+            V::Nil,
+            V::Nil,
+        ]);
+        values.extend([V::Int(1), V::Nil, V::Nil, V::Nil]);
+        super::combat_log::Event {
+            subevent,
+            source: Some(end(mob, 0x8 | 0x40 | 0x200 | 0x800)),
+            dest: Some(end(3, 0x1 | 0x10 | 0x100 | 0x400)),
+            spell: spell.then(|| (133, Some("Fireball".into()))),
+            values,
+            dest_health: Some(health),
+        }
+    };
+    let died = |guid| super::combat_log::Event {
+        subevent: "UNIT_DIED",
+        source: None,
+        dest: Some(end(guid, 0x1 | 0x10 | 0x100 | 0x400)),
+        spell: None,
+        values: vec![],
+        dest_health: Some(0),
+    };
+    script
+        .run(
+            r#"DEATHS = {}
+        local f = CreateFrame("Frame")
+        f:RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
+        f:SetScript("OnEvent", function()
+          local info = {CombatLogGetCurrentEventInfo()}
+          if info[2] == "UNIT_DIED" then table.insert(DEATHS, info[12] .. "/" .. info[13]) end
+        end)
+        assert(not C_DeathRecap.HasRecapEvents() and C_DeathRecap.GetRecapEvents() == nil)
+        assert(C_DeathRecap.GetRecapLink() == (DEATH_RECAP_TEXT or ""))"#,
+        )
+        .unwrap();
+    let log = |e| super::combat_log::record(script.lua(), e);
+    log(hit("SWING_DAMAGE", false, 40, 0, 900));
+    log(died(3));
+    log(hit("SWING_DAMAGE", false, 50, 0, 500));
+    log(hit("SPELL_DAMAGE", true, 200, 0, 450));
+    log(hit("SWING_DAMAGE", false, 0, 0, 250));
+    log(hit("SWING_DAMAGE", false, 300, 50, 250));
+    log(died(mob));
+    log(died(3));
+    script
+        .run(
+            r#"assert(table.concat(DEATHS, " ") == "1/0 -1/0 2/0", table.concat(DEATHS, " "))
+        assert(C_DeathRecap.HasRecapEvents() and C_DeathRecap.HasRecapEvents(2))
+        assert(table.getn(C_DeathRecap.GetRecapEvents(1)) == 1, "the first death keeps its one hit")
+        local events = C_DeathRecap.GetRecapEvents()
+        assert(table.getn(events) == 3, table.getn(events))
+        local kill, spell, first = events[1], events[2], events[3]
+        assert(kill.event == "SWING_DAMAGE" and kill.amount == 300 and kill.overkill == 50 and kill.currentHP == 250)
+        assert(kill.critical == true and kill.glancing == false and kill.sourceName == "Ogre")
+        assert(spell.spellId == 133 and spell.spellName == "Fireball" and spell.amount == 200 and spell.currentHP == 450)
+        assert(first.amount == 50 and first.currentHP == 500)
+        assert(C_DeathRecap.GetRecapEvents(7) == nil)
+        assert(type(C_DeathRecap.GetRecapMaxHealth()) == "number" and C_DeathRecap.GetRecapMaxHealth(7) == 0)
+        DEATH_RECAP_LINK = "|Hdeath:%i|h[You died.]|h"
+        assert(C_DeathRecap.GetRecapLink() == "|Hdeath:2|h[You died.]|h", C_DeathRecap.GetRecapLink())"#,
+        )
         .unwrap();
 }
