@@ -958,6 +958,17 @@ fn a_units_selection_type_follows_classicapis_ladder() {
         check({controlled = 1, weAttack = 1}, 2)
         check({controlled = 1, pvp = 1}, 3) check({controlled = 1}, 4) check({controlled = 1}, 5, true)
         check({controlled = 1, party = 1, pvp = 1}, 7, true)
+        UnitName = function() return "Pal" end
+        GetNumFriends = function() return 1 end
+        GetFriendInfo = function() return "Pal" end
+        check({controlled = 1}, 8, true) check({controlled = 1}, 4)
+        unit = {controlled = 1}
+        local r, g, b, a = UnitSelectionColor("target", true)
+        assert(math.abs(r - 83 / 255) < 1e-6 and g == 200 / 255 and b == 1 and a == 1)
+        unit = {reaction = 1}
+        r, g, b, a = UnitSelectionColor("target")
+        assert(r == 1 and g == 0 and b == 0 and a == 1)
+        assert(not pcall(UnitSelectionColor))
     "#,
         )
         .unwrap();
