@@ -144,6 +144,8 @@ pub fn install(script: &UiScript) -> mlua::Result<()> {
         "UnitSpellHaste",
         "IsMounted",
         "IsSwimming",
+        "InteractUnit",
+        "C_PlayerInteractionManager",
         "GetMouseButtonClicked",
         "GetRunningMacroButton",
         "GetCursorDelta",
