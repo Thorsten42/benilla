@@ -243,3 +243,64 @@ menu:SetScript('OnEvent', function()
     this:SetScale(1)
   end)
 end)
+
+-- ClassicAPI's `GetShapeshiftForm([requireForm])` (unit/ShapeshiftForm.cpp): the stance bar's
+-- highest index whose form reads active, else the bar's count plus one for a form no bar spell
+-- shows, else 0; with `requireForm`, 0 while no shapeshift form is up (a stance that grants
+-- none).
+function GetShapeshiftForm(requireForm)
+  local form = GetShapeshiftFormID()
+  if requireForm and form == 0 then return 0 end
+  local count = GetNumShapeshiftForms()
+  for index = count, 1, -1 do
+    local _, _, active = GetShapeshiftFormInfo(index)
+    if active then return index end
+  end
+  if form > 0 then return count + 1 end
+  return 0
+end
+
+-- ClassicAPI's `IsEquippedItemType(type)` (item/Equipment.cpp): 1 when an unbroken equipped item
+-- (slots 1-19) matches, else nil. The type is matched without regard to case against an equip
+-- location key ("INVTYPE_SHIELD") or its name ("Off Hand"), which compares inventory types, else
+-- against the item's class or subclass name.
+-- Deviation: ClassicAPI also takes ItemSubClass.dbc's short name ("Sword" for "One-Handed
+-- Swords"); the item info here carries only the long one.
+local INVTYPES = {
+  "INVTYPE_HEAD", "INVTYPE_NECK", "INVTYPE_SHOULDER", "INVTYPE_BODY", "INVTYPE_CHEST",
+  "INVTYPE_WAIST", "INVTYPE_LEGS", "INVTYPE_FEET", "INVTYPE_WRIST", "INVTYPE_HAND",
+  "INVTYPE_FINGER", "INVTYPE_TRINKET", "INVTYPE_WEAPON", "INVTYPE_SHIELD", "INVTYPE_RANGED",
+  "INVTYPE_CLOAK", "INVTYPE_2HWEAPON", "INVTYPE_BAG", "INVTYPE_TABARD", "INVTYPE_ROBE",
+  "INVTYPE_WEAPONMAINHAND", "INVTYPE_WEAPONOFFHAND", "INVTYPE_HOLDABLE", "INVTYPE_AMMO",
+  "INVTYPE_THROWN", "INVTYPE_RANGEDRIGHT", "INVTYPE_QUIVER", "INVTYPE_RELIC",
+}
+function IsEquippedItemType(kind)
+  if (type(kind) ~= "string" and type(kind) ~= "number") or kind == "" then
+    error('Usage: IsEquippedItemType("type")', 2)
+  end
+  kind = string.lower(tostring(kind))
+  local invtype = 0
+  for index, key in ipairs(INVTYPES) do
+    local name = getglobal(key)
+    if kind == string.lower(key) or (type(name) == "string" and kind == string.lower(name)) then
+      invtype = index
+      break
+    end
+  end
+  for slot = 1, 19 do
+    local link = GetInventoryItemLink("player", slot)
+    local id = link and not GetInventoryItemBroken("player", slot)
+      and C_Item.GetItemIDForItemInfo(link)
+    if id then
+      if invtype > 0 then
+        if C_Item.GetItemInventoryTypeByID(id) == invtype then return 1 end
+      else
+        local _, _, _, _, _, class, subclass = C_Item.GetItemInfo(id)
+        if (class and string.lower(class) == kind) or (subclass and string.lower(subclass) == kind) then
+          return 1
+        end
+      end
+    end
+  end
+  return nil
+end
