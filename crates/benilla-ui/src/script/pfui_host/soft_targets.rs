@@ -54,6 +54,34 @@ pub fn set(lua: &Lua, picks: SoftPicks) {
     }
 }
 
+/// Soft targeting switched off: no picks, so each `any…` token is the live target again (as with
+/// no host feed), and each soft unit that was set fires its change.
+pub fn clear(lua: &Lua) {
+    let old = {
+        let Some(mut state) = lua.app_data_mut::<SoftTargets>() else {
+            return;
+        };
+        state.picks.take()
+    };
+    let Some(old) = old else { return };
+    if old.enemy.is_some() {
+        super::fire_pfui_event(lua, "PLAYER_SOFT_ENEMY_CHANGED", vec![]);
+    }
+    if old.friend.is_some() {
+        super::fire_pfui_event(lua, "PLAYER_SOFT_FRIEND_CHANGED", vec![]);
+    }
+    if let Some(guid) = old.interact {
+        super::fire_pfui_event(
+            lua,
+            "PLAYER_SOFT_INTERACT_CHANGED",
+            vec![
+                ScriptValue::Str(super::guid_events::guid_string(guid)),
+                ScriptValue::Str(String::new()),
+            ],
+        );
+    }
+}
+
 /// The unit a soft or `any…` token names (its base, before any `target` chain); `None` when
 /// `token` is none of them.
 pub(crate) fn base(lua: &Lua, token: &str) -> Option<Option<u64>> {
