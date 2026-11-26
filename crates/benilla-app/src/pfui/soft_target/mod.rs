@@ -67,6 +67,19 @@ struct Settings {
 }
 
 impl Settings {
+    /// Whether any soft side is switched on: the three CVars alone, which is all an off frame
+    /// reads.
+    fn enabled(script: &UiScript) -> bool {
+        ["SoftTargetEnemy", "SoftTargetFriend", "SoftTargetInteract"]
+            .iter()
+            .any(|name| {
+                script
+                    .cvar(name)
+                    .and_then(|v| v.trim().parse::<f32>().ok())
+                    .is_some_and(|v| matches!(v as i32, 2 | 3))
+            })
+    }
+
     fn read(script: &UiScript) -> Self {
         let get = |name: &str| -> f32 {
             script
@@ -92,14 +105,12 @@ impl Settings {
             combat_lock: get("TargetPriorityCombatLock") as i32,
         }
     }
-
-    fn any_on(&self) -> bool {
-        self.enemy || self.friend || self.interact
-    }
 }
 
 #[derive(Default)]
 struct State {
+    /// The picks are on the VM (soft targeting was on last frame).
+    active: bool,
     built: Option<Instant>,
     list: List,
     enemy: Option<u64>,
@@ -154,23 +165,20 @@ fn feed(
     collision: benilla_world::collision::WorldCollision,
 ) {
     let Some(script) = script else { return };
-    let settings = Settings::read(&script);
-    let target = selection.guid;
-    let now = Instant::now();
     let me = me.single().ok();
-    if !settings.any_on() || me.is_none() {
-        *state = State::default();
-        soft_targets::set(
-            script.lua(),
-            SoftPicks {
-                any_enemy: target,
-                any_friend: target,
-                any_interact: target,
-                ..Default::default()
-            },
-        );
+    // Off (the default): three CVar reads a frame, and the picks cleared once, so the `any…`
+    // tokens read the live target as with no feed.
+    if !Settings::enabled(&script) || me.is_none() {
+        if state.active {
+            *state = State::default();
+            soft_targets::clear(script.lua());
+        }
         return;
     }
+    let settings = Settings::read(&script);
+    state.active = true;
+    let target = selection.guid;
+    let now = Instant::now();
     let (me_entity, me_guid, me_store, me_place) = me.expect("checked");
     let me_pos = wow(me_place.translation);
     let reach_of = |guid: u64| -> Reach {
