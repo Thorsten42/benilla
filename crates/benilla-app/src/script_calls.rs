@@ -1777,6 +1777,13 @@ impl<P: SystemParam + 'static> VmWith<'_, '_, P> {
         self.set.p0()
     }
 
+    /// Read the VM without running Lua or lending the host: a system's cheap test whether it has
+    /// anything to do this frame.
+    #[cfg(feature = "nampower")]
+    pub(crate) fn peek<R>(&self, f: impl FnOnce(Option<&UiScript>) -> R) -> R {
+        f(self.script.as_deref())
+    }
+
     /// Run `f` on the VM with the host lent around all of it, as [`HostedVm::run`]; `P` waits
     /// outside, so what a call does to it is there for the next [`Self::own`].
     pub(crate) fn run<R>(&mut self, f: impl FnOnce(Option<&mut UiScript>) -> R) -> R {
