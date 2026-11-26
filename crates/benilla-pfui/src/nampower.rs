@@ -108,6 +108,12 @@ pub(crate) fn install(lua: &Lua) -> mlua::Result<()> {
 #[derive(Default)]
 struct DisenchantAsks(Vec<(String, bool)>);
 
+/// Whether a `DisenchantAll` ask waits for the host.
+pub fn has_disenchant_asks(lua: &Lua) -> bool {
+    lua.app_data_ref::<DisenchantAsks>()
+        .is_some_and(|asks| !asks.0.is_empty())
+}
+
 /// The asks for the host's sequencer (`benilla-app`'s `pfui::disenchant`), which parses the filter.
 pub fn take_disenchant_asks(lua: &Lua) -> Vec<(String, bool)> {
     lua.app_data_mut::<DisenchantAsks>()
