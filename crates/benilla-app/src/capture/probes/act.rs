@@ -186,6 +186,8 @@ fn probe_key_by_name(name: &str) -> Option<KeyCode> {
         // Text editing: `EditBox` has no Lua deletion API, so caret and deletion need real keys.
         "Backspace" => KeyCode::Backspace,
         "Delete" => KeyCode::Delete,
+        // PITCHUP's 1.12 default; `Delete` is PITCHDOWN's.
+        "Insert" => KeyCode::Insert,
         "Left" => KeyCode::ArrowLeft,
         "Right" => KeyCode::ArrowRight,
         "Home" => KeyCode::Home,
