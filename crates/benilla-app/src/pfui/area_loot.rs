@@ -54,6 +54,12 @@ pub(crate) struct AreaLootWalk {
     skipped: HashSet<u64>,
     /// Corpses the walk released, whose release answer is the walk's.
     released: HashSet<u64>,
+    /// Corpses the walk gave up on as silent: a response that still arrives is the walk's and is
+    /// dropped, so no loot window opens for a corpse already released.
+    abandoned: HashSet<u64>,
+    /// A scan or loot walk asked while an item walk ran: ClassicAPI runs the two side by side;
+    /// here it starts when the item walk ends.
+    held: Option<LootRequest>,
     /// A walk ended and owes the VM its results and `LOOT_SCAN_COMPLETED`.
     finished: bool,
 }
@@ -82,6 +88,10 @@ pub(crate) fn claim(
     gold: u32,
     rows: &[LootItem],
 ) -> bool {
+    if walk.abandoned.remove(&guid) {
+        debug!("area loot: {guid:#x} answered after the walk left it; dropped");
+        return true;
+    }
     let Some(take) = walk.take else {
         return false;
     };
@@ -174,29 +184,34 @@ fn feed(
     }
     nearby.sort_unstable();
     walk.skipped.retain(|guid| in_view.contains(guid));
+    walk.abandoned.retain(|guid| in_view.contains(guid));
     area_loot::set_nearby(lua, nearby.clone());
+    let begin = |walk: &mut AreaLootWalk, request: LootRequest| {
+        let (take, max) = match request {
+            LootRequest::LootAll { max } => (Take::All, max),
+            _ => (Take::Nothing, None),
+        };
+        walk.results.clear();
+        walk.take = Some(take);
+        walk.queue.clear();
+        if loot.source().is_none() {
+            let skipped = walk.skipped.clone();
+            walk.queue.extend(
+                nearby
+                    .iter()
+                    .copied()
+                    .filter(|g| take == Take::Nothing || !skipped.contains(g))
+                    .take(max.map_or(usize::MAX, |m| m as usize)),
+            );
+        }
+    };
     for request in area_loot::take_requests(lua) {
         match request {
-            LootRequest::Scan | LootRequest::LootAll { .. } if walk.running() => {}
-            LootRequest::Scan | LootRequest::LootAll { .. } => {
-                let (take, max) = match request {
-                    LootRequest::LootAll { max } => (Take::All, max),
-                    _ => (Take::Nothing, None),
-                };
-                walk.results.clear();
-                walk.take = Some(take);
-                walk.queue.clear();
-                if loot.source().is_none() {
-                    let skipped = walk.skipped.clone();
-                    walk.queue.extend(
-                        nearby
-                            .iter()
-                            .copied()
-                            .filter(|g| take == Take::Nothing || !skipped.contains(g))
-                            .take(max.map_or(usize::MAX, |m| m as usize)),
-                    );
-                }
+            // The VM refuses a second scan while one runs; one asked during an item walk waits.
+            LootRequest::Scan | LootRequest::LootAll { .. } if walk.running() => {
+                walk.held = Some(request);
             }
+            LootRequest::Scan | LootRequest::LootAll { .. } => begin(&mut walk, request),
             LootRequest::UnitItem { guid, item_id } => {
                 if !walk.running() && loot.source().is_none() {
                     walk.results.clear();
@@ -217,6 +232,7 @@ fn feed(
                 debug!("area loot: {:#x} stayed silent, released", silent.guid);
                 let _ = net.0.send(ClientCommand::LootRelease { guid: silent.guid });
                 walk.released.insert(silent.guid);
+                walk.abandoned.insert(silent.guid);
             }
             match walk.queue.pop_front() {
                 Some(guid) => {
@@ -232,7 +248,10 @@ fn feed(
                     walk.take = None;
                     walk.finished = !item_walk;
                     if item_walk {
-                        area_loot::set_in_progress(lua, false);
+                        match walk.held.take() {
+                            Some(request) => begin(&mut walk, request),
+                            None => area_loot::set_in_progress(lua, false),
+                        }
                     }
                 }
             }
