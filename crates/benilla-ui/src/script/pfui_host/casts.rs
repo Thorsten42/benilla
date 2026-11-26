@@ -259,6 +259,7 @@ pub fn event(lua: &Lua, caster: u64, kind: &str, cast: &Cast) {
             | "UNIT_SPELLCAST_CHANNEL_START"
             | "UNIT_SPELLCAST_SUCCEEDED"
             | "UNIT_SPELLCAST_FAILED"
+            | "UNIT_SPELLCAST_FAILED_QUIET"
     );
     let cast_guid = shown_guid(lua, caster, cast, claim);
     for token in super::units::event_tokens(lua, caster) {
