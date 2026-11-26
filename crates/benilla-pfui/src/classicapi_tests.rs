@@ -1959,7 +1959,19 @@ fn soft_target_tokens_and_events_follow_the_hosts_picks() {
         assert(UnitGUID("anyenemy") == "0x0000000000000007" and UnitGUID("anyinteract") == "0x000000000000000B")
         assert(UnitExists("softenemy"))
         local got = table.concat(SEEN, " ")
-        assert(got == "PLAYER_SOFT_ENEMY_CHANGED(nil,nil) PLAYER_SOFT_INTERACT_CHANGED(,0x000000000000000B)", got)"#,
+        assert(got == "PLAYER_SOFT_ENEMY_CHANGED(nil,nil) PLAYER_SOFT_INTERACT_CHANGED(,0x000000000000000B)", got)
+        SEEN = {}"#,
+        )
+        .unwrap();
+    // Switched off: the picks go, each soft unit that was set fires, `any…` is the target again.
+    soft_targets::clear(script.lua());
+    soft_targets::clear(script.lua());
+    script
+        .run(
+            r#"assert(UnitGUID("softenemy") == nil and UnitGUID("softinteract") == nil)
+        assert(UnitGUID("anyinteract") == UnitGUID("target") and UnitGUID("anyenemy") == UnitGUID("target"))
+        local got = table.concat(SEEN, " ")
+        assert(got == "PLAYER_SOFT_ENEMY_CHANGED(nil,nil) PLAYER_SOFT_INTERACT_CHANGED(0x000000000000000B,)", got)"#,
         )
         .unwrap();
 }
@@ -1975,6 +1987,10 @@ fn unit_in_line_of_sight_reads_the_hosts_trace() {
         held: std::collections::HashMap::from([(3, 0), (7, 0)]),
         ..Default::default()
     });
+    assert!(
+        line_of_sight::wanted(script.lua()).is_empty(),
+        "nothing asked, nothing to trace"
+    );
     line_of_sight::set(
         script.lua(),
         std::collections::HashMap::from([(7, false), (9, true)]),
@@ -1984,12 +2000,19 @@ fn unit_in_line_of_sight_reads_the_hosts_trace() {
             r#"assert(UnitInLineOfSight("player") == true)
         assert(UnitInLineOfSight("target") == false)
         assert(UnitInLineOfSight("0x0000000000000009") == true)
-        assert(UnitInLineOfSight("0x000000000000000A") == false, "untraced: past 150 yd")
+        assert(UnitInLineOfSight("0x000000000000000A") == nil, "not traced yet")
         assert(UnitInLineOfSight("0xF110022B16000362") == nil, "a GameObject")
         assert(UnitInLineOfSight("focus") == nil)
         assert(not pcall(UnitInLineOfSight))"#,
         )
         .unwrap();
+    let mut wanted = line_of_sight::wanted(script.lua());
+    wanted.sort_unstable();
+    assert_eq!(
+        wanted,
+        [7, 9, 10],
+        "the units asked about, not the player or a GameObject"
+    );
     line_of_sight::set(script.lua(), std::collections::HashMap::from([(7, true)]));
     script
         .run(r#"assert(UnitInLineOfSight("target") == true)"#)
