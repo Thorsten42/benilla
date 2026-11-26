@@ -31,6 +31,9 @@ const HELD_SLOTS: [usize; 3] = [15, 16, 17];
 struct Lane {
     item: CharEnumItem,
     attached: bool,
+    /// Which try-on put it there (its index in [`DressUpRoom::held`]); `None` for the player's
+    /// own piece.
+    from: Option<usize>,
 }
 
 /// The widget's two held lanes. `TryOn` (`0x504d90` → `0x5048e8`) installs into lane `0x0f`
@@ -53,11 +56,12 @@ fn held_lanes(equipment: &mut [CharEnumItem; 19], room: &DressUpRoom, dual_wield
         (equipment[slot].display_id != 0).then_some(Lane {
             item: equipment[slot],
             attached: true,
+            from: None,
         })
     };
     let (mut main, mut off) = (base(15), base(16));
 
-    for &item in &room.held {
+    for (index, &item) in room.held.iter().enumerate() {
         let to_off = match item.inventory_type {
             13 => dual_wield && main.is_some_and(|l| matches!(l.item.inventory_type, 13 | 21)),
             14 | 15 | 22 | 23 => true,
@@ -81,7 +85,17 @@ fn held_lanes(equipment: &mut [CharEnumItem; 19], room: &DressUpRoom, dual_wield
         *mine = Some(Lane {
             item,
             attached: true,
+            from: Some(index),
         });
+    }
+    // A ClassicAPI client's `UndressSlot(16)` / `(17)` emptied a lane: what held it then (the
+    // player's own piece or an earlier try-on) is off; a try-on since lands as usual.
+    for (lane, cut) in [(&mut main, room.lane_cut[0]), (&mut off, room.lane_cut[1])] {
+        if let Some(cut) = cut {
+            if lane.is_some_and(|l| l.from.is_none_or(|i| i < cut)) {
+                *lane = None;
+            }
+        }
     }
 
     // Write back by lane, never through `equip_slot`: the index picks the held law `held_wants`
@@ -115,9 +129,12 @@ pub(crate) struct DressUpRoom {
     /// component slots `0..0xb` (`0x5044b0`) and detaches and zeroes both held lanes
     /// (`0x5044c2`-`0x504532`).
     bare: bool,
-    /// The equipment slots (bit = slot index) a ClassicAPI client's `UndressSlot` took off, until
-    /// the next `Dress`.
+    /// The armor slots (bit = slot index) a ClassicAPI client's `UndressSlot` took off, until the
+    /// next `Dress`.
     bare_slots: u32,
+    /// The main and off lanes `UndressSlot(16)` / `(17)` emptied, each with the try-on count at
+    /// the call ([`held_lanes`] drops what held the lane then).
+    lane_cut: [Option<usize>; 2],
     /// Resolved body substitutions by equipment slot; the held ones are [`Self::held`].
     worn: [Option<CharEnumItem>; 19],
     /// Held try-ons in landing order, latest last: each picks its lane from the lanes the earlier
@@ -144,6 +161,7 @@ impl DressUpRoom {
                 self.open = true;
                 self.bare = false;
                 self.bare_slots = 0;
+                self.lane_cut = [None; 2];
                 self.worn = Default::default();
                 self.held.clear();
             }
@@ -157,22 +175,15 @@ impl DressUpRoom {
                         self.worn[idx] = None;
                         self.bare_slots |= 1 << idx;
                     }
-                    16 => {
-                        self.bare_slots |= 1 << 15 | 1 << 17;
-                        self.held
-                            .retain(|i| matches!(i.inventory_type, 14 | 15 | 22 | 23));
-                    }
-                    17 => {
-                        self.bare_slots |= 1 << 16;
-                        self.held
-                            .retain(|i| !matches!(i.inventory_type, 14 | 15 | 22 | 23));
-                    }
+                    16 => self.lane_cut[0] = Some(self.held.len()),
+                    17 => self.lane_cut[1] = Some(self.held.len()),
                     _ => {}
                 }
             }
             DressUpIntent::Undress => {
                 self.open = true;
                 self.bare = true;
+                self.lane_cut = [None; 2];
                 // Every piece off, base (`bare`) and tried-on alike, the hands included.
                 self.worn = Default::default();
                 self.held.clear();
@@ -201,6 +212,7 @@ impl DressUpRoom {
         self.open = false;
         self.bare = false;
         self.bare_slots = 0;
+        self.lane_cut = [None; 2];
         self.worn = Default::default();
         self.held.clear();
         self.pending.clear();
@@ -680,6 +692,32 @@ mod tests {
         assert_eq!(
             look.equipment[4].display_id, 7000,
             "a try-on lands in the bare slot"
+        );
+        // Dual wield: two one-handers tried on bare-handed, the second in the off lane; each
+        // hand slot takes off what its own lane shows.
+        items.insert_template(5000, Some(worn("Dagger", 6100, 13)));
+        room.apply(DressUpIntent::Undress, &items, &cmds);
+        room.apply(DressUpIntent::TryOn(3000), &items, &cmds);
+        room.apply(DressUpIntent::TryOn(5000), &items, &cmds);
+        room.resolve_pending(&items);
+        let look = player_look(&store, &net(), None, &room, &items, true).unwrap();
+        assert_eq!(
+            (look.equipment[15].display_id, look.equipment[16].display_id),
+            (6000, 6100),
+            "sword main, dagger off"
+        );
+        room.apply(DressUpIntent::UndressSlot(17), &items, &cmds);
+        let look = player_look(&store, &net(), None, &room, &items, true).unwrap();
+        assert_eq!(
+            (look.equipment[15].display_id, look.equipment[16].display_id),
+            (6000, 0),
+            "the off hand's dagger is off, the sword stays"
+        );
+        room.apply(DressUpIntent::UndressSlot(16), &items, &cmds);
+        let look = player_look(&store, &net(), None, &room, &items, true).unwrap();
+        assert_eq!(
+            look.equipment[15].display_id, 0,
+            "and the main hand's sword"
         );
         room.apply(DressUpIntent::UndressSlot(2), &items, &cmds);
         room.apply(DressUpIntent::Dress, &items, &cmds);
