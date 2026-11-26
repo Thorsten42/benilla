@@ -5,8 +5,9 @@
 //! lines.
 //!
 //! - **The filter:** a number is an item ID; `greens`, `blues`, `purples` are the Uncommon, Rare
-//!   and Epic qualities and combine with `|`; any other text is an item name. Soulbound items are
-//!   skipped unless asked for.
+//!   and Epic weapons and armor (class 2 and 4) and combine with `|`; any other text is an item
+//!   name. Quest items (class 12, or one that starts a quest) are always skipped, soulbound items
+//!   unless asked for: the DLL's documented protections (Nampower's `SCRIPTS.md`, `items.cpp`).
 //! - **A step:** the next matching item, bag 0 to 4 and slot by slot, is cast at as a player does
 //!   it: Disenchant through the ladder, which arms the targeting cursor, then the bag click's own
 //!   bind (`pick_item`), with every check that click makes. The chat says which item, and that
@@ -25,6 +26,9 @@ use bevy::prelude::*;
 
 /// Disenchant's spell ID.
 pub(crate) const DISENCHANT: u32 = 13_262;
+const ITEM_CLASS_WEAPON: u32 = 2;
+const ITEM_CLASS_ARMOR: u32 = 4;
+const ITEM_CLASS_QUEST: u32 = 12;
 
 /// How long a step waits for its item to leave the bag: the 3 s cast, the server's round trip and
 /// slack. Too short stops a run on a laggy step.
@@ -61,11 +65,25 @@ impl Filter {
         }
     }
 
-    pub(crate) fn takes(&self, entry: u32, quality: u32, name: &str) -> bool {
+    /// Whether the filter takes an item of `entry`, `quality`, `class` and `name`; a quest item
+    /// never (`start_quest` is the quest it starts, 0 for none).
+    pub(crate) fn takes(
+        &self,
+        entry: u32,
+        quality: u32,
+        class: u32,
+        start_quest: u32,
+        name: &str,
+    ) -> bool {
+        if class == ITEM_CLASS_QUEST || start_quest != 0 {
+            return false;
+        }
         match self {
             Filter::ItemId(id) => entry == *id,
             Filter::Name(want) => name.to_lowercase() == *want,
-            Filter::Qualities(set) => set.contains(&quality),
+            Filter::Qualities(set) => {
+                matches!(class, ITEM_CLASS_WEAPON | ITEM_CLASS_ARMOR) && set.contains(&quality)
+            }
         }
     }
 }
@@ -211,7 +229,7 @@ impl DisenchantDrive<'_, '_> {
                         return None;
                     }
                     filter
-                        .takes(entry, t.quality, &t.name)
+                        .takes(entry, t.quality, t.class, t.start_quest, &t.name)
                         .then(|| (guid, bag, u32::from(slot) + 1))
                 })
             })
@@ -272,6 +290,13 @@ pub(super) fn register(app: &mut App) {
 pub(crate) fn drive_disenchant(
     mut vm: crate::script_calls::VmWith<DisenchantDrive<'static, 'static>>,
 ) {
+    // Idle (no run, nothing asked): no engine turn and no host lent, every frame.
+    let asked = vm.peek(|script| {
+        script.is_some_and(|s| benilla_pfui::nampower::has_disenchant_asks(s.lua()))
+    });
+    if !asked && !vm.own().run.running() {
+        return;
+    }
     vm.turn(|script, mut drive| {
         let asks = script
             .map(|s| benilla_pfui::nampower::take_disenchant_asks(s.lua()))
@@ -302,9 +327,23 @@ mod tests {
             Some(Filter::Name("greens|linen cloth".into()))
         );
         assert_eq!(Filter::parse("  "), None);
-        assert!(Filter::Qualities(vec![2, 4]).takes(1, 4, "x"));
-        assert!(!Filter::Qualities(vec![2, 4]).takes(1, 3, "x"));
-        assert!(Filter::Name("linen cloth".into()).takes(2589, 1, "Linen Cloth"));
+        let greens = Filter::Qualities(vec![2, 4]);
+        assert!(greens.takes(1, 4, 2, 0, "a sword") && greens.takes(1, 2, 4, 0, "a robe"));
+        assert!(!greens.takes(1, 3, 2, 0, "x"), "blues are not asked for");
+        assert!(
+            !greens.takes(1, 2, 9, 0, "a recipe"),
+            "quality mode takes weapons and armor only"
+        );
+        assert!(!greens.takes(1, 2, 1, 0, "a bag"));
+        assert!(Filter::Name("linen cloth".into()).takes(2589, 1, 7, 0, "Linen Cloth"));
+        assert!(
+            !Filter::ItemId(7).takes(7, 2, 12, 0, "x"),
+            "a quest item, never"
+        );
+        assert!(
+            !Filter::ItemId(7).takes(7, 2, 4, 123, "x"),
+            "one that starts a quest, never"
+        );
     }
 
     #[test]
