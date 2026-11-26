@@ -93,10 +93,6 @@ pub fn player_is_warrior(lua: &Lua) -> bool {
         .is_some_and(|class| class == "WARRIOR")
 }
 
-/// Every unit in view, as the object table holds it now. A unit that entered or left since the
-/// last feed fires ClassicAPI's `UNIT_VISIBILITY_CHANGED: unitTarget, isVisible`
-/// (`unit/VisibilityEvent.cpp`): once per token naming it, then to the frames that registered its
-/// GUID. The first feed of a VM only seeds what is in view.
 /// The units the feed reported whose name `matches`, for a search by name.
 pub(crate) fn named_units(lua: &Lua, matches: impl Fn(&str) -> bool) -> Vec<u64> {
     lua.app_data_ref::<Metadata>()
@@ -118,6 +114,10 @@ pub fn set_player_move_flags(lua: &Lua, flags: u32) {
     }
 }
 
+/// Every unit in view, as the object table holds it now. A unit that entered or left since the
+/// last feed fires ClassicAPI's `UNIT_VISIBILITY_CHANGED: unitTarget, isVisible`
+/// (`unit/VisibilityEvent.cpp`): once per token naming it, then to the frames that registered its
+/// GUID. The first feed of a VM only seeds what is in view.
 pub fn set_raw_units(lua: &Lua, units: impl IntoIterator<Item = (u64, RawUnit)>) {
     let changed: Vec<(u64, bool)> = {
         let Some(mut metadata) = lua.app_data_mut::<Metadata>() else {
