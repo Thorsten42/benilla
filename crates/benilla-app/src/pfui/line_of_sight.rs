@@ -1,13 +1,14 @@
 //! The host half of ClassicAPI's `UnitInLineOfSight`
 //! ([`benilla_ui::script::pfui_host::line_of_sight`]): every 100 ms, one segment from the player
-//! to each unit within 150 yards (ClassicAPI's guard), each end raised by its own unit's collision
+//! to each unit the VM asked about lately (none asked, no ray), false past 150 yards (ClassicAPI's
+//! guard), each end raised by its own unit's collision
 //! height ([`CollisionHeight`], the reference's `CMovement+0xb4`, as ClassicAPI reads it),
 //! traced through the world's line-of-sight geometry ([`WorldCollision::clear_line`]).
 //!
 //! [`WorldCollision::clear_line`]: benilla_world::collision::WorldCollision::clear_line
 //! [`CollisionHeight`]: crate::entities::CollisionHeight
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use benilla_protocol::messages::ObjectType;
@@ -56,7 +57,10 @@ fn trace(
         return;
     }
     *last = Some(now);
-    let Ok((me_guid, me_place, me_height)) = me.single() else {
+    // Only the units the VM asked about lately: nothing asked, no ray.
+    let wanted: HashSet<u64> = line_of_sight::wanted(script.lua()).into_iter().collect();
+    let Some((me_guid, me_place, me_height)) = me.single().ok().filter(|_| !wanted.is_empty())
+    else {
         line_of_sight::set(script.lua(), HashMap::new());
         return;
     };
@@ -64,7 +68,8 @@ fn trace(
     let eye = me_place.translation + Vec3::Y * height(me_height);
     let mut clear = HashMap::new();
     for (guid, store, place, collision_height) in &units {
-        if guid.0 == me_guid.0
+        if !wanted.contains(&guid.0)
+            || guid.0 == me_guid.0
             || !matches!(
                 store.0.object_type(),
                 Some(ObjectType::Unit | ObjectType::Player)
@@ -72,11 +77,9 @@ fn trace(
         {
             continue;
         }
-        if place.translation.distance(me_place.translation) > MAX_TRACE {
-            continue;
-        }
+        let in_reach = place.translation.distance(me_place.translation) <= MAX_TRACE;
         let to = place.translation + Vec3::Y * height(collision_height);
-        clear.insert(guid.0, collision.clear_line(eye, to));
+        clear.insert(guid.0, in_reach && collision.clear_line(eye, to));
     }
     line_of_sight::set(script.lua(), clear);
 }
