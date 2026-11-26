@@ -541,7 +541,14 @@ pub(super) fn update_hover(
         sticky.unit = None;
         return;
     }
-    let Some(cursor) = window.single().ok().and_then(Window::cursor_position) else {
+    // The headless hover probe's aim stands in for a missing cursor, as for the GameObject pick
+    // and the interface's walk; a real pointer wins.
+    let Some(cursor) = window
+        .single()
+        .ok()
+        .and_then(Window::cursor_position)
+        .or_else(super::hover_probe_point)
+    else {
         return;
     };
     let Some(ray) = cursor_ray(&camera, cursor) else {
