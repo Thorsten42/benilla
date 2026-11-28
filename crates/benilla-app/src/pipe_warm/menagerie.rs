@@ -916,11 +916,10 @@ mod tests {
     fn every_material_lane_has_a_warm_contributor() {
         // Lanes that never need the menagerie:
         // - TerrainMaterial / WdlMaterial: always drawn under the entry cover, no variant axis.
-        // - AddUiMaterial: glue screens only, and every pre-world frame counts as covered.
         let families: [(&str, &[&str]); 3] = [
             ("MaterialPlugin::<", &["TerrainMaterial", "WdlMaterial"]),
             ("Material2dPlugin::<", &[]),
-            ("UiMaterialPlugin::<", &["AddUiMaterial"]),
+            ("UiMaterialPlugin::<", &[]),
         ];
         let own_src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         // Anywhere in the pipe_warm module folder.
