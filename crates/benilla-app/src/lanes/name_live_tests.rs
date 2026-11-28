@@ -76,7 +76,7 @@ fn named_client() -> App {
         benilla_formats::CreatureTypeTable::from_rows([(1, "Beast", 0), (7, "Humanoid", 0)]),
     ));
     app.world_mut()
-        .non_send_resource::<benilla_ui::script::UiScript>()
+        .non_send::<benilla_ui::script::UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -187,9 +187,7 @@ fn a_player_name_reads_the_cache_as_it_runs() {
         .insert_player(STRANGER, "Stranger".into(), None);
     assert_eq!(read(&mut app, STRANGER), Some(Some("Stranger".to_string())));
     let unlent = ask(
-        app.world()
-            .non_send_resource::<benilla_ui::script::UiScript>()
-            .lua(),
+        app.world().non_send::<benilla_ui::script::UiScript>().lua(),
         &PlayerNameQuery(BOB),
     );
     assert_eq!(unlent, None, "no host lent, no live read");
@@ -256,7 +254,7 @@ fn the_civilian_flag_is_read_off_the_record_as_the_call_runs() {
             (TEMPLATE, HUMAN),
         ]));
     {
-        let mut script = world.non_send_resource_mut::<benilla_ui::script::UiScript>();
+        let mut script = world.non_send_mut::<benilla_ui::script::UiScript>();
         script.run(r#"PVP_RANK_CIVILIAN = "Civilian""#).unwrap();
         // The push, as a record-less unit hostile to us holds it.
         script.set_unit(

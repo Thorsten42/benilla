@@ -11,7 +11,7 @@ const GONE: u64 = 0x23;
 
 /// A plate on each unit of `keys`, the world frame's children in that order.
 fn plates(f: &mut Frame, keys: &[u64]) {
-    let mut script = f.app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut script = f.app.world_mut().non_send_mut::<UiScript>();
     crate::vplates::plates_for_test(&mut script, keys);
 }
 
@@ -128,7 +128,7 @@ fn spawn_gone(f: &mut Frame) -> Entity {
 
 /// The driver's sync to the units of `keys`: a plate whose unit is not among them retires.
 fn sync_plates(f: &mut Frame, keys: &[u64]) {
-    let mut script = f.app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut script = f.app.world_mut().non_send_mut::<UiScript>();
     crate::vplates::sync_plates_for_test(&mut script, keys);
 }
 

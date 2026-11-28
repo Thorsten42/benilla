@@ -202,7 +202,7 @@ mod hold_tests {
         let _c = EnvGuard::unset("WOW_CAPTURE");
         let _h = EnvGuard::set("BENILLA_HOME", tmp.to_str().unwrap());
         let mut app = crate::game_plugins::schedule_tests::headless_client();
-        app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+        app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
             bevy::ecs::error::ignore,
         ));
         let (tx, _sent) = crossbeam_channel::unbounded();

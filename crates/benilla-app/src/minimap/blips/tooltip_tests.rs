@@ -33,7 +33,7 @@ fn minimap_app() -> App {
         .unwrap();
     script.resolve();
     script.mouse_move(670.0, 470.0);
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app
 }
 
@@ -58,7 +58,7 @@ fn unit(guid: u64) -> MinimapBlipHover {
 
 fn shown(app: &mut App) -> bool {
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .eval::<bool>("return GameTooltip:IsShown() == 1")
         .unwrap()
 }
@@ -71,14 +71,14 @@ fn a_blip_hover_loss_hides_whoever_holds_the_tooltip() {
     blip(&mut app, landmark("Stormwind"));
     assert!(shown(&mut app), "the blip tooltip is up");
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"GameTooltip:SetOwner(UIParent, "ANCHOR_NONE"); GameTooltip:SetText("Addon")"#)
         .unwrap();
     blip(&mut app, MinimapBlipHover::default());
     assert!(!shown(&mut app), "the addon's tooltip is hidden");
     assert!(app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .take_errors()
         .is_empty());
 }
@@ -187,7 +187,7 @@ fn stacked_landmarks_each_get_a_line_in_list_order() {
     assert!(shown(&mut app));
     let text = app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .eval::<String>("return GameTooltipTextLeft1:GetText()")
         .unwrap();
     assert_eq!(text, "Guards' directions\nCorpse");
@@ -216,7 +216,7 @@ fn the_lines_join_in_the_probes_order_greyed_and_named() {
     blip(&mut app, hover);
     let text = app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .eval::<String>("return GameTooltipTextLeft1:GetText()")
         .unwrap();
     assert_eq!(

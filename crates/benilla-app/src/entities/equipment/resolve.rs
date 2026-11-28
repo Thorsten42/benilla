@@ -1053,7 +1053,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
         app.edit_schedule(Update, |s| {
-            s.set_executor_kind(bevy::ecs::schedule::ExecutorKind::SingleThreaded);
+            s.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
         });
         app.insert_resource(items);
         app.insert_resource(guild);

@@ -16,6 +16,8 @@ impl PluginGroup for WorldPlugins {
             // The engine's WGSL first: every material below specializes against it, and an
             // unregistered shader fails silently.
             .add(crate::shaders::plugin)
+            // The materials' own WESL, which `MaterialPlugin::build` loads by path.
+            .add(benilla_assets::materials::register_shaders)
             .add(MaterialPlugin::<TerrainMaterial>::default())
             .add(MaterialPlugin::<WowModelMaterial>::default())
             // Physics (avian3d): colliders, their BVH and the shape-casts of controller and picker.
@@ -40,11 +42,13 @@ impl PluginGroup for WorldPlugins {
             .disable::<CcdPlugin>()
             .disable::<IslandPlugin>()
             .disable::<IslandSleepingPlugin>()
-            .disable::<avian3d::dynamics::solver::joint_graph::JointGraphPlugin<FixedJoint>>()
-            .disable::<avian3d::dynamics::solver::joint_graph::JointGraphPlugin<RevoluteJoint>>()
-            .disable::<avian3d::dynamics::solver::joint_graph::JointGraphPlugin<PrismaticJoint>>()
-            .disable::<avian3d::dynamics::solver::joint_graph::JointGraphPlugin<DistanceJoint>>()
-            .disable::<avian3d::dynamics::solver::joint_graph::JointGraphPlugin<SphericalJoint>>()
+            // The rigid bodies' CCD and sleeping thresholds, for the dynamics disabled above.
+            .disable::<BodySizeMetricsPlugin<Collider>>()
+            .disable::<avian3d::dynamics::joints::joint_graph::JointGraphPlugin<FixedJoint>>()
+            .disable::<avian3d::dynamics::joints::joint_graph::JointGraphPlugin<RevoluteJoint>>()
+            .disable::<avian3d::dynamics::joints::joint_graph::JointGraphPlugin<PrismaticJoint>>()
+            .disable::<avian3d::dynamics::joints::joint_graph::JointGraphPlugin<DistanceJoint>>()
+            .disable::<avian3d::dynamics::joints::joint_graph::JointGraphPlugin<SphericalJoint>>()
             .add(WorldFoundation)
             // The per-frame transition order (Input → Stream → Present) by which the loading
             // screen covers a teleport the frame it happens.
@@ -54,7 +58,7 @@ impl PluginGroup for WorldPlugins {
             // The ground-fx decal lane, which orders itself on the billboard place set.
             .add(crate::ground_fx::plugin)
             .add(crate::frame_pace::plugin)
-            // The skin palette: every rig's joint matrices, skinned in `wow_model.wgsl` in place of
+            // The skin palette: every rig's joint matrices, skinned in `wow_model.wesl` in place of
             // Bevy's `SkinnedMesh`.
             .add(crate::rig_palette::plugin)
             // The rig machinery the palette reads: pose evaluation, composition and the global
@@ -167,9 +171,6 @@ impl Plugin for WorldFoundation {
         {
             app.insert_resource(bevy::time::Time::<bevy::time::Fixed>::from_hz(hz));
         }
-        // Static transform tracking always on: movers are 1–3% of the world, so the adaptive
-        // check's two full scans a frame could only ever conclude "track".
-        app.insert_resource(bevy::transform::systems::StaticTransformOptimizations::enabled());
         // The retained static-world pass; `WOW_STATIC_GX=0` opts out, registering nothing.
         app.add_plugins(crate::static_gx::StaticGxPlugin);
         // `WOW_MERGE_CENSUS=1`: the merge census printer.
@@ -192,6 +193,18 @@ impl Plugin for WorldFoundation {
         // buffers latch the first time a view is seen, and a later insert panics in wgpu.
         if std::env::var_os("WOW_INDIRECT").is_none() {
             app.register_required_components::<bevy::camera::Camera, bevy::render::view::NoIndirectDrawing>();
+        }
+    }
+
+    /// Clustering on the CPU, as before Bevy 0.20: no Bevy light reaches a view, and Bevy's GPU
+    /// path sizes a zero-sized target for a `ClusterConfig::None` view, which fails validation.
+    /// After `PbrPlugin::finish`, which inserts the settings.
+    fn finish(&self, app: &mut App) {
+        if let Some(mut settings) = app
+            .world_mut()
+            .get_resource_mut::<bevy::light::cluster::GlobalClusterSettings>()
+        {
+            settings.gpu_clustering = None;
         }
     }
 }

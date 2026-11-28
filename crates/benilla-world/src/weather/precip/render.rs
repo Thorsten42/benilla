@@ -121,6 +121,7 @@ pub(super) fn push_flakes(
 }
 
 #[cfg(test)]
+#[allow(deprecated)] // glam 0.33's `Mat4::*_rh`, kept so the test matrices stay bit-identical
 mod tests {
     use super::*;
 

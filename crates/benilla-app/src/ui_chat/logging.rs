@@ -233,7 +233,7 @@ mod verb_tests {
             let mut world = world_with_logs(Some(blocked.join("Logs")));
             super::super::run_chat(&mut world, &format!("ANSWER = {verb}(1) AFTER = {verb}()"))
                 .expect("lua");
-            let script = world.non_send_resource::<UiScript>();
+            let script = world.non_send::<UiScript>();
             assert!(
                 script.eval::<bool>("return ANSWER == nil").unwrap(),
                 "{verb}(1)"
@@ -257,7 +257,7 @@ mod verb_tests {
             let dir = scratch(&format!("logging-open-{file}"));
             let mut world = world_with_logs(Some(dir.clone()));
             super::super::run_chat(&mut world, &format!("ANSWER = {verb}(1)")).expect("lua");
-            let script = world.non_send_resource::<UiScript>();
+            let script = world.non_send::<UiScript>();
             assert_eq!(script.eval::<i64>("return ANSWER").unwrap(), 1, "{verb}(1)");
             let logs = world.resource::<ChatLogFiles>().clone();
             logs.record(combat, "a line");

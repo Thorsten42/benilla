@@ -1,6 +1,6 @@
 //! Liquid: the animated surfaces (`surface`), where the liquid is and whether a subject or the
 //! camera eye is in it (`query`, indexed by `spatial`), and the underwater drift cloud (`drift`).
-//! The MCLQ parse and flat mesh are `benilla_formats::liquid`; the shading is `liquid.wgsl`.
+//! The MCLQ parse and flat mesh are `benilla_formats::liquid`; the shading is `liquid.wesl`.
 //!
 //! The reference has three liquid renderers, each with its own arm in the shader: ADT MCLQ, WMO
 //! MLIQ water (`0x6b62e0` category 0, exterior `0x6b6630` or interior `0x6b6420` by the group's

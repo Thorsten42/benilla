@@ -65,7 +65,7 @@ fn a_group_list_listener_reads_the_roster_its_list_wrote() {
         ],
     );
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -166,7 +166,7 @@ fn a_member_update_listener_reads_party1_and_raid3_as_its_packet_wrote_them() {
         ],
     );
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -272,7 +272,7 @@ fn a_pet_update_listener_reads_pet_as_its_packet_left_it() {
         vec![values(ME, &summons(PET)), pet(PET, 100, 100)],
     );
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -349,7 +349,7 @@ fn a_members_uncached_name_is_asked_once_by_the_getter() {
     );
     let _ = asked(&rx);
     forget(&mut app);
-    crate::ui_script::test_ui::load_tooltip_template(app.world().non_send_resource::<UiScript>());
+    crate::ui_script::test_ui::load_tooltip_template(app.world().non_send::<UiScript>());
     run(
         &mut app,
         r#"
@@ -408,7 +408,7 @@ fn the_tooltip_reads_a_raid_rows_record_and_none_off_the_roster() {
         ],
     );
     let world = app.world_mut();
-    crate::ui_script::test_ui::load_tooltip_template(world.non_send_resource::<UiScript>());
+    crate::ui_script::test_ui::load_tooltip_template(world.non_send::<UiScript>());
     let lines = |app: &mut App| -> Vec<String> {
         crate::script_calls::with_hosted_vm(app.world_mut(), |s| {
             s.expect("a VM")

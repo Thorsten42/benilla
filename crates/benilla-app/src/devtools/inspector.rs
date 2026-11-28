@@ -292,7 +292,7 @@ fn draw(
         .default_pos(egui::pos2(560.0, 200.0))
         .default_size(egui::vec2(520.0, 560.0))
         .frame(
-            egui::Frame::window(&ctx.style())
+            egui::Frame::window(&ctx.global_style())
                 .fill(OVERLAY_FILL)
                 .inner_margin(10),
         )

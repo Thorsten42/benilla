@@ -25,7 +25,7 @@ use super::{MoonPart, MoonSprite, StarDome, SunPart, SunSprite};
 const SUN_SIZE: f32 = 0.0833;
 
 /// The glares sit on the reference's near sphere, `cam + 12·dir` (`[0x80c4e8]`), in world units,
-/// at the sky's far depth pin (`sky_vertex.wgsl`), drawn last ([`crate::sky_order::GLARE_BIAS`]).
+/// at the sky's far depth pin (`sky_vertex.wesl`), drawn last ([`crate::sky_order::GLARE_BIAS`]).
 const GLARE_DIST: f32 = 12.0;
 
 /// The occlusion march: 48 quadratic samples to just inside the far plane, across the ADT ring and

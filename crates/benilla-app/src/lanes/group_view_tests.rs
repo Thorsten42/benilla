@@ -78,7 +78,7 @@ fn seat_party_targeting(app: &mut App, pet: u64, target: u64) {
         held.insert(pet, 0);
     }
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_unit_guids(&UnitGuids {
             player: ME,
             target: WOLF,
@@ -111,7 +111,7 @@ fn run_frame(app: &mut App, events: Vec<SessionEvent>) -> Vec<String> {
     let world = app.world_mut();
     crate::net::handlers::dispatch(world, events);
     crate::lanes::fire_in_order(world);
-    let s = world.non_send_resource_mut::<UiScript>();
+    let s = world.non_send_mut::<UiScript>();
     let out = s.eval::<Vec<String>>("return Seen").unwrap();
     s.run("Seen = {}").unwrap();
     let errors = s.errors();
@@ -183,7 +183,7 @@ fn a_party_pet_created_mid_frame_does_not_exist_before_its_create() {
     );
     seat_party(&mut app, PET);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"function Look(event, unit) return UnitExists("partypet1") end"#)
         .unwrap();
     frame(&mut app, vec![]);
@@ -222,24 +222,22 @@ fn a_party_pet_replaced_mid_frame_reads_the_old_pet_before_the_swap() {
     );
     seat_party(&mut app, PET);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"function Look(event, unit) return UnitHealth("partypet1") end"#)
         .unwrap();
     frame(&mut app, vec![]);
     // The resolver's stand-in as the frame left it: the frame's last pet.
     let seat_new_pet = |world: &mut World| {
-        world
-            .non_send_resource_mut::<UiScript>()
-            .set_unit_guids(&UnitGuids {
-                player: ME,
-                target: WOLF,
-                party: [MATE, 0, 0, 0],
-                party_pets: [PET2, 0, 0, 0],
-                held: [(ME, 0), (WOLF, 0), (BOAR, 0), (MATE, 0), (PET2, 0)]
-                    .into_iter()
-                    .collect(),
-                ..Default::default()
-            });
+        world.non_send_mut::<UiScript>().set_unit_guids(&UnitGuids {
+            player: ME,
+            target: WOLF,
+            party: [MATE, 0, 0, 0],
+            party_pets: [PET2, 0, 0, 0],
+            held: [(ME, 0), (WOLF, 0), (BOAR, 0), (MATE, 0), (PET2, 0)]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        });
     };
     let seen = frame_after(
         &mut app,
@@ -329,7 +327,7 @@ fn a_chain_end_reads_its_own_packets_health() {
     );
     seat_party_targeting(&mut app, 0, ADD);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"function Look(event, unit) return UnitHealth("party1target") end"#)
         .unwrap();
     frame(&mut app, vec![]);
@@ -358,7 +356,7 @@ fn the_pet_reads_its_own_packets_health() {
         ]]),
     );
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"function Look(event, unit) return UnitHealth("pet") end"#)
         .unwrap();
     frame(&mut app, vec![]);
@@ -394,7 +392,7 @@ fn the_pet_is_the_summon_our_descriptor_names_as_each_packet_left_it() {
         )]]),
     );
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"function Look(event, unit) return UnitHealth("pet") end"#)
         .unwrap();
     frame(&mut app, vec![]);
@@ -417,7 +415,7 @@ fn the_pet_is_the_summon_our_descriptor_names_as_each_packet_left_it() {
 fn a_lists_own_signal_reads_the_records_it_wrote() {
     let mut app = party_client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             Roster = {}
@@ -446,7 +444,7 @@ fn a_lists_own_signal_reads_the_records_it_wrote() {
     );
     let heard = app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .eval::<Vec<String>>("return Roster")
         .unwrap();
     assert_eq!(heard, ["nil"]);
@@ -462,7 +460,7 @@ fn a_lists_own_signal_reads_the_records_it_wrote() {
 fn a_members_object_signals_at_its_packet() {
     let mut app = party_client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             Roster = {}
@@ -489,7 +487,7 @@ fn a_members_object_signals_at_its_packet() {
         loot: None,
     };
     let heard = |app: &mut App| {
-        let s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let s = app.world_mut().non_send_mut::<UiScript>();
         let out = s.eval::<Vec<String>>("return Roster").unwrap();
         s.run("Roster = {}").unwrap();
         out
@@ -554,7 +552,7 @@ fn a_summon_signals_unit_pet_at_the_bar_and_again_at_our_summon_field() {
         )]]),
     );
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -583,7 +581,7 @@ fn a_summon_signals_unit_pet_at_the_bar_and_again_at_our_summon_field() {
 /// answers as it fires.
 fn spy_pet_signals(app: &mut App) {
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -789,7 +787,7 @@ fn listen(app: &mut App, events: &[&str], body: &str) {
         .map(|e| format!("f:RegisterEvent(\"{e}\")\n"))
         .collect();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(&format!(
             r#"
             Roster = {{}}
@@ -811,7 +809,7 @@ fn prime(app: &mut App) {
 
 /// What `Roster` heard this frame.
 fn heard_roster(app: &mut App) -> Vec<String> {
-    let s = app.world_mut().non_send_resource_mut::<UiScript>();
+    let s = app.world_mut().non_send_mut::<UiScript>();
     let out = s.eval::<Vec<String>>("return Roster").unwrap();
     s.run("Roster = {}").unwrap();
     out

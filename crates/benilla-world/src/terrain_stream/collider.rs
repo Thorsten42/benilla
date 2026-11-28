@@ -77,7 +77,7 @@ pub(super) fn finish_colliders(world: &mut World, state: &mut PendingColliders) 
     let t0 = Instant::now();
     let mut ready: Vec<Entity> = Vec::new();
     let mut pending = 0usize;
-    for (entity, mut pc) in state.get_mut(world).iter_mut() {
+    for (entity, mut pc) in state.get_mut(world).unwrap().iter_mut() {
         pending += 1;
         if let Some(task) = pc.task.as_mut() {
             if let Some(collider) = block_on(future::poll_once(task)) {
@@ -521,6 +521,9 @@ mod tests {
                     ));
                 }
             }
+            // avian registers the spatial-query diagnostics its casters write in `finish`.
+            app.finish();
+            app.cleanup();
             app.update(); // builds Position/Rotation and the spatial-query trees
             app.world_mut()
                 .run_system_once(move |world: crate::collision::WorldCollision| {

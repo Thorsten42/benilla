@@ -459,7 +459,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<LogoutState>()
             .seat_world_handle_for_test();
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         (app, rx)
     }
 
@@ -583,7 +583,7 @@ mod tests {
         let (mut app, rx) = client();
         crate::lanes::tap_tests::tap(&mut app);
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run(
                 "Cancelled = 0 local f = CreateFrame('Frame') f:RegisterEvent('LOGOUT_CANCEL') \
                  f:SetScript('OnEvent', function() Cancelled = Cancelled + 1 end)",
@@ -691,14 +691,14 @@ mod tests {
         use std::rc::Rc;
 
         let (mut app, rx) = client();
-        app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+        app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
             bevy::ecs::error::ignore,
         ));
         let (events, inbound) = crossbeam_channel::unbounded();
         app.insert_resource(crate::net::NetEvents::for_test(inbound));
         // The start-up frame first, which seats a VM of its own.
         app.update();
-        app.insert_non_send_resource(UiScript::new().expect("a VM"));
+        app.insert_non_send(UiScript::new().expect("a VM"));
         app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
         app.world_mut()
             .resource_mut::<crate::ui_script::LeavingWorldArmed>()
@@ -706,7 +706,7 @@ mod tests {
         let notes: Rc<RefCell<Vec<String>>> = Rc::default();
         {
             let sink = notes.clone();
-            let script = app.world().non_send_resource::<UiScript>();
+            let script = app.world().non_send::<UiScript>();
             let note = script
                 .lua()
                 .create_function(move |_, text: String| {

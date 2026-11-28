@@ -130,7 +130,7 @@ impl House {
             ..Default::default()
         };
         script.set_auction(state);
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         Self { app, rx }
     }
 

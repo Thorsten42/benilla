@@ -54,7 +54,7 @@ fn client() -> Who {
             WHO_TAG_RACE = "r-" WHO_TAG_CLASS = "c-""#,
         )
         .expect("the strings install");
-    app.world_mut().insert_non_send_resource(script);
+    app.world_mut().insert_non_send(script);
     // A new VM's first feed stands for every list's signal; the lane fires what the handlers
     // raise.
     let seed = app.world_mut().register_system(super::feed::feed_social);
@@ -241,7 +241,7 @@ fn set_who_to_ui_routes_the_next_answer() {
 fn the_lfg_verbs_send_inside_their_call() {
     let mut w = client();
     {
-        let mut script = w.app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut script = w.app.world_mut().non_send_mut::<UiScript>();
         script.set_lfg_dungeons(vec![benilla_ui::script::LfgDungeon {
             id: 6,
             name: "Deadmines".into(),

@@ -352,7 +352,7 @@ pub(crate) fn hold_for_test(world: &mut World, action: u32, kind: u8, id: u32) {
             kind,
         },
     );
-    if let Some(mut script) = world.get_non_send_resource_mut::<benilla_ui::script::UiScript>() {
+    if let Some(mut script) = world.get_non_send_mut::<benilla_ui::script::UiScript>() {
         script.set_action(
             action,
             Some(benilla_ui::script::ActionSlot {
@@ -381,18 +381,18 @@ pub(crate) fn eval_live<T: benilla_ui::mlua::FromLuaMulti>(world: &mut World, ch
     }
     world.init_resource::<state::ActionStateMemory>();
     let mut script = world
-        .remove_non_send_resource::<benilla_ui::script::UiScript>()
+        .remove_non_send::<benilla_ui::script::UiScript>()
         .expect("a VM");
     let mut state = bevy::ecs::system::SystemState::<Reads>::new(world);
     let r = {
-        let (mut states, mut stats) = state.get_mut(world);
+        let (mut states, mut stats) = state.get_mut(world).unwrap();
         script.reading(&mut Lent(&mut states, &mut stats), |s| {
             s.eval::<T>(chunk)
                 .unwrap_or_else(|e| panic!("{chunk}: {e}"))
         })
     };
     state.apply(world);
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     r
 }
 

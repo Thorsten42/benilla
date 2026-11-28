@@ -610,13 +610,13 @@ mod tests {
     #[test]
     fn a_view_verbs_cvar_writes_read_on_the_chunks_next_line() {
         let mut app = crate::game_plugins::schedule_tests::headless_client();
-        app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+        app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
             bevy::ecs::error::ignore,
         ));
         let (tx, _rx) = crossbeam_channel::unbounded();
         app.insert_resource(crate::net::NetCommands(tx));
         app.update();
-        app.insert_non_send_resource(benilla_ui::script::UiScript::new().expect("a VM"));
+        app.insert_non_send(benilla_ui::script::UiScript::new().expect("a VM"));
         app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
         app.update();
         app.update();
@@ -647,7 +647,7 @@ mod tests {
         let (tx, _rx) = crossbeam_channel::unbounded();
         app.insert_resource(crate::net::NetCommands(tx));
         app.world_mut().init_resource::<CameraControl>();
-        app.insert_non_send_resource(benilla_ui::script::UiScript::new().expect("a VM"));
+        app.insert_non_send(benilla_ui::script::UiScript::new().expect("a VM"));
         let left = |app: &mut App, chunk: &str| {
             crate::script_calls::with_hosted_vm(app.world_mut(), |s| s.expect("a VM").run(chunk))
                 .expect("the chunk runs");

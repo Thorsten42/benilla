@@ -68,7 +68,7 @@ fn an_initial_item_cooldown_alone_reaches_the_bags() {
     ));
     let mut script = UiScript::new().unwrap();
     script.set_now(1000.0);
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     let duration = |app: &mut App| {
         crate::ui_items::bags::eval_with_bags::<f64>(
             app.world_mut(),

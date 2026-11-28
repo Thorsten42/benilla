@@ -453,7 +453,7 @@ pub(crate) mod tests {
             .unwrap();
         lua.globals().set("ProbeGet", get).unwrap();
         let mut state = SystemState::<crate::script_calls::VmWith<ResMut<SelfGuid>>>::new(world);
-        let mut vm = state.get_mut(world);
+        let mut vm = state.get_mut(world).unwrap();
         let read = |vm: &mut crate::script_calls::VmWith<ResMut<SelfGuid>>| {
             vm.run(|s| {
                 s.expect("a VM")

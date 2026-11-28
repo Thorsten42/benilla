@@ -356,7 +356,7 @@ enum Window {
 
 fn client(window: Window) -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -366,7 +366,7 @@ fn client(window: Window) -> Client {
     app.update();
     let script = UiScript::new().expect("a VM");
     script.run("ITEM_SUFFIX_TEMPLATE = '%s %s'").unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
@@ -466,7 +466,7 @@ fn client(window: Window) -> Client {
     // Bob within inspect range, as the host's reach holds him, for the snapshot's side.
     c.app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_unit_reach_of(
             BOB,
             benilla_ui::script::UnitReach {

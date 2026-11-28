@@ -70,7 +70,7 @@ fn an_engine_turns_call_and_held_handler_apply_as_the_turn_ends() {
     assert_eq!(sent(&rx), ["roll 1", "roll 3"]);
     assert!(!app
         .world()
-        .non_send_resource::<benilla_ui::script::UiScript>()
+        .non_send::<benilla_ui::script::UiScript>()
         .waiting());
 }
 

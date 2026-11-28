@@ -47,7 +47,7 @@ fn client() -> Charter {
             end)"#,
         )
         .expect("the recorder installs");
-    app.world_mut().insert_non_send_resource(script);
+    app.world_mut().insert_non_send(script);
     Charter { app, rx }
 }
 

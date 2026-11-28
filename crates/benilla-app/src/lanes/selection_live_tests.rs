@@ -144,7 +144,7 @@ fn the_npc_latched_on_an_object_is_named_and_exists_for_nobody() {
 fn a_destroyed_targets_change_fires_at_the_destroy() {
     let mut app = client();
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local g = CreateFrame("Frame")
@@ -189,7 +189,7 @@ fn a_reconnect_does_not_reseat_the_lost_target() {
     let _decl = crate::local_state::test_env::EnvGuard::set("WOW_UNATTENDED", "1");
     let mut app = client();
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local g = CreateFrame("Frame")
@@ -241,7 +241,7 @@ fn unselected_with_a_spy(app: &mut App) {
     select(app, None);
     frame(app, vec![]);
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local g = CreateFrame("Frame")

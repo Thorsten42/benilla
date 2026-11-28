@@ -26,7 +26,7 @@ fn buff() -> AuraState {
 /// with a stale expiry of its own.
 fn client() -> bevy::app::App {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, _sent) = crossbeam_channel::unbounded();
@@ -70,7 +70,7 @@ fn client() -> bevy::app::App {
             ..Default::default()
         },
     );
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     // The interface clock's pair as a new VM's seed writes it, `GetTime` at the paced clock's
     // instant before the step, which a headless frame, with no window to tick, keeps; the host's
     // copy follows it after the frame's tick.
@@ -88,7 +88,7 @@ fn client() -> bevy::app::App {
     let mut stale = buff();
     stale.expiration_time = 1040.0;
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_player_auras(vec![stale]);
     app
 }

@@ -89,7 +89,7 @@ struct PhaseWatch {
     armed: bool,
 }
 
-impl ExtractResource for PhaseWatch {
+impl ExtractResource<bevy::render::RenderApp> for PhaseWatch {
     type Source = PhaseWatch;
     fn extract_resource(source: &Self::Source) -> Self {
         source.clone()
@@ -264,7 +264,7 @@ fn report_phases(
     if watch.particles {
         if let Some(phase) = transparent.values().max_by_key(|p| p.items.len()) {
             let n = phase.items.len();
-            for (i, item) in phase.items.iter().enumerate().skip(n.saturating_sub(25)) {
+            for (i, item) in phase.items.values().enumerate().skip(n.saturating_sub(25)) {
                 info!(
                     "phase#{frame} tail @{i} {:?} dist {:.3}",
                     item.entity.1, item.distance
@@ -286,7 +286,7 @@ fn report_phases(
             };
             let tex = match gpu_images.get(tex_id) {
                 None => "gpu_tex MISSING".to_string(),
-                Some(img) => format!("gpu_tex {:?}", img.texture_format),
+                Some(img) => format!("gpu_tex {:?}", img.texture_descriptor.format),
             };
             format!("{mesh} {tex}")
         });
@@ -300,13 +300,15 @@ fn report_phases(
             found.push(format!("AlphaMask3d @{pos}"));
         }
         for phase in transparent.values() {
-            if let Some(pos) = phase.items.iter().position(|item| item.entity.1 == main) {
+            if let Some((pos, item)) = phase
+                .items
+                .values()
+                .enumerate()
+                .find(|(_, item)| item.entity.1 == main)
+            {
                 // The sort key too: view-space z plus the material's depth bias, ascending =
                 // farthest first (`benilla_world::sky_order`).
-                found.push(format!(
-                    "Transparent3d @{pos} d {:.3}",
-                    phase.items[pos].distance
-                ));
+                found.push(format!("Transparent3d @{pos} d {:.3}", item.distance));
             }
         }
         // Keyed by entity: batch order is per WMO group, so one placement repeats orders.
@@ -323,29 +325,19 @@ fn report_phases(
 }
 
 /// The entity's draw position within the largest binned phase for `BPI`, in bin iteration order.
+/// A multidrawable batch set keeps its entities private in Bevy 0.20: its entities are neither
+/// counted nor found.
 fn binned_position<BPI>(phases: &ViewBinnedRenderPhases<BPI>, main: MainEntity) -> Option<usize>
 where
     BPI: bevy::render::render_phase::BinnedPhaseItem,
 {
     let phase = phases.values().max_by_key(|p| {
-        p.multidrawable_meshes
+        p.batchable_meshes
             .values()
-            .map(|bins| bins.values().map(|b| b.entities().len()).sum::<usize>())
+            .map(|b| b.entities().len())
             .sum::<usize>()
-            + p.batchable_meshes
-                .values()
-                .map(|b| b.entities().len())
-                .sum::<usize>()
     })?;
     let mut n = 0usize;
-    for bins in phase.multidrawable_meshes.values() {
-        for bin in bins.values() {
-            if let Some(i) = bin.entities().get_index_of(&main) {
-                return Some(n + i);
-            }
-            n += bin.entities().len();
-        }
-    }
     for bin in phase.batchable_meshes.values() {
         if let Some(i) = bin.entities().get_index_of(&main) {
             return Some(n + i);
@@ -355,20 +347,17 @@ where
     None
 }
 
-/// How many entities the largest binned phase for `BPI` holds this frame.
+/// How many entities the largest binned phase for `BPI` holds this frame, past its multidrawable
+/// batch sets ([`binned_position`]).
 fn binned_total<BPI>(phases: &ViewBinnedRenderPhases<BPI>) -> usize
 where
     BPI: bevy::render::render_phase::BinnedPhaseItem,
 {
     let count = |p: &bevy::render::render_phase::BinnedRenderPhase<BPI>| {
-        p.multidrawable_meshes
+        p.batchable_meshes
             .values()
-            .map(|bins| bins.values().map(|b| b.entities().len()).sum::<usize>())
+            .map(|b| b.entities().len())
             .sum::<usize>()
-            + p.batchable_meshes
-                .values()
-                .map(|b| b.entities().len())
-                .sum::<usize>()
     };
     phases.values().map(count).max().unwrap_or(0)
 }

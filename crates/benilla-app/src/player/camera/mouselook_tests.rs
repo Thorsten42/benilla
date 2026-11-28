@@ -96,7 +96,7 @@ fn world(over_ui: bool) -> World {
     }
     script.resolve();
     script.mouse_move(AT.0, AT.1);
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     world.init_resource::<BindingsState>();
     world
 }
@@ -134,15 +134,12 @@ fn pointer(world: &mut World) -> Option<Vec2> {
 }
 
 fn lua(world: &mut World, chunk: &str) {
-    world.non_send_resource::<UiScript>().run(chunk).unwrap();
+    world.non_send::<UiScript>().run(chunk).unwrap();
 }
 
 /// A binding body, as `ExecuteBinding` runs one: the movement gate passes.
 fn binding(world: &mut World, chunk: &str) {
-    world
-        .non_send_resource::<UiScript>()
-        .run_binding(chunk)
-        .unwrap();
+    world.non_send::<UiScript>().run_binding(chunk).unwrap();
 }
 
 fn looking(world: &World) -> bool {
@@ -158,11 +155,11 @@ fn with_look_reads<R>(world: &mut World, f: impl FnOnce(&mut UiScript) -> R) -> 
             crate::script_calls::live::LiveFamily::answer(self.0, ask)
         }
     }
-    let mut script = world.remove_non_send_resource::<UiScript>().expect("a VM");
+    let mut script = world.remove_non_send::<UiScript>().expect("a VM");
     let mut state = bevy::ecs::system::SystemState::<super::LookLive>::new(world);
-    let mut live = state.get(world);
+    let mut live = state.get(world).unwrap();
     let r = script.reading(&mut Lent(&mut live), f);
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     r
 }
 
@@ -196,7 +193,7 @@ fn bound(world: &mut World, b: MouseButton, down: bool) {
         (_, false) => "TurnOrActionStop()",
     };
     let inputs = {
-        let mut script = world.non_send_resource_mut::<UiScript>();
+        let mut script = world.non_send_mut::<UiScript>();
         script.run_binding(body).unwrap();
         script.take_binding_input()
     };
@@ -337,7 +334,7 @@ fn mouselook_start_turns_the_camera_and_the_character_with_no_button_held() {
 fn a_freelook_entered_at_the_frame_moves_the_mouse_focus_and_its_leave_gives_it_back() {
     let mut w = world(true);
     let focus = |w: &mut World| {
-        w.non_send_resource::<UiScript>()
+        w.non_send::<UiScript>()
             .eval::<String>("return GetMouseFocus():GetName()")
             .unwrap()
     };
@@ -354,7 +351,7 @@ fn a_freelook_entered_at_the_frame_moves_the_mouse_focus_and_its_leave_gives_it_
     lua(&mut w, "MouselookStop()");
     frame(&mut w, 0.0);
     assert!(!looking(&w));
-    w.non_send_resource_mut::<UiScript>().tick(0.0);
+    w.non_send_mut::<UiScript>().tick(0.0);
     assert_eq!(focus(&mut w), "F");
 }
 
@@ -507,7 +504,7 @@ fn the_right_release_ends_a_mouselook_its_press_started_on_the_ui() {
 
 /// The interface under the cursor changes: `chunk` runs, and the hover walks the cursor again.
 fn reshape(world: &mut World, chunk: &str) {
-    let mut script = world.non_send_resource_mut::<UiScript>();
+    let mut script = world.non_send_mut::<UiScript>();
     script.run(chunk).unwrap();
     script.resolve();
     script.mouse_move(AT.0, AT.1);
@@ -540,7 +537,7 @@ fn a_frame_appearing_under_a_drag_neither_ends_it_nor_takes_the_chord() {
         "the chord joined the drag"
     );
     let pressed = w
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<i64>("return PRESSED")
         .unwrap();
     assert_eq!(pressed, 0, "the frame under the cursor saw no press");
@@ -566,7 +563,7 @@ fn a_press_while_a_frame_holds_a_button_goes_to_that_frame() {
 /// neither primary bit held (`0x51481a`).
 fn left_click_arms(w: &mut World) -> bool {
     use benilla_ui::script::{ClickCall, ClickMode};
-    let mut script = w.non_send_resource_mut::<UiScript>();
+    let mut script = w.non_send_mut::<UiScript>();
     script.take_click_calls();
     script
         .run_binding("CameraOrSelectOrMoveStart() CameraOrSelectOrMoveStop()")
@@ -805,7 +802,7 @@ fn toggle_mouse_move_turns_the_camera_alone_under_a_held_command_until_toggled_b
     frame(&mut w, 100.0);
     assert_eq!(yaw(&mut w), 0.0, "an empty command word turns nothing");
     let held = {
-        let mut script = w.non_send_resource_mut::<UiScript>();
+        let mut script = w.non_send_mut::<UiScript>();
         script.run_binding("MoveForwardStart()").unwrap();
         script.take_binding_input()
     };

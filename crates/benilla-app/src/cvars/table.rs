@@ -794,7 +794,7 @@ pub(crate) const REGISTERED: &[Registered] = &[
     // device whose caps field `[0x58a230()+0x98]` is above -1, setting bits 28 and 27 of the render
     // flags `[0xc7b2a4]`, which gate the shader negotiation `0x6941f0` for terrain, water and
     // models; `pixelShaders` also gates the FFX pass (`0x6cd8b6`). No effect here: benilla always
-    // draws the shader leg (`liquid.wgsl` records it), and the stock Okay carries this box into
+    // draws the shader leg (`liquid.wesl` records it), and the stock Okay carries this box into
     // `ffx`, which is wired.
     overridden(
         "pixelShaders",

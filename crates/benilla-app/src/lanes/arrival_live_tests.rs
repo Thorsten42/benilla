@@ -103,7 +103,7 @@ fn spells() -> crate::ui_action::Spells {
 /// start-up (`0x8435fc`), and `spy` run in its VM.
 fn client(spy: &str) -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -114,7 +114,7 @@ fn client(spy: &str) -> Client {
     app.insert_resource(spells());
     let script = UiScript::new().expect("a VM");
     script.run(spy).expect("the spy");
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
@@ -454,7 +454,7 @@ fn the_world_entrys_target_clear_plays_no_sound() {
 fn world_sounds(c: &mut Client) -> Vec<String> {
     c.app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .take_sounds()
         .into_iter()
         .filter_map(|r| match r {
@@ -853,7 +853,7 @@ fn the_trainer_reset_keeps_the_collapsed_lines() {
     c.frame(vec![vec![me()]]);
     {
         let world = c.app.world_mut();
-        let mut s = world.non_send_resource_mut::<UiScript>();
+        let mut s = world.non_send_mut::<UiScript>();
         let service = |spell_id: u32, name: &str, group_key: u32, group: &str| {
             benilla_ui::script::TrainerService {
                 spell_id,
@@ -878,7 +878,7 @@ fn the_trainer_reset_keeps_the_collapsed_lines() {
     let collapsed = c
         .app
         .world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .trainer_collapsed_for_test();
     assert!(!collapsed.is_empty(), "a line collapsed");
     c.app
@@ -886,7 +886,7 @@ fn the_trainer_reset_keeps_the_collapsed_lines() {
         .resource_mut::<crate::ui_world_enter::ArrivalLane>()
         .push(crate::ui_world_enter::Entry::Reload);
     c.frame(vec![]);
-    let s = c.app.world().non_send_resource::<UiScript>();
+    let s = c.app.world().non_send::<UiScript>();
     assert_eq!(s.trainer_collapsed_for_test(), collapsed, "the mask stays");
     assert_eq!(
         s.eval::<i64>("return GetTrainerSelectionIndex()").unwrap(),

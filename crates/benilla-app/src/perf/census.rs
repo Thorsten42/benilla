@@ -493,8 +493,11 @@ pub(super) fn mesh_touch(
             bevy::asset::RenderAssetUsages::default(),
         ))
     });
-    // `get_mut` writes `AssetEvent::Modified`, bumping the tick every `AssetChanged` filter reads.
-    let _ = meshes.get_mut(&*handle);
+    // A marked `get_mut` writes `AssetEvent::Modified`, bumping the tick every `AssetChanged`
+    // filter reads; `into_inner` marks it, as a borrow only dropped does not.
+    let _ = meshes
+        .get_mut(&*handle)
+        .map(bevy::asset::AssetMut::into_inner);
 }
 
 /// When [`mesh_touch`] starts touching (seconds of `Time<Real>`).
@@ -560,7 +563,7 @@ pub(super) mod res_census {
             census.frames += 1;
             let changed: Vec<ComponentId> = world
                 .iter_resources()
-                .map(|(info, _)| info.id())
+                .map(|(id, _, _)| id)
                 .filter(|&id| {
                     world
                         .get_resource_change_ticks_by_id(id)

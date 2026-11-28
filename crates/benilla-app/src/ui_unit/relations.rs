@@ -90,7 +90,7 @@ mod tests {
                 }),
             );
         }
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         world
     }
 

@@ -50,7 +50,7 @@ fn a_released_item_on_the_cursor_is_let_go_and_unlocked() {
             .expect("the pickup runs")
     });
     {
-        let script = c.app.world().non_send_resource::<UiScript>();
+        let script = c.app.world().non_send::<UiScript>();
         assert_eq!(script.cursor_item().map(|i| i.guid), Some(SPARE.0), "held");
         assert!(script.item_locked(SPARE.0), "the pickup's lock");
     }
@@ -60,7 +60,7 @@ fn a_released_item_on_the_cursor_is_let_go_and_unlocked() {
         c.seen(),
         ["ITEM_LOCK_CHANGED", "CURSOR_UPDATE", "after:nil"]
     );
-    let script = c.app.world().non_send_resource::<UiScript>();
+    let script = c.app.world().non_send::<UiScript>();
     assert!(!script.item_locked(SPARE.0), "unlocked");
 }
 

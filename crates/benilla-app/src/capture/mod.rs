@@ -1149,7 +1149,7 @@ mod tests {
             progress.ready = 1;
             progress.total = 1;
         }
-        world.insert_non_send_resource(benilla_ui::script::UiScript::new().unwrap());
+        world.insert_non_send(benilla_ui::script::UiScript::new().unwrap());
         world.init_resource::<crate::player::Player>();
         world.init_resource::<crate::loading_screen::LoadingScreen>();
         world.init_resource::<crate::ui_quest::QuestGiver>();
@@ -1190,7 +1190,7 @@ mod tests {
         for f in crate::ui_script::test_ui::CHARACTER_UI {
             crate::ui_script::test_ui::load_ui_strict(&script, f);
         }
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         world.init_resource::<crate::player::Player>();
         world.init_resource::<crate::loading_screen::LoadingScreen>();
         world.init_resource::<crate::ui_quest::QuestGiver>();
@@ -1234,9 +1234,7 @@ mod tests {
                 )
                 .unwrap()
         });
-        let errors = world
-            .non_send_resource::<benilla_ui::script::UiScript>()
-            .errors();
+        let errors = world.non_send::<benilla_ui::script::UiScript>().errors();
         assert!(errors.is_empty(), "the open runs clean: {errors:?}");
         assert_eq!(read[9], "shown");
         let icons = ["SHIELD", "SWORD", "STONE", "STONE"];
@@ -1270,7 +1268,7 @@ mod tests {
                 progress.ready = 1;
                 progress.total = 1;
             }
-            world.insert_non_send_resource(benilla_ui::script::UiScript::new().unwrap());
+            world.insert_non_send(benilla_ui::script::UiScript::new().unwrap());
             world.init_resource::<crate::player::Player>();
             world.init_resource::<crate::loading_screen::LoadingScreen>();
             world.init_resource::<crate::ui_bank::BankOpen>();

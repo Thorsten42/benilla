@@ -10,12 +10,12 @@
 // (depth = near / eye_z) that range becomes a clamp just below `near / farclip`, the farthest
 // depth the detailed world keeps (it discards past the wall), still in front of the sky's 0.0.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     mesh_functions,
     forward_io::Vertex,
     view_transformations::{position_world_to_clip, view_z_to_depth_ndc},
     mesh_view_bindings::view,
-}
+};
 
 /// How far the band reaches inside the far-clip wall: the reference's far-band near plane
 /// `farclip - 33.0` (`[0x8101b0]`, about one WDL outer cell).
@@ -35,7 +35,7 @@ struct WowLight {
     fog_color: vec4<f32>,      // 4 rgb = Light.dbc row 7 (gamma 0..1); w = enable (>0.5 ⇒ blend)
     fog_params: vec4<f32>,     // 5 xy = scene fog start/end (unread); w = farclip wall (0 = off)
 };
-@group(#{MATERIAL_BIND_GROUP}) @binding(90) var<storage, read> w: WowLight;
+@group(constants::MATERIAL_BIND_GROUP) @binding(90) var<storage, read> w: WowLight;
 
 struct WdlVsOut {
     @builtin(position) clip_position: vec4<f32>,

@@ -89,7 +89,7 @@ mod tests {
         let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
         let (tx, rx) = crossbeam_channel::unbounded();
         app.insert_resource(crate::net::NetCommands(tx));
-        app.insert_non_send_resource(rx); // a send must not fail
+        app.insert_non_send(rx); // a send must not fail
         let world = app.world_mut();
         world.resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
         crate::items::test_spawn_item(
@@ -147,13 +147,13 @@ mod tests {
                 "#,
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app
     }
 
     fn seen(app: &mut App) -> Vec<String> {
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<Vec<String>>("local s = SEEN SEEN = {} return s")
             .unwrap()
     }
@@ -217,7 +217,7 @@ mod tests {
         let asked = |app: &App| {
             crate::query_cache::queries(
                 app.world()
-                    .non_send_resource::<crossbeam_channel::Receiver<crate::net::ClientCommand>>(),
+                    .non_send::<crossbeam_channel::Receiver<crate::net::ClientCommand>>(),
             )
             .len()
         };

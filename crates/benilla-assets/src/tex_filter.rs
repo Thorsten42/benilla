@@ -27,7 +27,7 @@ use std::sync::OnceLock;
 
 use bevy::image::ImageFilterMode;
 use bevy::prelude::*;
-use bevy::render::render_resource::FilterMode;
+use bevy::render::render_resource::MipmapFilterMode;
 
 /// The reference's `anisotropic` range: its callback refuses a value outside 1-16, and one above
 /// the device cap, and stores neither (`0x689110`).
@@ -85,10 +85,10 @@ impl TexFilterSetting {
     }
 
     /// The same, for a lane that builds a raw wgpu `SamplerDescriptor`.
-    pub fn gpu_mipmap_filter(self) -> FilterMode {
+    pub fn gpu_mipmap_filter(self) -> MipmapFilterMode {
         match self.mode() {
-            3 => FilterMode::Nearest,
-            _ => FilterMode::Linear,
+            3 => MipmapFilterMode::Nearest,
+            _ => MipmapFilterMode::Linear,
         }
     }
 
@@ -151,7 +151,7 @@ mod tests {
         };
         assert_eq!(registrar.mode(), 3);
         assert_eq!(registrar.mipmap_filter(), ImageFilterMode::Nearest);
-        assert_eq!(registrar.gpu_mipmap_filter(), FilterMode::Nearest);
+        assert_eq!(registrar.gpu_mipmap_filter(), MipmapFilterMode::Nearest);
         assert_eq!(registrar.anisotropy_clamp(), 1);
     }
 
@@ -206,7 +206,7 @@ mod tests {
         ] {
             if s.anisotropy_clamp() > 1 {
                 assert_eq!(s.mipmap_filter(), ImageFilterMode::Linear);
-                assert_eq!(s.gpu_mipmap_filter(), FilterMode::Linear);
+                assert_eq!(s.gpu_mipmap_filter(), MipmapFilterMode::Linear);
             }
         }
     }

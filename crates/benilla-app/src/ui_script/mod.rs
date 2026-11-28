@@ -439,7 +439,7 @@ impl Plugin for UiScriptPlugin {
         // The quit root runs in `Last`: the close button's `AppExit` is written in `PostUpdate`.
         crate::shutdown::on_app_exit(app, shutdown_on_exit.into_configs());
         app.insert_resource(UiScaleCvar(default_ui_scale()))
-            .init_non_send_resource::<glue_mgr::SharedGlueMgr>()
+            .init_non_send::<glue_mgr::SharedGlueMgr>()
             .init_resource::<UiAutoScaleCache>()
             .init_resource::<UiFrameCost>()
             .init_resource::<UiCostWanted>()
@@ -572,7 +572,8 @@ impl Plugin for UiScriptPlugin {
                 Update,
                 input::dispatch_input_records
                     .run_if(
-                        in_state(crate::client_state::ClientState::InWorld).or(glue::glue_ui_up),
+                        in_state(crate::client_state::ClientState::InWorld)
+                            .or_else(glue::glue_ui_up),
                     )
                     .in_set(UiInput)
                     // Exclusive, as its records' world steps run the click's legs: placed among

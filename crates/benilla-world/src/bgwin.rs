@@ -1,9 +1,9 @@
 //! Background instrumented runs: a probe or capture window opens behind the user's work without
 //! taking focus, then becomes an ordinary window.
 //!
-//! winit's AppKit backend activates the app at launch and bevy_winit 0.18 has no hook to stop it,
-//! so `main` opens the window unfocused below the normal level and [`BgWinPlugin`] undoes the
-//! launch, then restores the Normal level and Regular policy: left on, `AlwaysOnBottom` keeps the
+//! winit's AppKit backend activates the app at launch unless told not to; bevy_winit 0.20 tells it
+//! so only when every window opens unfocused. So `main` opens the window unfocused below the normal
+//! level and [`BgWinPlugin`] undoes any activation and raise that still land, then restores the Normal level and Regular policy: left on, `AlwaysOnBottom` keeps the
 //! window under every other and Accessory hides it from Cmd-Tab and the Dock.
 
 use bevy::prelude::*;

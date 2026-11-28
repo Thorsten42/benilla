@@ -103,7 +103,7 @@ fn client_in_slot(summon: u64, slot: u8) -> Stable {
         benilla_formats::StableSlotPrices::from_rows([(2, 500)]),
     ));
     let script = UiScript::new().expect("a VM");
-    app.world_mut().insert_non_send_resource(script);
+    app.world_mut().insert_non_send(script);
     // The list's signal, which leaves the VM its copy.
     app.world_mut()
         .resource_mut::<super::StableLane>()

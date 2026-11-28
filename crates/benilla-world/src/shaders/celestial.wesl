@@ -3,21 +3,21 @@
 // at height 0 with alpha 0 there, `clamp(2.5 * height, 0, 1)` in the 0.4-unit band above
 // (`0x6d1ac5`), the colour's alpha byte beyond. Glares skip the clip (`0x7e57e0`) and add,
 // saturating, like the reference's SRC_ALPHA, ONE blend (`0x7e5a16`). Depth is the far pin in
-// `sky_vertex.wgsl`.
+// `sky_vertex.wesl`.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::alpha_discard,
     forward_io::VertexOutput,
     mesh_view_bindings::view,
-}
+};
 
 // `CelestialExt::fade`: `.x` the ramp slope in sin-elevation (`2.5 * height` at the reference's
 // radius 12 is `30 * y`), `.y` the brightness on RGB only, `.z` 0 for a disc and 1 for a glare,
 // `.w` the colour's alpha byte above the band, 0 for moon02 in clear weather (no writer).
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> celestial: vec4<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> celestial: vec4<f32>;
 // The disc quad's vertical span in sin-elevation, `.x` bottom edge and `.y` top edge, per frame.
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var<uniform> span: vec4<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var<uniform> span: vec4<f32>;
 
 // The reference's per-vertex alpha at sin-elevation `y`: the ramp inside the band, the byte above.
 fn vertex_alpha(y: f32) -> f32 {
@@ -34,7 +34,11 @@ fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @location(0) vec4<f32> {
     var pbr_input = pbr_input_from_standard_material(in, is_front);
-    let base = alpha_discard(pbr_input.material, pbr_input.material.base_color);
+    let base = alpha_discard(
+        pbr_input.material.flags,
+        pbr_input.material.alpha_cutoff,
+        pbr_input.material.base_color,
+    );
 
     var a = base.a;
     if celestial.z < 0.5 {

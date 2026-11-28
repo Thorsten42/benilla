@@ -201,7 +201,7 @@ fn a_bare_macro_reads_as_usable() {
         .init_resource::<Items>()
         .insert_resource(NetCommands(tx));
     walk_inputs(&mut app);
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     add_bar(&mut app);
     write_all(&mut app);
 
@@ -329,7 +329,7 @@ fn a_ranged_button_pads_its_range_by_the_selected_target_alone() {
             last: None,
             lit: None,
         });
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         add_bar(&mut app);
         assert!(live::<bool>(&mut app, "return ActionHasRange(1) == 1"));
         live::<i64>(&mut app, "return IsActionInRange(1) or -1")
@@ -462,7 +462,7 @@ fn a_melee_button_reaches_the_moving_bonus_while_both_units_run() {
             last: None,
             lit: None,
         });
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         add_bar(&mut app);
         live::<i64>(&mut app, "return IsActionInRange(1) or -1")
     };
@@ -581,7 +581,7 @@ fn food_on_the_bar_greys_while_the_player_is_in_combat() {
                 ..Default::default()
             }),
         );
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         add_bar(&mut app);
         app.world_mut()
             .resource_mut::<super::ActionStateMemory>()
@@ -669,7 +669,7 @@ fn an_item_slot_is_held_by_its_stored_count_not_the_bags() {
                 ..Default::default()
             }),
         );
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         add_bar(&mut app);
         app.world_mut()
             .resource_mut::<super::ActionStateMemory>()
@@ -758,7 +758,7 @@ fn a_broken_worn_weapon_draws_no_equipped_border() {
                 ..Default::default()
             }),
         );
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         add_bar(&mut app);
         live::<bool>(&mut app, "return (IsEquippedAction(1)) and true or false")
     };
@@ -938,10 +938,10 @@ fn lost_control_greys_the_bar_but_the_immunity_spell() {
         "#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     add_bar(&mut app);
     let events = |app: &mut App| -> i64 {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         s.resolve();
         s.eval::<i64>("local n = USABLE_EVENTS; USABLE_EVENTS = 0; return n")
             .unwrap()
@@ -1048,21 +1048,19 @@ fn a_held_action_polls_answer_their_own_now() {
         Instant::now(),
         None,
     );
-    app.insert_non_send_resource(UiScript::new().unwrap());
+    app.insert_non_send(UiScript::new().unwrap());
     add_bar(&mut app);
 
     let read = |app: &mut App| {
         let (start, duration, enable) = live::<(f64, f64, i64)>(app, "return GetActionCooldown(1)");
-        let now = app.world().non_send_resource::<UiScript>().now();
+        let now = app.world().non_send::<UiScript>().now();
         (start, duration, enable, now)
     };
     app.update();
     let first = read(&mut app);
     assert_eq!((first.1, first.2), (0.001, 0), "(now, 0.001, 0)");
     assert_eq!(first.0, first.3);
-    app.world_mut()
-        .non_send_resource_mut::<UiScript>()
-        .tick(0.02);
+    app.world_mut().non_send_mut::<UiScript>().tick(0.02);
     let second = read(&mut app);
     assert_eq!(second.0, second.3, "the poll answers its own now");
     assert!((second.0 - first.0 - 0.02).abs() < 1e-9, "20 ms apart");
@@ -1135,7 +1133,7 @@ fn bar_app(buttons: &[(u8, u32, u8)], spells: Spells, x: f32) -> App {
             }),
         );
     }
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     add_bar(&mut app);
     write_all(&mut app);
     app
@@ -1179,7 +1177,7 @@ fn record(app: &mut App, events: &[&str]) {
         .map(|e| format!("f:RegisterEvent('{e}') "))
         .collect();
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(&format!(
             "HEARD = {{}} local f = CreateFrame('Frame') {registers} \
              f:SetScript('OnEvent', function() table.insert(HEARD, event) end)"
@@ -1190,7 +1188,7 @@ fn record(app: &mut App, events: &[&str]) {
 /// One frame, and what the recorder heard in it.
 fn frame(app: &mut App) -> Vec<String> {
     app.update();
-    let script = app.world().non_send_resource::<UiScript>();
+    let script = app.world().non_send::<UiScript>();
     let heard = script.eval::<Vec<String>>("return HEARD").unwrap();
     script.run("HEARD = {}").unwrap();
     heard
@@ -1309,7 +1307,7 @@ fn get_action_cooldown_enables_only_the_slots_that_reach_a_query() {
         5.0,
     );
     crate::ui_macro::bind_for_test(
-        &mut app.world_mut().non_send_resource_mut::<UiScript>(),
+        &mut app.world_mut().non_send_mut::<UiScript>(),
         &[
             (1, BoundSpell::None.into()),
             (2, BoundSpell::Unresolved.into()),
@@ -1361,7 +1359,7 @@ fn an_item_slot_is_current_while_its_items_cast_is_in_flight() {
         5.0,
     );
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_cast_view(benilla_ui::script::CastView {
             slot: Some(8690),
             item: Some(HEARTHSTONE),
@@ -1466,7 +1464,7 @@ fn usable_reader_app() -> App {
         .init_resource::<crate::ui_guild::GuildState>();
     crate::ui_unit::add_token_seats(&mut app);
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             "HEARD = {} local f = CreateFrame('Frame') \
              f:RegisterEvent('SPELL_UPDATE_USABLE') \
@@ -1536,7 +1534,7 @@ fn a_calls_refresh_ahead_of_the_lane_leaves_the_new_vm_its_first_firing() {
             },
         )
         .expect("the call's refresh runs as a one-shot system");
-    let script = app.world().non_send_resource::<UiScript>();
+    let script = app.world().non_send::<UiScript>();
     let heard = script.eval::<Vec<String>>("return HEARD").unwrap();
     assert_eq!(heard, ["SPELL_UPDATE_USABLE"], "the call's own refresh");
     script.run("HEARD = {}").unwrap();
@@ -1753,29 +1751,27 @@ fn a_bag_query_on_a_missing_record_flushes_when_the_record_lands() {
     const HEARTHSTONE: u32 = 6948;
     let mut app = bar_app(&[], Spells::empty_for_tests(), 5.0);
     record(&mut app, &RECORD_FLUSH);
-    app.world_mut()
-        .non_send_resource_mut::<UiScript>()
-        .set_container(
-            0,
-            Some(ContainerState {
-                name: None,
-                num_slots: 16,
-                slots: std::collections::HashMap::from([(
-                    1,
-                    ContainerSlot {
-                        item_id: HEARTHSTONE,
-                        count: 1,
-                        ..Default::default()
-                    },
-                )]),
-            }),
-        );
+    app.world_mut().non_send_mut::<UiScript>().set_container(
+        0,
+        Some(ContainerState {
+            name: None,
+            num_slots: 16,
+            slots: std::collections::HashMap::from([(
+                1,
+                ContainerSlot {
+                    item_id: HEARTHSTONE,
+                    count: 1,
+                    ..Default::default()
+                },
+            )]),
+        }),
+    );
     app.world_mut()
         .resource_mut::<Cooldowns>()
         .apply_wire_item_cooldown(HEARTHSTONE, 8690, Instant::now());
     frame(&mut app);
     let entries = {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         s.keep_calls();
         s.run("GetContainerItemCooldown(0, 1)").unwrap();
         s.take_cooldown_record_asks()
@@ -1894,7 +1890,7 @@ fn the_cache_refreshes_alone_at_a_reload() {
 
     set_mana_quietly(&mut app, 100);
     assert!(frame(&mut app).is_empty(), "no caller, no event");
-    app.insert_non_send_resource(UiScript::new().unwrap());
+    app.insert_non_send(UiScript::new().unwrap());
     record(&mut app, &USABLE);
     assert!(
         frame(&mut app).is_empty(),
@@ -2081,7 +2077,7 @@ fn a_macro_bound_to_a_pet_spell_reads_the_pets_gate_power_and_history() {
             10.0,
         );
         crate::ui_macro::bind_for_test(
-            &mut app.world_mut().non_send_resource_mut::<UiScript>(),
+            &mut app.world_mut().non_send_mut::<UiScript>(),
             &[(
                 1,
                 Bound {

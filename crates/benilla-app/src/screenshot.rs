@@ -263,7 +263,7 @@ mod tests {
         app.init_resource::<ScreenshotState>();
         let glue = UiScript::new_glue().unwrap();
         glue.run("Screenshot() Screenshot()").unwrap();
-        app.insert_non_send_resource(glue);
+        app.insert_non_send(glue);
         app.add_systems(Update, ask_for_captures);
 
         app.update();
@@ -284,12 +284,12 @@ mod tests {
 
         let mut app = App::new();
         app.init_resource::<ScreenshotState>();
-        app.insert_non_send_resource(s);
+        app.insert_non_send(s);
         app.add_systems(Update, ask_for_captures);
         app.update();
 
         assert_eq!(shots(&mut app), 1, "this frame is the capture");
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         assert!(!status_drawn(&mut s), "and it draws no status line");
     }
 
@@ -311,7 +311,7 @@ mod tests {
             "#,
         )
         .unwrap();
-        app.insert_non_send_resource(glue);
+        app.insert_non_send(glue);
         app.add_systems(Update, (ask_for_captures, report_captures).chain());
 
         app.update();
@@ -323,7 +323,7 @@ mod tests {
         app.update();
         let heard = app
             .world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<Vec<String>>("return heard")
             .unwrap();
         assert_eq!(
@@ -346,13 +346,13 @@ mod tests {
             .unwrap();
         let mut app = App::new();
         app.init_resource::<ScreenshotState>();
-        app.insert_non_send_resource(s);
+        app.insert_non_send(s);
         app.add_systems(Update, ask_for_captures);
         app.update();
         app.update();
         assert_eq!(shots(&mut app), 0, "held while the movie plays");
         app.world()
-            .non_send_resource::<benilla_ui::script::UiScript>()
+            .non_send::<benilla_ui::script::UiScript>()
             .run("M:StopMovie()")
             .unwrap();
         app.update();

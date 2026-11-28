@@ -230,7 +230,7 @@ mod tests {
         schedule.add_systems(feed_movie_audio);
         world.init_resource::<MovieAudioReports>();
         world.init_resource::<Messages<MovieAudioRequest>>();
-        world.insert_non_send_resource(playing_vm());
+        world.insert_non_send(playing_vm());
         let mut asked = |world: &mut World| -> Vec<String> {
             schedule.run(world);
             world
@@ -244,7 +244,7 @@ mod tests {
         };
         assert_eq!(asked(&mut world), [format!("start {:?}", b"mp3".to_vec())]);
         assert!(asked(&mut world).is_empty(), "asked once");
-        world.insert_non_send_resource(benilla_ui::script::UiScript::new_glue().unwrap());
+        world.insert_non_send(benilla_ui::script::UiScript::new_glue().unwrap());
         assert_eq!(asked(&mut world), ["stop"]);
         assert!(asked(&mut world).is_empty());
     }

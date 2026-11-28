@@ -35,7 +35,7 @@ fn summoned_pet() -> ObjectStore {
 fn ui(rig: &mut Rig) -> bevy::ecs::change_detection::Mut<'_, benilla_ui::script::UiScript> {
     rig.app
         .world_mut()
-        .non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .non_send_mut::<benilla_ui::script::UiScript>()
 }
 
 /// Claw as the pet book lists it: named, iconed, and with the ordinary pet GCD.
@@ -112,7 +112,7 @@ impl Rig {
         // The VM's `GetTime` moves with the frame's clock, as the script tick moves it.
         self.app
             .world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>()
+            .non_send_mut::<benilla_ui::script::UiScript>()
             .tick(step as f32);
     }
 }
@@ -393,7 +393,7 @@ fn a_new_vm_is_not_flushed_for_a_list_that_already_moved() {
 
     // The interface reloads: a new VM, the bar pushed into it afresh, its `PET_BAR_UPDATE` the
     // world entry's reset's (`0x4bc6f0`), which this rig has none of.
-    rig.app.world_mut().insert_non_send_resource(listening_vm());
+    rig.app.world_mut().insert_non_send(listening_vm());
     assert_eq!(rig.frame(), Vec::<String>::new(), "the bar, and no flush");
 
     rig.receive(vec![go(PET, GROWL)]);
@@ -432,7 +432,7 @@ fn a_pet_gcd_sweeps_the_spellbooks_pet_tab_button() {
     let failures = crate::ui_script::load_default_ui(&script);
     assert!(failures.is_empty(), "load failures: {failures:?}");
     listen(&script);
-    rig.app.world_mut().insert_non_send_resource(script);
+    rig.app.world_mut().insert_non_send(script);
 
     // The book arrives, and the window opens on its pet tab.
     rig.frame();
@@ -774,7 +774,7 @@ fn the_world_entry_reset_clears_the_guid_and_keeps_the_book() {
     world.resource_scope(|world, mut bar: bevy::prelude::Mut<PetBar>| {
         world.resource_scope(
             |world, mut latch: bevy::prelude::Mut<super::PetAttackLatch>| {
-                let mut script = world.non_send_resource_mut::<benilla_ui::script::UiScript>();
+                let mut script = world.non_send_mut::<benilla_ui::script::UiScript>();
                 assert!(super::drop_bar(&mut script, &mut bar, &mut latch));
             },
         )

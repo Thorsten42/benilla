@@ -73,7 +73,7 @@ impl Client {
 /// each gossip event carries its name and first argument.
 fn client_with(prepare: impl FnOnce(&mut UiScript)) -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -97,7 +97,7 @@ fn client_with(prepare: impl FnOnce(&mut UiScript)) -> Client {
             "#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
@@ -356,7 +356,7 @@ fn stock_gossip_frame_stays_visible_through_a_first_visit_submenu() {
     });
     // What the window shows: visible?, the greeting, the first row's label.
     let window = |c: &mut Client| -> (bool, String, String) {
-        let s = c.app.world().non_send_resource::<UiScript>();
+        let s = c.app.world().non_send::<UiScript>();
         (
             s.eval::<bool>("return GossipFrame:IsVisible()").unwrap(),
             s.eval::<String>("return GossipGreetingText:GetText() or ''")

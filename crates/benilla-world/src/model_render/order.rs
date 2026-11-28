@@ -26,6 +26,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
 use bevy::render::render_phase::{sort_phase_system, ViewSortedRenderPhases};
+use bevy::render::sync_component::SyncComponent;
 use bevy::render::view::ExtractedView;
 use bevy::render::{Extract, ExtractSchedule, Render, RenderApp, RenderSystems};
 
@@ -111,7 +112,12 @@ pub struct RenderSortLink {
     world: Affine3A,
 }
 
-impl ExtractComponent for M2SortLink {
+// Removing the link removes its render twin.
+impl SyncComponent<RenderApp> for M2SortLink {
+    type Target = RenderSortLink;
+}
+
+impl ExtractComponent<RenderApp> for M2SortLink {
     type QueryData = &'static Self;
     type QueryFilter = Changed<Self>;
     type Out = RenderSortLink;
@@ -439,7 +445,8 @@ fn order_m2_transparents(
         let eye = view.world_from_view.translation();
         let mut others = Vec::with_capacity(phase.items.len());
         let mut m2 = Vec::new();
-        for mut item in std::mem::take(&mut phase.items) {
+        // The phase is retained and keyed by `(render, main)` entity; rebuilt below in the order.
+        for (_, mut item) in std::mem::take(&mut phase.items) {
             let keys = links.get(item.entity.0).ok().and_then(|link| {
                 let sort = materials
                     .instances
@@ -456,7 +463,10 @@ fn order_m2_transparents(
             }
         }
         if m2.is_empty() {
-            phase.items = others.into_iter().map(|(_, item)| item).collect();
+            phase.items = others
+                .into_iter()
+                .map(|(_, item)| (item.entity, item))
+                .collect();
             continue;
         }
         m2.sort_by(|a, b| m2_cmp(&a.0, &b.0));
@@ -464,7 +474,10 @@ fn order_m2_transparents(
             .into_iter()
             .map(|(keys, item)| (keys.merge_depth, item))
             .collect();
-        phase.items = merge(others, m2);
+        phase.items = merge(others, m2)
+            .into_iter()
+            .map(|item| (item.entity, item))
+            .collect();
     }
 }
 

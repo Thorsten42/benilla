@@ -1149,7 +1149,7 @@ mod tests {
         script
             .run("local _, _, _, _, _, c = GetQuestLogTitle(2) assert(c == 1)")
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.world_mut()
             .resource::<Tutorials>()
             .lock()
@@ -1186,7 +1186,7 @@ mod tests {
                  f:SetScript('OnEvent', function() table.insert(SEEN, arg1) end)",
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app
     }
 
@@ -1251,7 +1251,7 @@ mod tests {
                      f:SetScript('OnEvent', function() table.insert(SEEN, arg1) end)",
                 )
                 .unwrap();
-            app.insert_non_send_resource(script);
+            app.insert_non_send(script);
             app.world_mut().write_message(EnteredWorldMessage {
                 tutorial_flags: Some(vec![0u8; 32]),
             });
@@ -1265,7 +1265,7 @@ mod tests {
             // The create's arrival (`0x5dec7b`), as our own create's handler pushes it.
             crate::ui_world_enter::push_arrival(app.world_mut());
             app.update();
-            let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+            let mut s = app.world_mut().non_send_mut::<UiScript>();
             s.resolve();
             assert_eq!(
                 s.eval::<Vec<i64>>("return SEEN").unwrap(),
@@ -1303,7 +1303,7 @@ mod tests {
                  f:SetScript('OnEvent', function() table.insert(SEEN, arg1) end)",
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.world_mut().spawn((
             SelfPlayer,
             ObjectStore(benilla_protocol::ObjectFields::from_pairs(&[])),
@@ -1315,7 +1315,7 @@ mod tests {
             .apply_flags(&[0u8; 32]);
         app.update();
         let seen = |app: &mut App| {
-            let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+            let mut s = app.world_mut().non_send_mut::<UiScript>();
             s.resolve();
             s.eval::<Vec<i64>>("return SEEN").unwrap()
         };
@@ -1397,7 +1397,7 @@ mod tests {
                  f:SetScript('OnEvent', function() table.insert(SEEN, arg1) end)",
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.world()
             .resource::<Tutorials>()
             .lock()
@@ -1413,7 +1413,7 @@ mod tests {
     }
 
     fn seen(app: &mut App) -> Vec<i64> {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         s.resolve();
         s.eval::<Vec<i64>>("return SEEN").unwrap()
     }

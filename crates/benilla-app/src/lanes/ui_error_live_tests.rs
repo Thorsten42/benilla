@@ -72,7 +72,7 @@ const SPY: &str = r#"
 /// name and first argument.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, _sent) = crossbeam_channel::unbounded();
@@ -82,7 +82,7 @@ fn client() -> Client {
     app.update();
     let script = UiScript::new().expect("a VM");
     script.run(SPY).unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
@@ -380,7 +380,7 @@ fn a_session_that_ends_before_the_world_leaves_no_line_for_the_next() {
     app.insert_resource(bevy::prelude::State::new(
         crate::client_state::ClientState::Login,
     ));
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, _sent) = crossbeam_channel::unbounded();
@@ -430,7 +430,7 @@ fn a_session_that_ends_before_the_world_leaves_no_line_for_the_next() {
     // The next session's interface up: its lane fires nothing of the last session's.
     let script = UiScript::new().expect("a VM");
     script.run(SPY).unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     crate::ui_action::fire_ui_error_lane(app.world_mut());
     let seen: Vec<String> =
         crate::script_calls::eval_in_vm(app.world(), "local s = Seen Seen = {} return s");

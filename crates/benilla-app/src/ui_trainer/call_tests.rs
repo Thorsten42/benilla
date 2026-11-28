@@ -59,7 +59,7 @@ fn client() -> (App, Receiver<ClientCommand>) {
         groups: Vec::new(),
         list: 1,
     }));
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     (app, rx)
 }
 

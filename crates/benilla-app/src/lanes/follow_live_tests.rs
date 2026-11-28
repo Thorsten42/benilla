@@ -24,7 +24,7 @@ const LEADER: u64 = 0x52;
 fn following() -> App {
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -224,7 +224,7 @@ fn the_follows_arm_reads_the_follow_an_earlier_packet_ended() {
         ..Default::default()
     };
     world
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -334,7 +334,7 @@ fn looting() -> App {
         .open(BOAR, 1, 0, Vec::new());
     world.resource_mut::<crate::ui_loot::LootLatch>().0 = Some(BOAR);
     world
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")

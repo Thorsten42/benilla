@@ -167,7 +167,7 @@ mod tests {
         script.lock_item(A);
         script.lock_item(B);
         script.run("SEEN = {}").unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         crate::net::handlers::dispatch(
             app.world_mut(),
             vec![SessionEvent::InventoryFailure {
@@ -179,9 +179,7 @@ mod tests {
             }],
         );
         crate::lanes::fire_in_order(app.world_mut());
-        let s = app
-            .world()
-            .non_send_resource::<benilla_ui::script::UiScript>();
+        let s = app.world().non_send::<benilla_ui::script::UiScript>();
         assert_eq!(
             s.eval::<Vec<String>>("return SEEN").unwrap(),
             ["UI_ERROR_MESSAGE", "ITEM_LOCK_CHANGED", "ITEM_LOCK_CHANGED"]
@@ -240,7 +238,7 @@ mod tests {
                  SEEN = SEEN .. tag[event] .. (HasKey() and 1 or 0) end)"
             ))
             .unwrap();
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         app
     }
 
@@ -360,7 +358,7 @@ mod tests {
             packets_of(false),
             |_| {},
         );
-        let s = app.world().non_send_resource::<UiScript>();
+        let s = app.world().non_send::<UiScript>();
         assert_eq!(s.eval::<String>("return SEEN").unwrap(), "E0");
     }
 

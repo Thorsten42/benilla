@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 
 use bevy::app::MainScheduleOrder;
-use bevy::ecs::schedule::{ExecutorKind, ScheduleLabel};
+use bevy::ecs::schedule::{ScheduleLabel, SingleThreadedExecutor};
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 
@@ -124,7 +124,7 @@ fn add_repeat_frame(app: &mut App) {
         return;
     }
     let mut schedule = Schedule::new(ConsoleRepeatFrame);
-    schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+    schedule.set_executor(SingleThreadedExecutor::new());
     schedule.add_systems(run_repeat);
     app.add_schedule(schedule);
     app.world_mut()
@@ -501,7 +501,7 @@ pub(crate) fn execute(world: &mut World, line: &str) -> Vec<String> {
     }
     let cvars = world.remove_resource::<crate::cvars::Cvars>();
     let mut state = bevy::ecs::system::SystemState::<ConsoleSteps>::new(world);
-    let mut steps = state.get_mut(world);
+    let mut steps = state.get_mut(world).unwrap();
     let out = match &cvars {
         Some(cvars) => steps.execute(cvars, line),
         None => steps.execute(&NoCvars, line),
@@ -681,7 +681,7 @@ mod tests {
         let world = app.world_mut();
         let cvars = world.remove_resource::<Cvars>().unwrap();
         let mut state = bevy::ecs::system::SystemState::<ConsoleSteps>::new(world);
-        let mut steps = state.get_mut(world);
+        let mut steps = state.get_mut(world).unwrap();
         let mut built = |line: &str| {
             let source = Counting(&cvars, std::cell::Cell::new(0));
             let out = steps.execute(&source, line);

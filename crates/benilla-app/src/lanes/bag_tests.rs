@@ -159,7 +159,7 @@ fn client() -> App {
             "#,
         )
         .unwrap();
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     frame(
         &mut app,
         vec![
@@ -178,7 +178,7 @@ fn frame(app: &mut App, packets: Vec<SessionEvent>) -> Vec<String> {
     let world = app.world_mut();
     crate::net::handlers::dispatch(world, wire(packets));
     crate::lanes::fire_in_order(world);
-    let s = world.non_send_resource_mut::<UiScript>();
+    let s = world.non_send_mut::<UiScript>();
     let out = s.eval::<Vec<String>>("return Heard").unwrap();
     s.run("Heard = {}").unwrap();
     out
@@ -427,7 +427,7 @@ fn a_wrong_bag_refusal_names_the_bag_its_packet_found() {
         }),
     );
     world
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             "ERR_WRONG_BAG_TYPE = 'Wrong bag.' \
              ERR_WRONG_BAG_TYPE_SUBCLASS = 'Only %s can be placed in that.'",
@@ -577,7 +577,7 @@ fn hosted_eval<T: benilla_ui::mlua::FromLuaMulti>(app: &mut App, chunk: &str) ->
 fn a_bag_updates_listener_reads_the_seat_its_packet_left() {
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             Seen = {}
@@ -613,7 +613,7 @@ fn before_and_at_logout(app: &mut App, expr: &str) -> (String, String) {
     let seen: Rc<RefCell<Vec<String>>> = Rc::default();
     let sink = seen.clone();
     {
-        let script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let script = app.world_mut().non_send_mut::<UiScript>();
         let note = script
             .lua()
             .create_function(move |_, text: String| {
@@ -685,7 +685,7 @@ fn the_logouts_shutdown_reads_no_bags() {
 fn the_logouts_shutdown_reads_no_inventory_but_the_name() {
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_player_record(benilla_ui::script::PlayerRecord {
             name: "Onehunter".into(),
             ..Default::default()
@@ -725,7 +725,7 @@ fn the_logouts_shutdown_finds_no_off_hand_weapon() {
         );
     // The VM's record copy, which the snapshot getter reads once the objects are gone.
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_item_template(
             25,
             benilla_ui::script::ItemTemplateView {
@@ -745,7 +745,7 @@ fn the_logouts_shutdown_finds_no_off_hand_weapon() {
 /// A spy on `PLAYER_COMBO_POINTS` that records `chunk`'s answer at each firing, as text.
 fn spy_at_combo(app: &mut App, chunk: &str) {
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(&format!(
             r#"AtCombo = {{}}
             local f = CreateFrame("Frame")
@@ -812,7 +812,7 @@ fn a_bank_bags_slot_reads_as_its_packet_left_it() {
     const BANK_LINEN: u64 = 0x4000_0000_0000_0048;
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_bank(Some(benilla_ui::script::BankState::default()));
     let mut pairs = vec![(2, 0x7), (FIELD_OBJECT_ENTRY, BAG_ID), (48, 4)];
     pairs.extend(guid_pair(6, ME));

@@ -59,7 +59,7 @@ fn client() -> App {
             "#,
         )
         .unwrap();
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     app
 }
 
@@ -139,7 +139,7 @@ fn a_close_after_the_open_ends_the_preview_the_open_started() {
         end)
         "#,
     );
-    let preview = |app: &App| app.world().non_send_resource::<UiScript>().tabard_design();
+    let preview = |app: &App| app.world().non_send::<UiScript>().tabard_design();
     crate::net::handlers::dispatch(
         app.world_mut(),
         vec![SessionEvent::TabardVendorActivate(VENDOR)],

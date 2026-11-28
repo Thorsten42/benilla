@@ -1140,7 +1140,7 @@ fn a_values_block_moves_the_target_health_bar_and_a_retarget_fires_no_unit_event
     // The whole client's world, driven by hand: the notices fire on their lane with the host lent,
     // and every getter reads the objects through it, as in the app.
     let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
-    app.insert_non_send_resource(s);
+    app.insert_non_send(s);
     let me = app
         .world_mut()
         .spawn((
@@ -1177,7 +1177,7 @@ fn a_values_block_moves_the_target_health_bar_and_a_retarget_fires_no_unit_event
         .extend([(ME, me), (WOLF, wolf), (BOAR, boar)]);
 
     fn script(app: &mut App) -> Mut<'_, UiScript> {
-        app.world_mut().non_send_resource_mut()
+        app.world_mut().non_send_mut()
     }
     let seen = |app: &mut App| -> Vec<String> {
         let s = script(app);
@@ -1349,7 +1349,7 @@ fn a_forced_reaction_table_arriving_recolours_the_target_plate() {
     let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
     app.insert_resource(reps)
         .insert_resource(factions)
-        .insert_non_send_resource(s);
+        .insert_non_send(s);
     // A human warrior player: the guard's standing leg needs the player's type, flag `0x8` and
     // template (`0x606576`-`0x6065b6`).
     let me = app
@@ -1384,7 +1384,7 @@ fn a_forced_reaction_table_arriving_recolours_the_target_plate() {
         .extend([(ME, me), (GUARD, guard)]);
 
     fn script(app: &mut App) -> Mut<'_, UiScript> {
-        app.world_mut().non_send_resource_mut()
+        app.world_mut().non_send_mut()
     }
     let seen = |app: &mut App| -> Vec<String> {
         let s = script(app);

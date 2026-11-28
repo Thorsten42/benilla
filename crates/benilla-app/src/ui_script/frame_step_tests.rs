@@ -51,7 +51,7 @@ fn ui_app() -> App {
         )
         .unwrap();
     let mut app = App::new();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.init_resource::<super::UiPassState>();
     app.init_resource::<Assets<Image>>();
     app.init_resource::<PortraitImages>();
@@ -93,7 +93,7 @@ fn frame(app: &mut App, t: Instant) {
 
 fn eval(app: &App, chunk: &str) -> f64 {
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<f64>(chunk)
         .unwrap()
 }

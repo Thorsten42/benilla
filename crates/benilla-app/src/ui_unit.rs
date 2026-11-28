@@ -1786,16 +1786,16 @@ mod tests {
                 .insert(Transform::from_xyz(15.0, 0.0, 0.0));
             app.init_resource::<Reputations>();
             app.insert_resource(Selection::default());
-            app.insert_non_send_resource(UiScript::new().unwrap());
-            app.world_mut()
-                .non_send_resource_mut::<UiScript>()
-                .set_unit_guids(&benilla_ui::script::UnitGuids {
+            app.insert_non_send(UiScript::new().unwrap());
+            app.world_mut().non_send_mut::<UiScript>().set_unit_guids(
+                &benilla_ui::script::UnitGuids {
                     player: ME,
                     party: [member(1), 0, 0, 0],
                     party_pets: [pet(1), 0, 0, 0],
                     held: HashMap::from([(ME, 0), (pet(1), 0)]),
                     ..Default::default()
-                });
+                },
+            );
             let answer =
                 |app: &mut App, expr: &str| -> bool { live::eval_lent(app.world_mut(), expr) };
             assert!(answer(
@@ -2149,7 +2149,7 @@ mod tests {
             .insert_resource(NetCommands(tx))
             .init_resource::<crate::ui_session::InteractLatch>()
             .add_plugins(crate::ui_aura::UiAuraPlugin);
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
 
         // We at the origin, party1 (`A`) 5 yards off with a pet 15 yards off, the mob 20 yards
         // off, and `B` 3 yards off. We and `A` target the mob, the mob targets `B`, the pet
@@ -2239,10 +2239,7 @@ mod tests {
         // no chain, so it knows no `npctarget`; a bad suffix after a known prefix is GUID 0.
         let call = r#"CheckInteractDistance("npctarget", 4)"#;
         assert!(
-            app.world()
-                .non_send_resource::<UiScript>()
-                .run(call)
-                .is_err(),
+            app.world().non_send::<UiScript>().run(call).is_err(),
             "{call}"
         );
         // `CanInspect`: a player within 10 yards, so `B` and not the mob 20 yards off.
@@ -2479,7 +2476,7 @@ mod tests {
             app.init_resource::<crate::ui_party::GroupState>()
                 .init_resource::<Reputations>()
                 .insert_resource(factions());
-            app.insert_non_send_resource(UiScript::new().unwrap());
+            app.insert_non_send(UiScript::new().unwrap());
 
             let me_entity = app
                 .world_mut()
@@ -2510,14 +2507,14 @@ mod tests {
                 ..Default::default()
             });
             // The resolver's stand-in: us and the target, both held.
-            app.world_mut()
-                .non_send_resource_mut::<UiScript>()
-                .set_unit_guids(&benilla_ui::script::UnitGuids {
+            app.world_mut().non_send_mut::<UiScript>().set_unit_guids(
+                &benilla_ui::script::UnitGuids {
                     player: me.guid,
                     target: target.guid,
                     held: HashMap::from([(me.guid, 0), (target.guid, 0)]),
                     ..Default::default()
-                });
+                },
+            );
 
             live::eval_lent(app.world_mut(), expr)
         }
@@ -3018,7 +3015,7 @@ mod tests {
             .init_resource::<crate::ui_guild::GuildState>();
         let (tx, _rx) = crossbeam_channel::unbounded();
         app.insert_resource(NetCommands(tx));
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         let mut names = NameCache::default();
         names.insert_creature(69, Some(record("Wolf", 1)));
         names.insert_creature(70, Some(record("Druid", 7)));
@@ -3058,7 +3055,7 @@ mod tests {
         let druid = creature(70);
         let creature_type = |app: &mut App, token: &str| -> Option<String> {
             app.world_mut()
-                .non_send_resource_mut::<UiScript>()
+                .non_send_mut::<UiScript>()
                 .eval::<Option<String>>(&format!(r#"return UnitCreatureType("{token}")"#))
                 .unwrap()
         };
@@ -3130,9 +3127,9 @@ mod tests {
         let mut app = App::new();
         app.init_world_leave_sweep();
         crate::ui_script::add_worldport_sweep(&mut app);
-        app.insert_non_send_resource(UiScript::new().expect("VM"));
+        app.insert_non_send(UiScript::new().expect("VM"));
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run(
                 "Left = 0 \
                  local f = CreateFrame(\"Frame\") \
@@ -3142,7 +3139,7 @@ mod tests {
             .expect("probe frame");
         let left = |app: &mut App| -> i64 {
             app.world_mut()
-                .non_send_resource_mut::<UiScript>()
+                .non_send_mut::<UiScript>()
                 .eval::<i64>("return Left")
                 .unwrap()
         };

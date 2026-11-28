@@ -1599,7 +1599,7 @@ mod tests {
             STONE,
             crate::go_templates::test_fields(STONE_ENTRY),
         );
-        app.insert_non_send_resource(UiScript::new().expect("VM"));
+        app.insert_non_send(UiScript::new().expect("VM"));
         app.world_mut().spawn((
             SelfPlayer,
             ObjectStore(benilla_protocol::ObjectFields::from_pairs(&[(

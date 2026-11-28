@@ -23,11 +23,11 @@ fn fresh() -> GlueMgr {
 
 /// The manager the shared handle holds.
 fn mgr(app: &App) -> std::cell::Ref<'_, GlueMgr> {
-    app.world().non_send_resource::<SharedGlueMgr>().get()
+    app.world().non_send::<SharedGlueMgr>().get()
 }
 
 fn mgr_mut(app: &App) -> std::cell::RefMut<'_, GlueMgr> {
-    app.world().non_send_resource::<SharedGlueMgr>().get_mut()
+    app.world().non_send::<SharedGlueMgr>().get_mut()
 }
 
 fn open(which: &'static str, key: Option<&'static str>) -> Outgoing {
@@ -2443,7 +2443,7 @@ fn a_call_before_the_seat_runs_on_the_seating_frame() {
     assert_eq!(shared.get().state, ScreenState::Idle);
     let mut app = App::new();
     app.init_resource::<Time>()
-        .insert_non_send_resource(shared.clone())
+        .insert_non_send(shared.clone())
         .add_message::<LoginStageMessage>()
         .add_message::<LoginQueuedMessage>()
         .add_message::<LoginFailedMessage>()
@@ -2462,7 +2462,7 @@ fn a_call_before_the_seat_runs_on_the_seating_frame() {
         .add_message::<crate::ui_script::server_alert::LaunchUrl>()
         .add_message::<crate::ui_script::server_alert::LaunchAddonUrl>()
         .add_systems(Update, drive_glue_mgr);
-    app.insert_non_send_resource(s);
+    app.insert_non_send(s);
     app.update();
     assert_eq!(shared.get().state, ScreenState::RealmList);
 }
@@ -2480,7 +2480,7 @@ fn stock_app() -> (
     let abandon = Arc::new(AtomicU64::new(0));
     let mut app = App::new();
     app.init_resource::<Time>()
-        .init_non_send_resource::<SharedGlueMgr>()
+        .init_non_send::<SharedGlueMgr>()
         .init_resource::<crate::glue_session::login::LoginIntent>()
         .insert_resource(crate::realmlist::Realmlist::unpinned(
             crate::realmlist::DEFAULT_REALMLIST,
@@ -2523,13 +2523,13 @@ fn stock_app() -> (
     let _ = super::super::glue::load_glue(&mut s);
     super::super::glue::set_glue_screen(&mut s, super::super::glue::GlueScreen::Login);
     let _ = s.take_errors();
-    app.insert_non_send_resource(s);
+    app.insert_non_send(s);
     app.update();
     (app, rx, abandon)
 }
 
 fn vm(app: &App) -> &UiScript {
-    app.world().non_send_resource::<UiScript>()
+    app.world().non_send::<UiScript>()
 }
 
 /// The dialog the stock `GlueDialog` shows: its type and text, or `None` when hidden.
@@ -2821,7 +2821,7 @@ fn the_stock_select_with_no_link_shows_the_selected_realms_pvp() {
     let _ = benilla_formats::wow_data_or_skip!();
     let (mut app, _rx, _) = stock_app();
     {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         s.register_cvars([(crate::glue_session::realm::CVAR_REALM_NAME, "aLPHA")]);
         let (categories, types) = crate::glue_session::realm::RealmTables::us_client().glue_setup();
         s.set_glue_realm_setup(categories, types);
@@ -2929,16 +2929,14 @@ fn the_realmlist_button_writes_realmlist() {
     let _ = benilla_formats::wow_data_or_skip!();
     let (mut app, _rx, _) = stock_app();
     {
-        let s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let s = app.world_mut().non_send_mut::<UiScript>();
         s.register_cvars(crate::cvars::registered_pairs());
         s.run("AcceptEULA() AcceptTOS() AccountLogin_ShowUserAgreements()")
             .unwrap();
     }
     app.update();
     // The readout follows the host's global on the frame's `OnUpdate`.
-    app.world_mut()
-        .non_send_resource_mut::<UiScript>()
-        .tick(0.05);
+    app.world_mut().non_send_mut::<UiScript>().tick(0.05);
     assert_eq!(
         vm(&app)
             .eval::<String>("return BenillaRealmlistText:GetText()")
@@ -2967,7 +2965,7 @@ fn the_realmlist_button_writes_realmlist() {
         .unwrap();
     let changes = app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .take_cvar_changes();
     assert!(
         changes
@@ -3123,7 +3121,7 @@ fn live_app_with(
     let cycles = fake::spawn_cycles();
     let mut app = App::new();
     app.init_resource::<Time>()
-        .init_non_send_resource::<SharedGlueMgr>()
+        .init_non_send::<SharedGlueMgr>()
         .init_resource::<crate::glue_session::login::LoginIntent>()
         .insert_resource(crate::realmlist::Realmlist::unpinned(&realmd.addr))
         .insert_resource(LoginSubmit(cycles.login.clone()))
@@ -3195,7 +3193,7 @@ fn live_app_with(
     s.run("AcceptEULA() AcceptTOS() AccountLogin_ShowUserAgreements()")
         .unwrap();
     let _ = s.take_errors();
-    app.insert_non_send_resource(s);
+    app.insert_non_send(s);
     app.update();
     // The cycles' ends stay alive with the app's resources.
     std::mem::forget(cycles);
@@ -3233,9 +3231,7 @@ fn until(app: &mut App, what: &str, done: impl Fn(&App) -> bool) {
             );
         }
         app.update();
-        app.world_mut()
-            .non_send_resource_mut::<UiScript>()
-            .tick(0.01);
+        app.world_mut().non_send_mut::<UiScript>().tick(0.01);
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
 }
@@ -3528,7 +3524,7 @@ fn char_select_app_on(
         mgr_mut(&app).vm = None;
     }
     {
-        let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut script = app.world_mut().non_send_mut::<UiScript>();
         script.set_cvar_engine("lastCharacterIndex", last);
         script
             .run(
@@ -3967,7 +3963,7 @@ fn showing_the_screen_then_changing_realm_asks_the_old_link_once() {
         assert_eq!(vm(&app).glue_roster_guids(), [0x21], "round {round}");
         // The list the realm verbs read: built where the wizard's or the list's events build it.
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .rebuild_glue_realms();
         // Odd rounds leave the IO thread idle, so it wakes on whichever request is sent first.
         let busy = round % 2 == 0;
@@ -4575,9 +4571,7 @@ fn the_stock_delete_refetches_the_list_and_selects_the_first_row() {
              CharacterDeleteEditBox:SetText(DELETE_CONFIRM_STRING)",
         )
         .unwrap();
-    app.world_mut()
-        .non_send_resource_mut::<UiScript>()
-        .tick(0.01);
+    app.world_mut().non_send_mut::<UiScript>().tick(0.01);
     vm(&app).run("CharacterDeleteButton1:Click()").unwrap();
     assert!(!shown(&app, "CharacterDeleteDialog"));
     let lists = seen(&app, "CHARACTER_LIST_UPDATE");
@@ -4831,7 +4825,7 @@ fn client_state(app: &App) -> ClientState {
 /// The glue VM standing in the world, if one does.
 fn glue_vm(app: &App) -> Option<&UiScript> {
     app.world()
-        .get_non_send_resource::<UiScript>()
+        .get_non_send::<UiScript>()
         .filter(|s| s.vm_kind() == VmKind::Glue)
 }
 
@@ -4847,7 +4841,7 @@ fn until_entry(app: &mut App, what: &str, done: impl Fn(&App) -> bool) {
             glue_vm(app).map(UiScript::errors)
         );
         app.update();
-        if let Some(mut s) = app.world_mut().get_non_send_resource_mut::<UiScript>() {
+        if let Some(mut s) = app.world_mut().get_non_send_mut::<UiScript>() {
             s.tick(0.01);
         }
         std::thread::sleep(std::time::Duration::from_millis(2));
@@ -4904,7 +4898,7 @@ fn the_stock_enter_world_logs_in_and_the_glue_leaves_with_the_screen() {
         "the loading screen and the world are the picked record's"
     );
     assert!(
-        app.world().get_non_send_resource::<UiScript>().is_none(),
+        app.world().get_non_send::<UiScript>().is_none(),
         "no VM of the glue's left in the world"
     );
     app.update();
@@ -5257,7 +5251,7 @@ fn create_screen() -> (App, fake::Realmd, fake::World) {
         )
         .unwrap();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .script_glue_create_draws(&[0; 7]);
     vm(&app)
         .run("CharSelectCreateCharacterButton:Click()")

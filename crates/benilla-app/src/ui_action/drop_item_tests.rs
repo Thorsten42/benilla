@@ -146,7 +146,7 @@ fn client_with(alive: bool, pet_number: u32, charmed: bool) -> Feed {
         },
     );
     script.set_container(0, Some(bag));
-    app.world_mut().insert_non_send_resource(script);
+    app.world_mut().insert_non_send(script);
     Feed { app, rx }
 }
 
@@ -168,10 +168,7 @@ fn casts(f: &Feed) -> Vec<String> {
 }
 
 fn held(f: &Feed) -> Option<CursorPayload> {
-    f.app
-        .world()
-        .non_send_resource::<UiScript>()
-        .cursor_payload()
+    f.app.world().non_send::<UiScript>().cursor_payload()
 }
 
 /// Food dropped on the target frame with our pet targeted feeds it: `"target"` resolves to the
@@ -224,7 +221,7 @@ fn feed_pets_signals_see_the_food_still_held() {
     let held_then = f
         .app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .eval::<Option<i64>>("return HELD")
         .expect("the global reads");
     assert_eq!(held_then, Some(1));
@@ -323,7 +320,7 @@ fn a_charmed_players_world_click_feeds_trades_and_selects_nothing() {
 
 /// A plate on each unit of `guids`, the world frame's children in that order.
 fn plates(f: &mut Feed, guids: &[u64]) {
-    let mut script = f.app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut script = f.app.world_mut().non_send_mut::<UiScript>();
     crate::vplates::plates_for_test(&mut script, guids);
 }
 

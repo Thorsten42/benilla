@@ -57,7 +57,7 @@ impl Client {
 /// first two arguments.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -80,7 +80,7 @@ fn client() -> Client {
             "#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
@@ -191,7 +191,7 @@ fn a_members_ping_signals_at_its_packet() {
         .active = true;
     c.app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"local f = CreateFrame("Frame") f:RegisterEvent("MINIMAP_PING")
                f:SetScript("OnEvent", function() table.insert(Seen, event .. ":" .. arg1) end)"#,
@@ -232,7 +232,7 @@ fn spy_on(c: &mut Client, events: &[&str]) {
     let list: Vec<String> = events.iter().map(|e| format!("{e:?}")).collect();
     c.app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(&format!(
             r#"local f = CreateFrame("Frame")
                for _, e in ipairs({{{}}}) do f:RegisterEvent(e) end
@@ -251,7 +251,7 @@ fn the_world_broadcasts_print_at_their_packets() {
     spy_on(&mut c, &["CHAT_MSG_SYSTEM", "CHAT_MSG_CHANNEL"]);
     c.app
         .world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"ERR_CHAT_RESTRICTED = "restricted" TRANSFER_ABORT_MAX_PLAYERS = "full""#)
         .unwrap();
     let world_defense =
@@ -304,8 +304,7 @@ fn the_channel_lookups_read_the_slots_at_the_call() {
         ],
         ..Default::default()
     });
-    c.app
-        .insert_non_send_resource(UiScript::new().expect("a VM"));
+    c.app.insert_non_send(UiScript::new().expect("a VM"));
     const READ: &str = "local _, a = GetChannelName(2) return a, (GetChannelName('MyChan')), \
         table.getn({GetChannelList()})";
     assert_eq!(

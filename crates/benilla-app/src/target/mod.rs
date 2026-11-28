@@ -355,7 +355,7 @@ impl Plugin for TargetPlugin {
             // `0x420d23`), in the dispatcher's order: a crate's interacts and the casts their
             // dispatchers queued.
             .edit_schedule(WorldClickLegs, |legs| {
-                legs.set_executor_kind(bevy::ecs::schedule::ExecutorKind::SingleThreaded);
+                legs.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
             })
             .add_systems(
                 WorldClickLegs,

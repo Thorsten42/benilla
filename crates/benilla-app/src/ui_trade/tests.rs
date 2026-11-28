@@ -510,7 +510,7 @@ fn feed_app() -> (App, crossbeam_channel::Receiver<ClientCommand>) {
     // The calls are kept, not applied: this app has no host, and its tests read the VM.
     let mut script = UiScript::new().unwrap();
     script.keep_calls();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.add_latched_window::<TradeSession>();
     net::register(&mut app);
     (app, rx)
@@ -531,11 +531,11 @@ fn eval_live<T: benilla_ui::mlua::FromLuaMulti>(app: &mut App, chunk: &str) -> T
         }
     }
     let world = app.world_mut();
-    let mut script = world.remove_non_send_resource::<UiScript>().expect("a VM");
+    let mut script = world.remove_non_send::<UiScript>().expect("a VM");
     let mut state = bevy::ecs::system::SystemState::<TradeLive>::new(world);
-    let mut live = state.get(world);
+    let mut live = state.get(world).unwrap();
     let r = script.reading(&mut Lent(&mut live), |s| s.eval::<T>(chunk).expect("runs"));
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     r
 }
 
@@ -543,9 +543,7 @@ fn eval_live<T: benilla_ui::mlua::FromLuaMulti>(app: &mut App, chunk: &str) -> T
 /// ([`ask_trade_record`]).
 fn ask_kept_records(app: &mut App) {
     let world = app.world_mut();
-    let entries = world
-        .non_send_resource_mut::<UiScript>()
-        .take_trade_record_asks();
+    let entries = world.non_send_mut::<UiScript>().take_trade_record_asks();
     for entry in entries {
         ask_trade_record(
             world.resource::<Items>(),
@@ -587,7 +585,7 @@ fn open_with(app: &mut App, partner: u64) {
 /// The number of `TRADE_REQUEST_CANCEL`s a spy frame has seen.
 fn cancels_seen(app: &mut App) -> i64 {
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<i64>("return BENILLA_TEST_TRADE_CANCELS or 0")
         .unwrap()
 }
@@ -596,7 +594,7 @@ fn cancels_seen(app: &mut App) -> i64 {
 fn canceled_fires_trade_request_cancel_and_the_siblings_do_not() {
     let (mut app, _rx) = feed_app();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -1087,7 +1085,7 @@ fn offered_app() -> App {
     app.world_mut()
         .resource_mut::<TradeSession>()
         .place_own_item(1, wire_item(2589));
-    let mut vm = app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut vm = app.world_mut().non_send_mut::<UiScript>();
     let mut bag = benilla_ui::script::ContainerState::default();
     bag.slots.insert(
         1,
@@ -1115,14 +1113,14 @@ fn offered_app() -> App {
 
 fn seen(app: &mut App) -> Vec<String> {
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval("local s = SEEN SEEN = {} return s")
         .unwrap()
 }
 
 fn bag_locked(app: &mut App) -> bool {
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval("local _, _, l = GetContainerItemInfo(0, 1) return l == 1")
         .unwrap()
 }
@@ -1230,11 +1228,7 @@ fn both_offers_answer_after_the_close_and_until_the_next_open() {
             "Linen Cloth/Iron Sword/0/0",
             "after {closing:?}"
         );
-        let holding = |app: &App| {
-            app.world()
-                .non_send_resource::<UiScript>()
-                .trade_slot_holding(LINEN)
-        };
+        let holding = |app: &App| app.world().non_send::<UiScript>().trade_slot_holding(LINEN);
         assert_eq!(holding(&app), Some((0, 0, 1)), "our item table outlives it");
 
         open_with(&mut app, 0x7);
@@ -1270,7 +1264,7 @@ fn a_partner_slot_asks_with_the_partner_cell_as_its_owner() {
     eval_live::<()>(&mut app, "GetTradeTargetItemInfo(1)");
     assert_eq!(
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .take_record_asks(),
         [RecordAsk::TradeItem {
             entry: 4306,
@@ -1369,7 +1363,7 @@ fn a_bounced_offer_unlocks_its_item_and_signals_the_slot_once() {
     assert!(!bag_locked(&mut app));
 
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run("ClearCursor() PickupContainerItem(0, 1) ClickTradeButton(1)")
         .unwrap();
     app.world_mut()
@@ -1418,7 +1412,7 @@ const EVENTS: [&str; 3] = ["TRADE_SHOW", "TRADE_CLOSED", "PLAYER_LEAVING_WORLD"]
 fn a_reload_cancels_the_trade_closes_it_and_the_new_vm_opens_nothing() {
     use crate::ui_script::sweep_test::{reload_in_place, seen, seen_in, spied_vm};
     let (mut app, rx) = sweep_trade_app();
-    app.insert_non_send_resource(spied_vm(&EVENTS));
+    app.insert_non_send(spied_vm(&EVENTS));
     open_with(&mut app, 0x7);
     assert_eq!(seen_in(&app), ["TRADE_SHOW"]);
     let _ = rx.try_iter().count();
@@ -1441,7 +1435,7 @@ fn a_reload_cancels_the_trade_closes_it_and_the_new_vm_opens_nothing() {
 fn the_trade_leg_cancels_with_no_trade_and_a_worldport_closes_once() {
     use crate::ui_script::sweep_test::{seen_in, spied_vm, sweep_in_place};
     let (mut app, rx) = sweep_trade_app();
-    app.insert_non_send_resource(spied_vm(&EVENTS));
+    app.insert_non_send(spied_vm(&EVENTS));
     sweep_in_place(&mut app);
     assert_eq!(
         cancels(&rx),
@@ -1698,7 +1692,7 @@ fn a_restacked_offer_is_placed_again_with_its_live_count() {
 fn the_trade_re_signal_follows_the_bar_recount_in_the_watchers_run() {
     let (mut app, _rx) = resignal_app();
     let world = app.world_mut();
-    let mut vm = world.non_send_resource_mut::<UiScript>();
+    let mut vm = world.non_send_mut::<UiScript>();
     vm.set_action(
         4,
         Some(benilla_ui::script::ActionSlot {
@@ -1733,7 +1727,7 @@ fn the_destroy_run_recounts_scans_asks_then_signals() {
     use benilla_ui::script::{QuestObjectiveView, QuestRecordView, QuestSlotView, QUEST_LOG_SLOTS};
     let (mut app, _rx) = resignal_app();
     let world = app.world_mut();
-    let mut vm = world.non_send_resource_mut::<UiScript>();
+    let mut vm = world.non_send_mut::<UiScript>();
     vm.set_action(
         4,
         Some(benilla_ui::script::ActionSlot {
@@ -1825,7 +1819,7 @@ fn the_enchant_slots_spell_signals_its_side_and_names_the_enchantment() {
     extended(&mut app, ext(true, 0));
     extended(&mut app, ext(false, 0));
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"SEEN = {}
                local f = CreateFrame("Frame")

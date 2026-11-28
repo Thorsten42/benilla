@@ -2,6 +2,7 @@
 //! it and pick at the press (`0x514810` → `0x481f00` → `0x481190`), and the last primary's release
 //! dispatches it (`0x514b70` → `0x481f60`), inside the record whose binding ran them, so a UI click
 //! and a world click in one frame resolve in the order they came (`0x423920` → `0x4245b0`).
+#![allow(deprecated)] // glam 0.33's `Mat4::*_rh`, kept so the test matrices stay bit-identical
 
 use benilla_protocol::field::{FIELD_UNIT_HEALTH, FIELD_UNIT_MAXHEALTH};
 use benilla_protocol::messages::ObjectType;
@@ -77,7 +78,7 @@ fn client(binding: &str) -> App {
 /// left half whose `OnClick` runs `TargetUnit("player")`.
 fn client_bound(wtf: &str) -> App {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -170,7 +171,7 @@ fn client_bound(wtf: &str) -> App {
         .expect("the button builds");
     script.set_screen_size(1024.0, 768.0);
     script.resolve();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<SelfGuid>().0 = Some(ME);
@@ -286,7 +287,7 @@ fn arm_ground_cast(app: &mut App) {
         .resource_mut::<crate::spell::SpellTargeting>()
         .enter(BLIZZARD, crate::spell::CastCommit::Spell, 0x0040);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_spell_targeting(true);
 }
 
@@ -298,14 +299,14 @@ fn targeting(app: &App) -> bool {
 
 fn log(app: &App) -> String {
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval("return LOG")
         .unwrap()
 }
 
 /// Repair mode armed, as `ShowRepairCursor` arms it at a repair vendor.
 fn in_repair_mode(app: &mut App) {
-    let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut script = app.world_mut().non_send_mut::<UiScript>();
     script.set_merchant(Some(benilla_ui::script::MerchantState {
         can_repair: true,
         ..Default::default()
@@ -356,7 +357,7 @@ fn the_binding_line_after_the_release_reads_the_clicks_target() {
     assert_eq!(target(&app), Some(MOB));
     let name: String = app
         .world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval(r#"return tostring(UnitName("target"))"#)
         .unwrap();
     assert_ne!(name, "nil");
@@ -373,7 +374,7 @@ fn the_binding_line_after_the_release_reads_the_clicks_target() {
 fn a_hook_around_the_release_reads_the_clicks_target() {
     let mut app = client("CAMERAORSELECTORMOVE");
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"local stop = CameraOrSelectOrMoveStop
             CameraOrSelectOrMoveStop = function(sticky)
@@ -388,7 +389,7 @@ fn a_hook_around_the_release_reads_the_clicks_target() {
     assert_eq!(target(&app), Some(MOB));
     let name: String = app
         .world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval(r#"return tostring(UnitName("target"))"#)
         .unwrap();
     assert_ne!(name, "nil");
@@ -433,7 +434,7 @@ fn client_with_f(command: &str) -> App {
 fn target_name(app: &App) -> String {
     let name: String = app
         .world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval(r#"return tostring(UnitName("target"))"#)
         .unwrap();
     assert_ne!(name, "nil");
@@ -486,7 +487,7 @@ fn a_set_cvar_moves_its_knob_before_the_chunks_next_line() {
     assert_eq!(target(&app), Some(MOB));
     let name = target_name(&app);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run("LOG = '' ARMED = true")
         .unwrap();
     click_at(&mut app, BESIDE_MOB);
@@ -630,7 +631,7 @@ fn plate_over_mob(app: &mut App) {
         shadow_offset: 1.0,
     };
     {
-        let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut script = app.world_mut().non_send_mut::<UiScript>();
         script
             .run(r#"NAMEPLATE_FONT = "Fonts\FRIZQT__.TTF" WorldFrame:SetAllPoints()"#)
             .unwrap();
@@ -667,7 +668,7 @@ fn a_key_bound_click_under_a_plate_selects_the_world_under_it() {
 
 /// A button over the mob whose `OnClick` runs `body`, and a recorder of `PLAYER_TARGET_CHANGED`.
 fn button_over_mob(app: &mut App, body: &str) {
-    let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut script = app.world_mut().non_send_mut::<UiScript>();
     script
         .run(&format!(
             r#"local c = CreateFrame("Button", "OverMobButton")
@@ -757,7 +758,7 @@ fn a_button_rebound_away_from_the_mouse_command_clicks_nothing() {
 fn a_world_drop_runs_its_binding_up_half() {
     let mut app = client("PROBEBUTTON");
     {
-        let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut script = app.world_mut().non_send_mut::<UiScript>();
         script.set_container(
             0,
             Some(benilla_ui::script::ContainerState {
@@ -783,10 +784,7 @@ fn a_world_drop_runs_its_binding_up_half() {
     app.update();
     assert_eq!(log(&app), "b1 down;b1 up;", "the release ran the up-half");
     assert!(
-        app.world()
-            .non_send_resource::<UiScript>()
-            .cursor_item()
-            .is_some(),
+        app.world().non_send::<UiScript>().cursor_item().is_some(),
         "the item stays held for the confirmation"
     );
 }
@@ -933,7 +931,7 @@ fn a_drag_whose_last_motion_is_in_the_release_frame_clicks_nothing() {
 fn hold_an_item(app: &mut App) {
     use benilla_ui::script::{CursorItem, CursorPayload, HeldCursor};
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .seed_held_cursor(HeldCursor::holding(CursorPayload::Item(CursorItem {
             guid: 0x4000_0000_0000_0001,
             bag: 0,
@@ -960,7 +958,7 @@ fn a_right_press_that_drops_the_cursor_keeps_the_pending_target() {
         aim(&mut app);
         if freelook {
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .run_binding("MouselookStart()")
                 .unwrap();
             app.update();
@@ -977,7 +975,7 @@ fn a_right_press_that_drops_the_cursor_keeps_the_pending_target() {
         app.update();
         assert!(
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .cursor_payload()
                 .is_none(),
             "freelook {freelook}: the hook cleared the cursor"
@@ -1025,7 +1023,7 @@ fn a_vendor_sale_signals_the_cursor_inside_the_click() {
     ));
     hold_an_item(&mut app);
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"local f = CreateFrame("Frame")
             f:RegisterEvent("CURSOR_UPDATE")
@@ -1034,10 +1032,7 @@ fn a_vendor_sale_signals_the_cursor_inside_the_click() {
         .unwrap();
     move_to(&mut app, ON_MOB);
     app.update();
-    app.world()
-        .non_send_resource::<UiScript>()
-        .run("LOG = ''")
-        .unwrap();
+    app.world().non_send::<UiScript>().run("LOG = ''").unwrap();
     press_f(&mut app);
     app.update();
     assert!(

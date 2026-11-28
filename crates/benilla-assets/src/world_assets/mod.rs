@@ -627,8 +627,8 @@ impl SpriteCaches {
     }
 }
 
-/// Mutate an asset only when `differs` says it does not already match: `Assets::get_mut` alone
-/// marks it Modified, a uniform re-upload and, on Metal's non-bindless path, a bind-group rebuild.
+/// Mutate an asset only when `differs` says it does not already match: a write through
+/// `Assets::get_mut` marks it Modified, a uniform re-upload and, on Metal's non-bindless path, a bind-group rebuild.
 /// Pair it with values quantized to display precision ([`quantize`], [`quant255`]).
 pub fn write_gated<M: bevy::asset::Asset>(
     assets: &mut Assets<M>,
@@ -637,8 +637,8 @@ pub fn write_gated<M: bevy::asset::Asset>(
     apply: impl FnOnce(&mut M),
 ) {
     if assets.get(handle).is_none_or(differs) {
-        if let Some(m) = assets.get_mut(handle) {
-            apply(m);
+        if let Some(mut m) = assets.get_mut(handle) {
+            apply(&mut m);
         }
     }
 }

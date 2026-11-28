@@ -483,7 +483,7 @@ mod tests {
         crate::ui_loot::close_at_precast_end(world, false);
         let declared: Vec<ComponentId> = applied_resources()
             .into_iter()
-            .filter_map(|t| world.components().get_resource_id(t))
+            .filter_map(|t| world.components().get_id(t))
             .collect();
         assert_eq!(
             declared.len(),
@@ -556,9 +556,14 @@ mod tests {
             let now = world.change_tick();
             let resources: Vec<(ComponentId, String)> = world
                 .iter_resources()
-                .map(|(info, _)| (info.id(), info.name().to_string()))
+                .map(|(id, info, _)| (id, info.name().to_string()))
                 .collect();
+            // Bevy's own cache of the tail's system id, re-stamped by every cached run.
+            let cache = crate::ui_loot::precast_end_close_cache(world);
             for (id, name) in resources {
+                if Some(id) == cache {
+                    continue;
+                }
                 let changed = world
                     .get_resource_change_ticks_by_id(id)
                     .is_some_and(|t| t.is_changed(last, now));

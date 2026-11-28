@@ -83,7 +83,7 @@ impl Mailbox {
                 f:SetScript("OnEvent", function() table.insert(HEARD, event) end)"#,
             )
             .expect("the recorder installs");
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         // The player object the item verbs need (`0x4af992`), with the purse a COD is paid from
         // (`0x4af9c5`).
         crate::test_support::hold_self_player(
@@ -106,7 +106,7 @@ impl Mailbox {
     }
 
     fn script(&mut self) -> Mut<'_, UiScript> {
-        self.app.world_mut().non_send_resource_mut::<UiScript>()
+        self.app.world_mut().non_send_mut::<UiScript>()
     }
 
     /// What went on the wire, the name and item queries aside.

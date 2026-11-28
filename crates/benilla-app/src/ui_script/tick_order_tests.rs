@@ -115,7 +115,7 @@ struct Client {
 fn client(chunk: &str) -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
     let order = in_frame_order(&mut app);
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -133,7 +133,7 @@ fn client(chunk: &str) -> Client {
             {chunk}"#
         ))
         .expect("the button builds");
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<SelfGuid>().0 = Some(ME);
@@ -165,7 +165,7 @@ fn client(chunk: &str) -> Client {
     app.update();
     let world = app.world_mut();
     {
-        let mut script = world.non_send_resource_mut::<UiScript>();
+        let mut script = world.non_send_mut::<UiScript>();
         script.set_screen_size(1024.0, 768.0);
         script.resolve();
         script.run(r#"LOG = """#).expect("the log clears");
@@ -187,7 +187,7 @@ fn client(chunk: &str) -> Client {
 /// The fixture's log.
 fn log(world: &World) -> String {
     world
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<String>("return LOG")
         .expect("the log reads")
 }
@@ -349,7 +349,7 @@ fn a_right_press_as_the_cursor_reaches_a_button_is_the_interfaces_alone() {
             super::arbitrate_pointer_over_ui
         ));
         {
-            let mut script = c.app.world_mut().non_send_resource_mut::<UiScript>();
+            let mut script = c.app.world_mut().non_send_mut::<UiScript>();
             script.set_default_bindings(benilla_ui::script::keybind::parse_bindings_wtf(
                 "bind BUTTON2 TURNORACTION\r\n",
             ));
@@ -429,7 +429,7 @@ fn freelook_walks_no_hover_at_its_records_but_a_shown_frame_re_picks() {
         f:SetFrameStrata("HIGH") f:EnableMouse(true)
         f:SetScript("OnEnter", function() LOG = LOG .. "over;" end) f:Show()"#,
     );
-    world.non_send_resource_mut::<UiScript>().resolve();
+    world.non_send_mut::<UiScript>().resolve();
     super::tick_once(world);
     assert_eq!(log(world), "enter;leave;over;", "the shown frame re-picked");
 }

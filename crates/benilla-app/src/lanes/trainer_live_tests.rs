@@ -83,7 +83,7 @@ fn client() -> App {
     world.resource_mut::<TrainerOpen>().asked = TRAINER;
     let script = UiScript::new().expect("a VM");
     script.run(SPY).unwrap();
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     crate::net::handlers::dispatch(
         world,
         vec![
@@ -256,7 +256,7 @@ fn a_reloaded_vm_reads_the_held_rows_without_a_show() {
     let mut fresh = UiScript::new().expect("a VM");
     fresh.run(SPY).unwrap();
     crate::ui_trainer::seed_reloaded_vm(app.world_mut(), &mut fresh);
-    app.world_mut().insert_non_send_resource(fresh);
+    app.world_mut().insert_non_send(fresh);
     assert!(rows(&mut app).is_empty(), "no event");
     let read = "local name = GetTrainerServiceInfo(2) return GetNumTrainerServices(), name";
     assert_eq!(

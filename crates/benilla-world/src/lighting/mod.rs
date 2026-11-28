@@ -58,7 +58,7 @@ pub struct WowLighting {
     pub(crate) water_ocean_alpha: [f32; 2],
     /// The FFXGlow composite weight, `LightParams.glow` quantised as the reference packs it.
     pub(crate) glow: f32,
-    /// The dawn/dusk sky warp strength `curve(dayfrac) × highlightSky` for `sky.wgsl`'s warp
+    /// The dawn/dusk sky warp strength `curve(dayfrac) × highlightSky` for `sky.wesl`'s warp
     /// (`0x6d0f50`): 0, the identity, except at dawn and dusk in flagged zones.
     pub(crate) sky_warp: f32,
     /// The sun disc size multiplier (`0xce8cac`): 1 across midday, 2 at the dawn and dusk horizon.
@@ -102,7 +102,7 @@ pub struct WowLighting {
 impl WowLighting {
     /// Per-kind water swatch endpoints `(shallow_rgb, deep_rgb, shallow_alpha, deep_alpha)`, the
     /// IntBand rows raw: the × 0.711 dim belongs to the sky fill `0x68c250`, not to water. The ADT
-    /// swatch is the reference's 64-row byte ramp between them (`0x68a830`, in `liquid.wgsl`);
+    /// swatch is the reference's 64-row byte ramp between them (`0x68a830`, in `liquid.wesl`);
     /// WMO liquid's opacity is the 256-entry `shallow + d·(deep − shallow)/256` (`0x6b6b60`). One
     /// depth `V` indexes colour and alpha: `clamp(byte/42)` for river and lake (`0x68d790`, opaque
     /// by about 5 yd), `clamp(byte/255)` for ocean (`0x68d690`), both built in `0x68c4c0`.
@@ -242,13 +242,28 @@ mod ordering_tests {
     /// removed or inverted.
     #[test]
     fn consumers_are_ordered_against_the_resolve() {
-        use bevy::ecs::schedule::{LogLevel, ScheduleBuildSettings, ScheduleBuildWarning};
+        use bevy::ecs::schedule::{
+            LogLevel, ScheduleBuildSettings, ScheduleBuildWarning, ScheduleBuilt, ScheduleLabel,
+        };
 
         #[derive(Resource, Default)]
         struct Probe(u32);
+        /// The ambiguity warnings of `Update`'s build: bevy reports them in `ScheduleBuilt`.
+        #[derive(Resource, Default)]
+        struct Ambiguities(usize);
 
         let mut app = App::new();
-        app.init_resource::<Probe>();
+        app.init_resource::<Probe>().init_resource::<Ambiguities>();
+        app.add_observer(|built: On<ScheduleBuilt>, mut n: ResMut<Ambiguities>| {
+            if built.label == Update.intern() {
+                n.0 += built
+                    .build_metadata
+                    .warnings
+                    .iter()
+                    .filter(|w| matches!(w, ScheduleBuildWarning::Ambiguity(_)))
+                    .count();
+            }
+        });
         configure_lighting_sets(&mut app);
         app.edit_schedule(Update, |s| {
             s.set_build_settings(ScheduleBuildSettings {
@@ -264,13 +279,7 @@ mod ordering_tests {
             ),
         );
         app.update();
-        let warnings = app
-            .get_schedule(Update)
-            .expect("Update schedule")
-            .warnings()
-            .iter()
-            .filter(|w| matches!(w, ScheduleBuildWarning::Ambiguity(_)))
-            .count();
+        let warnings = app.world().resource::<Ambiguities>().0;
         assert_eq!(
             warnings, 0,
             "a `LightingConsumeSet` system and a `LightingResolveSet` system are ambiguous — \

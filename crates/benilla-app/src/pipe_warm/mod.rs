@@ -166,7 +166,7 @@ fn describe(desc: &PipelineDescriptor) -> String {
         let mut v: Vec<String> = d
             .iter()
             .map(|d| match d {
-                bevy::shader::ShaderDefVal::Bool(k, true) => k.clone(),
+                bevy::shader::ShaderDefVal::Bool(k, true) => k.to_string(),
                 bevy::shader::ShaderDefVal::Bool(k, false) => format!("!{k}"),
                 bevy::shader::ShaderDefVal::Int(k, i) => format!("{k}={i}"),
                 bevy::shader::ShaderDefVal::UInt(k, u) => format!("{k}={u}"),
@@ -201,8 +201,9 @@ fn describe(desc: &PipelineDescriptor) -> String {
                 |ds| {
                     (
                         ds.bias.constant,
-                        ds.depth_write_enabled,
-                        format!("{:?}", ds.depth_compare),
+                        ds.depth_write_enabled.unwrap_or(false),
+                        ds.depth_compare
+                            .map_or_else(|| String::from("none"), |c| format!("{c:?}")),
                     )
                 },
             );
@@ -235,6 +236,10 @@ fn describe(desc: &PipelineDescriptor) -> String {
                 .path()
                 .map_or_else(|| format!("{:?}", d.shader.id()), |p| p.to_string());
             format!("label={label} compute={cs} defs=[{}]", defs(&d.shader_defs))
+        }
+        // A mesh-shader pipeline; benilla queues none.
+        PipelineDescriptor::MeshPipelineDescriptor(d) => {
+            format!("label={} mesh", d.label.as_deref().unwrap_or("?"))
         }
     }
 }
@@ -517,14 +522,14 @@ type ViewCamQuery<'w, 's> = Query<
         Option<&'static Name>,
         Option<&'static Projection>,
         Option<&'static Msaa>,
-        Has<bevy::render::view::Hdr>,
+        Has<bevy::camera::Hdr>,
     ),
     With<Camera3d>,
 >;
 
 /// The key a 3-D view contributes to `MeshPipelineKey`. `hdr` is a key bit and gates two more:
-/// bevy keys `TONEMAP_IN_SHADER` and `DEBAND_DITHER` only on a non-HDR view
-/// (`bevy_pbr-0.18.1` `render/mesh.rs:418`).
+/// bevy keys `TONEMAP_IN_SHADER` and `DEBAND_DITHER` only on a non-HDR view with a tone curve
+/// (`bevy_pbr-0.20.1` `render/mesh.rs:485`).
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub(crate) struct ViewClass {
     projection: &'static str,
@@ -545,7 +550,7 @@ impl ViewClass {
 
 fn view_class(projection: Option<&Projection>, msaa: Option<&Msaa>, hdr: bool) -> ViewClass {
     ViewClass {
-        // bevy_pbr keys these three (`bevy_pbr-0.18.1` `render/mesh.rs:397`); exhaustive so a
+        // bevy_pbr keys these three (`bevy_pbr-0.20.1` `render/mesh.rs:465`); exhaustive so a
         // new variant stops the build. No `Projection` sets no bits, the same class as Custom.
         projection: match projection {
             Some(Projection::Perspective(_)) => "Perspective",
@@ -565,7 +570,7 @@ type AnchorViewQuery<'w, 's> = Query<
         Entity,
         Option<&'static Projection>,
         Option<&'static Msaa>,
-        Has<bevy::render::view::Hdr>,
+        Has<bevy::camera::Hdr>,
     ),
     With<Camera3d>,
 >;

@@ -230,7 +230,7 @@ mod tests {
             .insert_resource(NetCommands(tx))
             .init_resource::<crate::ui_session::InteractLatch>()
             .add_plugins(crate::ui_aura::UiAuraPlugin);
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         {
             let mut names = app.world_mut().resource_mut::<NameCache>();
             for (guid, name) in [(ME, "Meg"), (A, "Alia"), (B, "Bram"), (C, "Cole")] {
@@ -297,7 +297,7 @@ mod tests {
     }
 
     fn script(app: &App) -> &UiScript {
-        app.world().non_send_resource::<UiScript>()
+        app.world().non_send::<UiScript>()
     }
 
     /// `chunk`'s answer with the host lent, as the getters run in game: the units, the tokens and
@@ -394,16 +394,14 @@ mod tests {
         // the unit live too, past a push of its own; with no host lent, the push answers.
         assert_eq!(name(&mut app, "raid1").as_deref(), Some("Alia"));
         assert_eq!(name(&mut app, "target").as_deref(), Some("Mob"));
-        app.world_mut()
-            .non_send_resource_mut::<UiScript>()
-            .set_unit(
-                "target",
-                Some(UnitState {
-                    exists: true,
-                    name: Some("Pushed".into()),
-                    ..Default::default()
-                }),
-            );
+        app.world_mut().non_send_mut::<UiScript>().set_unit(
+            "target",
+            Some(UnitState {
+                exists: true,
+                name: Some("Pushed".into()),
+                ..Default::default()
+            }),
+        );
         assert_eq!(name(&mut app, "target").as_deref(), Some("Mob"));
         let unlent: Option<String> = script(&app).eval(r#"return UnitName("target")"#).unwrap();
         assert_eq!(unlent.as_deref(), Some("Pushed"));
@@ -481,7 +479,7 @@ mod tests {
             .init_resource::<crate::sound::MessageSounds>();
         benilla_world::world_point::init_world_point_resources(app.world_mut());
         {
-            let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+            let mut script = app.world_mut().non_send_mut::<UiScript>();
             script.keep_calls();
             script.run(r#"UNKNOWNOBJECT = "Unknown""#).unwrap();
             // Level 60, so the level 0 of a unit with no object would read grey.
@@ -700,16 +698,14 @@ mod tests {
             with(&[(TEMPLATE, 1), (FLAGS, 0x1000)], GONE, 0x09),
         );
         put(&mut app, ADD, with(&[(TEMPLATE, 1)], 0, 0x09));
-        app.world_mut()
-            .non_send_resource_mut::<UiScript>()
-            .set_unit(
-                "player",
-                Some(UnitState {
-                    exists: true,
-                    guid: ME,
-                    ..Default::default()
-                }),
-            );
+        app.world_mut().non_send_mut::<UiScript>().set_unit(
+            "player",
+            Some(UnitState {
+                exists: true,
+                guid: ME,
+                ..Default::default()
+            }),
+        );
         app.update();
         assert!(
             lent(&mut app, r#"UnitCanAssist("player", "party1target") == 1"#),

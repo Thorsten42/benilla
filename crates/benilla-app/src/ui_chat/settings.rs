@@ -682,7 +682,7 @@ fn fire_arrived_chat_looks(In(until): In<crate::lanes::Until>, world: &mut World
         return;
     };
     // No VM: the arrival waits for one.
-    let Some(mut script) = world.remove_non_send_resource::<UiScript>() else {
+    let Some(mut script) = world.remove_non_send::<UiScript>() else {
         return;
     };
     world
@@ -690,7 +690,7 @@ fn fire_arrived_chat_looks(In(until): In<crate::lanes::Until>, world: &mut World
         .take_owed(crate::account_data::CHAT);
     info!("chat cache: the settled section read");
     crate::lanes::firing(at, || restore_chat_looks_again(world, &mut script, true));
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
 }
 
 /// What the chat lane's firing touches beside the call host and its own lane: the restore's
@@ -726,7 +726,7 @@ pub(crate) fn fold_dying_vm_chat_cache(world: &mut World) {
     // Lift the file out, leaving the VM and the roster as shared borrows of the world.
     world.resource_scope(|world, mut file: Mut<ChatWindowFile>| {
         let (Some(script), Some(channels)) = (
-            world.get_non_send_resource::<UiScript>(),
+            world.get_non_send::<UiScript>(),
             world.get_resource::<super::edit::ChannelState>(),
         ) else {
             return;
@@ -1200,7 +1200,7 @@ mod tests {
 
         // A Lua rename of window 1, which arms the debounce.
         world
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run(r#"SetChatWindowName(1, "Reloaded")"#)
             .expect("rename");
         world
@@ -1225,7 +1225,7 @@ mod tests {
 
         // The rebuilt VM reads it back.
         let name = world
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .eval::<String>("GetChatWindowInfo(1)")
             .unwrap_or_default();
         assert_eq!(
@@ -1352,7 +1352,7 @@ mod tests {
         // through the real feed arm.
         world.resource_scope(
             |world, mut channels: Mut<super::super::edit::ChannelState>| {
-                let mut script = world.non_send_resource_mut::<UiScript>();
+                let mut script = world.non_send_mut::<UiScript>();
                 let (tx, _rx) = crossbeam_channel::unbounded();
                 let errors = crate::ui_action::UiErrorKeys::default();
                 super::super::channels::walk_zone(
@@ -1430,16 +1430,16 @@ mod tests {
         world.init_resource::<ChatWindowFile>();
         world.init_resource::<crate::account_data::AccountData>();
         world.insert_resource(roster);
-        world.insert_non_send_resource(UiScript::new().expect("a VM"));
+        world.insert_non_send(UiScript::new().expect("a VM"));
         let name = |world: &World| {
             world
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<String>("return (GetChatWindowInfo(1))")
                 .expect("the window's name")
         };
-        let mut script = world.remove_non_send_resource::<UiScript>().unwrap();
+        let mut script = world.remove_non_send::<UiScript>().unwrap();
         restore_chat_looks(&mut world, &mut script);
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         assert_ne!(name(&world), "Alpha", "pending: the reader is held");
         reread_arrived_chat_looks(&mut world);
         assert_ne!(name(&world), "Alpha", "still pending");
@@ -1542,7 +1542,7 @@ mod tests {
         };
         let mut script = UiScript::new().expect("a VM");
         restore_chat_looks(&mut world, &mut script);
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         assert!(
             joins().is_empty(),
             "pending: the reader is held, so is its walk"
@@ -1558,7 +1558,7 @@ mod tests {
         );
         assert_eq!(
             world
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<i64>("return (GetChannelName('LocalDefense - Elwynn Forest'))")
                 .expect("the number"),
             2,
@@ -1700,7 +1700,7 @@ mod tests {
         );
         crate::ui_script::load_ingame_ui_on_world_entry(&mut world);
         let name = world
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<String>("return (GetChatWindowInfo(1))")
             .expect("the window's name");
         assert_eq!(name, "Arrived");

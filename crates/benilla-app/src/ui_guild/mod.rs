@@ -222,7 +222,7 @@ struct GuildCellsCarry(benilla_ui::script::GuildCells);
 /// `/reload`'s VM gets back ([`seed_vm_guild`]).
 pub(crate) fn fold_dying_vm_guild(world: &mut World) {
     let Some(cells) = world
-        .get_non_send_resource_mut::<UiScript>()
+        .get_non_send_mut::<UiScript>()
         .map(|mut s| s.take_guild_cells())
     else {
         return;
@@ -1803,11 +1803,11 @@ mod tests {
         let mut script = UiScript::new().unwrap();
         script.keep_calls();
         script.set_unit("target", Some(target(5)));
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         let call = |app: &mut App| {
             let name = app
                 .world_mut()
-                .non_send_resource_mut::<UiScript>()
+                .non_send_mut::<UiScript>()
                 .eval::<Option<String>>("return (GetGuildInfo('target'))")
                 .unwrap();
             assert_eq!(name, None, "the first answer of an uncached guild");
@@ -1842,7 +1842,7 @@ mod tests {
         assert!(drain(&mut app).is_empty(), "the waiters are spent");
 
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .set_unit("target", Some(target(6)));
         call(&mut app);
         app.update();

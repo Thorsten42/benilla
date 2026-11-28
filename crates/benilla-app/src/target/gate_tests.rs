@@ -203,13 +203,13 @@ impl Fix {
             script.cursor_payload().is_some(),
             "{held:?} is on the cursor"
         );
-        self.app.world_mut().insert_non_send_resource(script);
+        self.app.world_mut().insert_non_send(script);
     }
 
     fn held(&self) -> bool {
         self.app
             .world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .cursor_payload()
             .is_some()
     }
@@ -244,7 +244,7 @@ fn an_unavailable_quest_givers_listener_sends_ahead_of_the_ladder() {
         .set_status(NPC, 1);
     f.app
         .world_mut()
-        .insert_non_send_resource(UiScript::new().expect("a VM"));
+        .insert_non_send(UiScript::new().expect("a VM"));
     crate::script_calls::with_hosted_vm(f.app.world_mut(), |s| {
         s.expect("a VM").run(
             r#"local r = CreateFrame("Frame")
@@ -403,7 +403,7 @@ fn a_right_click_mid_combat_reswings_at_an_attackable_unit_under_any_cursor() {
     let npc = f.unit_with(NPC, 3.0, &[(2, 0x9), (FIELD_UNIT_NPC_FLAGS, GOSSIP)]);
     f.app
         .world_mut()
-        .insert_non_send_resource(UiScript::new().expect("a VM"));
+        .insert_non_send(UiScript::new().expect("a VM"));
     crate::script_calls::with_hosted_vm(f.app.world_mut(), |s| {
         s.expect("a VM").run("AttackTarget()")
     })
@@ -673,7 +673,7 @@ fn a_right_press_with_a_payload_is_consumed_before_the_world_sees_it() {
             None => f
                 .app
                 .world_mut()
-                .insert_non_send_resource(UiScript::new().expect("a VM")),
+                .insert_non_send(UiScript::new().expect("a VM")),
         }
         let world = f.app.world_mut();
         let mut window = Window {
@@ -730,14 +730,14 @@ fn talking_to_an_npc_with_status_one_triggers_unavailable_quest_givers() {
                 r:SetScript("OnEvent", function() table.insert(FIRED, arg1) end)"#,
             )
             .expect("the listener installs");
-        f.app.world_mut().insert_non_send_resource(script);
+        f.app.world_mut().insert_non_send(script);
         f.press_on(npc, NPC, false);
         f.right_click();
         assert!(greeted(&f.sent(), NPC), "status {status}: in reach");
         let heard: Vec<u32> = f
             .app
             .world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .eval("return FIRED")
             .expect("the record reads");
         assert_eq!(heard, fired, "status {status}");

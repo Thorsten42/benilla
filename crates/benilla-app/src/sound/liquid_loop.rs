@@ -356,7 +356,7 @@ mod tests {
     #[test]
     fn map_water_sounds_zero_stops_every_loop() {
         let mut app = App::new();
-        app.insert_non_send_resource(output())
+        app.insert_non_send(output())
             .init_resource::<SoundConfig>()
             .init_resource::<LiquidLoopState>()
             .add_systems(Update, silence_liquid_loops.run_if(not(liquid_sounds_on)));

@@ -339,7 +339,7 @@ fn build_chunk_clutter(
                 // The reference's random per-tuft scale, in [0.9, 1.1].
                 let inst_scale = d.scale;
                 // One tint per tuft, the lit material (colour material on ambient and diffuse,
-                // `0x59cfec`): `wow_model.wgsl` lights `clamp(grey × light) × texture`.
+                // `0x59cfec`): `wow_model.wesl` lights `clamp(grey × light) × texture`.
                 let tint = [sp.tint, sp.tint, sp.tint, 1.0];
                 for (i, p) in sub.positions.iter().enumerate() {
                     positions.push((rot * (wow_to_bevy(*p) * inst_scale) + origin).to_array());
@@ -545,7 +545,7 @@ pub(crate) fn stream_chunk_clutter(
 mod tests {
     use super::*;
 
-    /// The fade ramp `wow_model.wgsl` evaluates, mirrored as a pin on its constants.
+    /// The fade ramp `wow_model.wesl` evaluates, mirrored as a pin on its constants.
     fn ramp(z: f32, far: f32) -> f32 {
         let near = far * 0.75;
         let u = (z - near) / (far - near);

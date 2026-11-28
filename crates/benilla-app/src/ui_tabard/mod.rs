@@ -392,7 +392,7 @@ mod tests {
         use crate::ui_script::sweep_test::{seen_in, spied_vm};
         const VENDOR: u64 = 0xF130_0000_0000_0042;
         let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
-        app.insert_non_send_resource(spied_vm(&["OPEN_TABARD_FRAME", "CLOSE_TABARD_FRAME"]));
+        app.insert_non_send(spied_vm(&["OPEN_TABARD_FRAME", "CLOSE_TABARD_FRAME"]));
         close_core(app.world_mut());
         assert!(seen_in(&app).is_empty(), "no vendor, no close");
 
@@ -467,7 +467,7 @@ mod tests {
                 TM:CycleVariation(1, 1)"#,
             )
             .expect("the designer seeds");
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         let run = |app: &mut App, lua: &str| {
             with_hosted_vm(app.world_mut(), |vm| vm.expect("a VM").run(lua))
                 .expect("the chunk runs");

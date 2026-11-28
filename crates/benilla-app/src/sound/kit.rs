@@ -10,7 +10,9 @@
 
 use std::collections::HashMap;
 
-use anyhow::{anyhow, Context, Result};
+// Named as Bevy's prelude names its own `ContextExt`, which this shadows: both give `context` and
+// `with_context`, and only anyhow's is meant here.
+use anyhow::{anyhow, Context as ContextExt, Result};
 use bevy::prelude::*;
 use kira::sound::PlaybackState;
 

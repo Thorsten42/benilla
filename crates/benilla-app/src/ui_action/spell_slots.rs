@@ -253,7 +253,7 @@ mod tests {
         );
         let mut world = World::new();
         world.insert_resource(slots);
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         world.insert_resource(items);
         world.insert_resource(NetCommands(tx));
         world.init_resource::<crate::net::GuidIndex>();

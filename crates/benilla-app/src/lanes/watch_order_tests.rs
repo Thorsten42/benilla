@@ -27,8 +27,7 @@ fn hosted(app: &mut App, lua: &str) {
 /// a new one gets it.
 fn tip(app: &mut App) {
     crate::ui_script::test_ui::load_tooltip_template(
-        app.world()
-            .non_send_resource::<benilla_ui::script::UiScript>(),
+        app.world().non_send::<benilla_ui::script::UiScript>(),
     );
     crate::script_calls::eval_in_vm::<()>(
         app.world(),
@@ -59,7 +58,7 @@ fn reloaded_frame(app: &mut App, packets: Vec<SessionEvent>) -> Vec<String> {
         wire_packets(packets.into_iter().map(|p| vec![p]).collect()),
     );
     crate::lanes::fire_in_order(world);
-    let mut s = world.non_send_resource_mut::<benilla_ui::script::UiScript>();
+    let mut s = world.non_send_mut::<benilla_ui::script::UiScript>();
     let out = s.eval::<Vec<String>>("return Seen").unwrap();
     s.run("Seen = {}").unwrap();
     let errors: Vec<String> = s

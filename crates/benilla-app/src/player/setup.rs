@@ -1,10 +1,10 @@
 //! Startup: spawns the world camera and seeds the avatar resources [`super::control`] drives.
 
 use avian3d::prelude::*;
+use bevy::camera::Hdr;
 use bevy::camera::{CameraOutputMode, PerspectiveProjection, Projection};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::prelude::*;
-use bevy::render::view::Hdr;
 
 use benilla_assets::coords::wow_to_bevy;
 
@@ -38,6 +38,9 @@ fn spawn_fallback_camera(commands: &mut Commands, msaa: Msaa) {
         msaa,
         Hdr,
         Tonemapping::None,
+        // `None` passes the target through, so a dither would do nothing; `Camera3d` requires
+        // `Enabled`, which Bevy warns about beside `None`.
+        bevy::core_pipeline::tonemapping::DebandDither::Disabled,
         benilla_world::ffx_glow::FfxGlow::WORLD,
         world_camera_output(),
         Transform::from_xyz(0.0, 50.0, 100.0).looking_at(Vec3::ZERO, Vec3::Y),
@@ -110,6 +113,9 @@ pub(super) fn setup_player(
         // space, so the output matches an 8-bit target.
         Hdr,
         Tonemapping::None,
+        // `None` passes the target through, so a dither would do nothing; `Camera3d` requires
+        // `Enabled`, which Bevy warns about beside `None`.
+        bevy::core_pipeline::tonemapping::DebandDither::Disabled,
         // FFXGlow, `scene + glow·blur²`: the blur here, the combine in the UI camera's ground pass.
         benilla_world::ffx_glow::FfxGlow::WORLD,
         world_camera_output(),

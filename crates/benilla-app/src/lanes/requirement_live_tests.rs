@@ -160,7 +160,7 @@ fn client() -> (App, Receiver<ClientCommand>) {
     ] {
         items.insert_template(entry, Some(t));
     }
-    let mut script = world.non_send_resource_mut::<UiScript>();
+    let mut script = world.non_send_mut::<UiScript>();
     crate::ui_script::test_ui::load_tooltip_template(&script);
     script
         .run(
@@ -380,7 +380,7 @@ fn set_client() -> (App, Receiver<ClientCommand>) {
             ..crate::items::test_template("Defias Mark")
         }),
     );
-    let mut script = world.non_send_resource_mut::<UiScript>();
+    let mut script = world.non_send_mut::<UiScript>();
     script.set_item_template(
         MARK,
         ItemTemplateView {
@@ -455,7 +455,7 @@ fn each_level_listener_reads_its_own_packets_level_and_bags() {
     use benilla_protocol::{EntityKind, SessionEvent};
 
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, _sent) = crossbeam_channel::unbounded();
@@ -499,7 +499,7 @@ fn each_level_listener_reads_its_own_packets_level_and_bags() {
             skill: 0,
         }],
     )]));
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);

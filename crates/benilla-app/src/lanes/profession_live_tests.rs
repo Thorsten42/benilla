@@ -161,7 +161,7 @@ fn crafter() -> App {
     );
     items.insert_template(ROD, Some(crate::items::test_template("Runed Copper Rod")));
     world
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -181,7 +181,7 @@ fn hosted(app: &mut App, chunk: &str) -> Vec<String> {
     crate::script_calls::with_hosted_vm(app.world_mut(), |s| {
         s.expect("a VM").run(chunk).expect("the chunk runs")
     });
-    let s = app.world_mut().non_send_resource_mut::<UiScript>();
+    let s = app.world_mut().non_send_mut::<UiScript>();
     let seen = s.eval::<Vec<String>>("return Seen").unwrap();
     s.run("Seen = {}").unwrap();
     seen
@@ -194,7 +194,7 @@ fn hosted(app: &mut App, chunk: &str) -> Vec<String> {
 fn an_openers_show_fires_between_its_packets_neighbours() {
     let mut app = crafter();
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -240,7 +240,7 @@ fn a_chunk_that_opens_and_closes_leaves_no_window_open() {
     assert!(world.resource::<TradeSkillOpens>().0.is_empty());
     assert_eq!(world.resource::<TradeSkillOpen>().line, None);
     assert_eq!(world.resource::<CraftOpen>().line, None);
-    let script = world.non_send_resource::<UiScript>();
+    let script = world.non_send::<UiScript>();
     assert!(!script.trade_skill_open() && !script.craft_open());
 }
 
@@ -268,7 +268,7 @@ fn the_line_getter_reads_the_rank_its_packet_left() {
     let mut app = crafter();
     quietly(&mut app, r#"CastSpellByName("Tailoring")"#);
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -304,7 +304,7 @@ fn a_reagents_record_answer_signals_the_update_at_its_packet() {
     );
     assert!(app
         .world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<bool>("return Missed")
         .unwrap());
     let answer = SessionEvent::ItemTemplate {
@@ -333,7 +333,7 @@ fn a_learn_inside_an_open_book_bands_its_recipe_at_its_packet() {
     let mut app = crafter();
     quietly(&mut app, r#"CastSpellByName("Tailoring")"#);
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -387,7 +387,7 @@ fn a_build_with_no_player_empties_the_book_silently() {
     assert!(!seen.iter().any(|e| e == "TRADE_SKILL_UPDATE"), "{seen:?}");
     let first = app
         .world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<Option<String>>("return (GetTradeSkillInfo(1))")
         .unwrap();
     assert_eq!(first, None, "the rows are gone");
@@ -422,7 +422,7 @@ fn a_reload_frees_a_products_callback_and_its_answer_signals_nothing() {
             "#,
         )
         .unwrap();
-    app.world_mut().insert_non_send_resource(script);
+    app.world_mut().insert_non_send(script);
     let answer = SessionEvent::ItemTemplate {
         entry: 2996,
         info: Some(Box::new(crate::items::test_template("Bolt of Linen Cloth"))),
@@ -449,7 +449,7 @@ fn a_products_stats_miss_asks_inside_the_getters_call() {
     frame(&mut app, vec![refusal]);
     sent.try_iter().for_each(drop);
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -492,7 +492,7 @@ fn a_products_stats_miss_asks_inside_the_getters_call() {
 /// A fall's listener that records `expr`'s answer at its call as `tag:answer`.
 fn listen(app: &mut App, tag: &str, expr: &str) {
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(&format!(
             r#"
             local f = CreateFrame("Frame")
@@ -683,7 +683,7 @@ fn the_craft_description_reads_the_bind_point_at_its_call() {
         benilla_formats::QuestHeaderNames::from_zones([(12, "Elwynn Forest")]),
     ));
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run("HOME_INN = 'your inn'")
         .unwrap();
     quietly(&mut app, r#"CastSpellByName("Enchanting")"#);
@@ -704,7 +704,7 @@ fn a_pet_book_rebuilds_the_craft_list_at_its_packet() {
     let mut app = crafter();
     quietly(&mut app, r#"CastSpellByName("Enchanting")"#);
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -755,7 +755,7 @@ fn a_craft_build_with_no_player_empties_the_list_silently() {
     };
     let seen = frame(&mut app, vec![fall(5), answer, fall(6)]);
     assert!(!seen.iter().any(|e| e == "CRAFT_UPDATE"), "{seen:?}");
-    let script = app.world().non_send_resource::<UiScript>();
+    let script = app.world().non_send::<UiScript>();
     assert_eq!(script.eval::<i64>("return GetNumCrafts()").unwrap(), 0);
     assert_eq!(
         script

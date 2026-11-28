@@ -1,40 +1,36 @@
-//! The player-UI gamma lane's one decode. [`ui_quad.wgsl`](shaders/ui_quad.wgsl) composites the
+//! The player-UI gamma lane's one decode. [`ui_quad.wesl`](shaders/ui_quad.wesl) composites the
 //! UI in gamma bytes, as the reference's fixed-function device does into its 8-bit backbuffer:
 //! blends are gamma arithmetic clamped at each write, and `alphaMode="ADD"` is `dst + texel·α`
 //! (EGxBlend 3, `glBlendFunc(GL_SRC_ALPHA, GL_ONE)`; factor tables `0x85c1f8`/`0x85c224`). This
-//! node decodes the finished image to linear once, straight into the swapchain (output mode
+//! pass decodes the finished image to linear once, straight into the swapchain (output mode
 //! `Skip`, no blit), whose sRGB write re-encodes the client's byte. Without it the UI presents
 //! about 2.2 times too bright. [`UiGammaLane`] gates it off every other `Camera2d` on `Core2d`.
 //!
 //! Bevy UI (the glue and loading screens) converts in its own shaders ([`use_gamma_ui_shaders`])
 //! and lands on this camera, which [`crate::ui_pass`] makes `IsDefaultUiCamera`.
 
-use bevy::core_pipeline::core_2d::graph::{Core2d, Node2d};
-use bevy::core_pipeline::FullscreenShader;
-use bevy::ecs::query::QueryItem;
+use bevy::core_pipeline::upscaling::upscaling;
+use bevy::core_pipeline::{Core2d, FullscreenShader};
 use bevy::prelude::*;
 use bevy::render::camera::ExtractedCamera;
 use bevy::render::diagnostic::RecordDiagnostics;
 use bevy::render::extract_component::{ExtractComponent, ExtractComponentPlugin};
-use bevy::render::render_graph::{
-    NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
-};
 use bevy::render::render_resource::binding_types::{sampler, texture_2d, uniform_buffer_sized};
 use bevy::render::render_resource::*;
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
 use bevy::render::view::ViewTarget;
 use bevy::render::{Render, RenderApp, RenderStartup, RenderSystems};
-use bevy::ui_render::graph::NodeUi;
 use bevy::ui_render::ui_texture_slice_pipeline::{
     init_ui_texture_slice_pipeline, UiTextureSlicePipeline,
 };
-use bevy::ui_render::{init_ui_pipeline, UiPipeline};
+use bevy::ui_render::{init_ui_pipeline, ui_pass, UiPipeline};
 
 use benilla_world::final_pass::FinalPassTarget;
 
 /// Marks the camera whose target holds the gamma-composited UI, with the [`DisplayGamma`]
 /// exponent the decode applies.
 #[derive(Component, Clone, Copy, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct UiGammaLane {
     /// The clamped `gamma` CVar; `1.0` is the identity ramp.
     pub(crate) gamma: f32,
@@ -55,7 +51,7 @@ impl Default for UiGammaLane {
 ///
 /// Deviation: the same curve applies in the compositor, where the slider can move pixels, because
 /// the reference skips that upload when windowed (`byte[dev+0x20b]` is `gxWindow`) and every
-/// benilla mode is windowed: [`UiGammaNode`] raises the gamma byte the RAMDAC would have read to
+/// benilla mode is windowed: [`ui_gamma_pass`] raises the gamma byte the RAMDAC would have read to
 /// `gamma` before its decode, the continuous form of the 256-entry ramp.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub(crate) struct DisplayGamma(pub(crate) f32);
@@ -84,9 +80,6 @@ fn stamp_lane_gamma(gamma: Res<DisplayGamma>, mut lanes: Query<&mut UiGammaLane>
         lane.gamma = gamma.0.clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end());
     }
 }
-
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct UiGammaLabel;
 
 /// The decode's shared parts; the pipeline is specialised per view ([`ViewUiGammaPipeline`]).
 #[derive(Resource)]
@@ -119,6 +112,7 @@ impl SpecializedRenderPipeline for UiGammaPipeline {
                     blend: None,
                     write_mask: ColorWrites::ALL,
                 })],
+                constants: Vec::new(),
             }),
             ..default()
         }
@@ -138,7 +132,10 @@ fn prepare_view_pipelines(
     views: Query<(Entity, &ExtractedCamera, &ViewTarget), With<UiGammaLane>>,
 ) {
     for (entity, camera, target) in &views {
-        let format = FinalPassTarget::format(&camera.output_mode, target);
+        // No output this frame: no decode (`FinalPassTarget::format`).
+        let Some(format) = FinalPassTarget::format(&camera.output_mode, target) else {
+            continue;
+        };
         let id = pipelines.specialize(&pipeline_cache, &pipeline, format);
         commands.entity(entity).insert(ViewUiGammaPipeline(id));
     }
@@ -179,35 +176,30 @@ fn init_pipeline(
     commands.insert_resource(UiGammaPipeline {
         layout,
         sampler,
-        shader: asset_server.load("embedded://benilla_app/shaders/ui_gamma.wgsl"),
+        shader: asset_server.load("embedded://benilla_app/shaders/ui_gamma.wesl"),
         fullscreen: fullscreen_shader.clone(),
         ramp,
     });
 }
 
-#[derive(Default)]
-struct UiGammaNode;
-
-impl ViewNode for UiGammaNode {
-    type ViewQuery = (
-        &'static ViewTarget,
-        &'static UiGammaLane,
-        &'static ExtractedCamera,
-        &'static ViewUiGammaPipeline,
-    );
-
-    fn run<'w>(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        (view_target, lane, camera, pipeline): QueryItem<'w, '_, Self::ViewQuery>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
+/// The decode, after the UI's passes and before the output blit.
+fn ui_gamma_pass(
+    world: &World,
+    view: ViewQuery<(
+        &ViewTarget,
+        &UiGammaLane,
+        &ExtractedCamera,
+        &ViewUiGammaPipeline,
+    )>,
+    mut render_context: RenderContext,
+) {
+    let (view_target, lane, camera, pipeline) = view.into_inner();
+    {
         let pipelines = world.resource::<UiGammaPipeline>();
         let pipeline_cache = world.resource::<PipelineCache>();
         let Some(decode) = pipeline_cache.get_render_pipeline(pipeline.0) else {
             // Still compiling: the UI stays undecoded, over-bright, for a frame or two.
-            return Ok(());
+            return;
         };
         // This frame's exponent as `[g, 0, 0, 0]`; the shader reads `.x`.
         world.resource::<RenderQueue>().write_buffer(
@@ -216,7 +208,10 @@ impl ViewNode for UiGammaNode {
             bytemuck::cast_slice(&[lane.gamma, 0.0, 0.0, 0.0]),
         );
         // The swapchain for the `Skip` player-UI camera, the ping-pong target for a `Write` one.
-        let out = FinalPassTarget::resolve(camera, view_target);
+        // No output this frame: no decode (`FinalPassTarget::resolve`).
+        let Some(out) = FinalPassTarget::resolve(camera, view_target) else {
+            return;
+        };
         let layout = pipeline_cache.get_bind_group_layout(&pipelines.layout);
         let bind = render_context.render_device().create_bind_group(
             "ui_gamma_decode",
@@ -229,6 +224,7 @@ impl ViewNode for UiGammaNode {
         );
         // The perf journal buckets this span's name into `gpu_ui`.
         let diagnostics = render_context.diagnostic_recorder();
+        let diagnostics = diagnostics.as_deref();
         let scissor = out.scissor_rect();
         let mut pass = render_context
             .command_encoder()
@@ -238,6 +234,7 @@ impl ViewNode for UiGammaNode {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
         if let Some((x, y, w, h)) = scissor {
             pass.set_scissor_rect(x, y, w, h);
@@ -247,7 +244,6 @@ impl ViewNode for UiGammaNode {
         pass.set_bind_group(0, &bind, &[]);
         pass.draw(0..3, 0..1);
         span.end(&mut pass);
-        Ok(())
     }
 }
 
@@ -260,8 +256,8 @@ fn use_gamma_ui_shaders(
     mut node: ResMut<UiPipeline>,
     mut slice: ResMut<UiTextureSlicePipeline>,
 ) {
-    node.shader = asset_server.load("embedded://benilla_app/shaders/ui_node_gamma.wgsl");
-    slice.shader = asset_server.load("embedded://benilla_app/shaders/ui_slice_gamma.wgsl");
+    node.shader = asset_server.load("embedded://benilla_app/shaders/ui_node_gamma.wesl");
+    slice.shader = asset_server.load("embedded://benilla_app/shaders/ui_slice_gamma.wesl");
 }
 
 pub(crate) struct UiGammaPlugin;
@@ -298,15 +294,9 @@ impl Plugin for UiGammaPlugin {
                     .after(init_ui_pipeline)
                     .after(init_ui_texture_slice_pipeline),
             )
-            .add_render_graph_node::<ViewNodeRunner<UiGammaNode>>(Core2d, UiGammaLabel)
-            // After the quads, before the output blit, which a `Skip` camera skips: the decode is
-            // the output write.
-            .add_render_graph_edges(
-                Core2d,
-                (Node2d::EndMainPass, UiGammaLabel, Node2d::Upscaling),
-            )
-            // And after Bevy UI, which writes gamma into the same target: upstream orders `UiPass`
-            // only against `EndMainPass` and `Upscaling`, leaving it unordered against the decode.
-            .add_render_graph_edge(Core2d, NodeUi::UiPass, UiGammaLabel);
+            // After the quads and after Bevy UI, which writes gamma into the same target (upstream
+            // orders `ui_pass` after the 2D post-processing), and before the output blit, which a
+            // `Skip` camera skips: the decode is the output write.
+            .add_systems(Core2d, ui_gamma_pass.after(ui_pass).before(upscaling));
     }
 }

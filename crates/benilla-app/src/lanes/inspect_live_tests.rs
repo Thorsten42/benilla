@@ -198,7 +198,7 @@ fn the_slot_getters_read_the_object_inside_the_hover_and_target_events() {
     use bevy::ecs::system::RunSystemOnce;
     let mut app = mate_beside();
     {
-        let script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let script = app.world_mut().non_send_mut::<UiScript>();
         crate::ui_script::test_ui::load_tooltip_template(&script);
         script
             .run(
@@ -265,7 +265,7 @@ fn the_world_enter_listener_reads_the_honor_block() {
             "#,
         )
         .unwrap();
-    app.world_mut().insert_non_send_resource(script);
+    app.world_mut().insert_non_send(script);
     // A `/reload`'s cascade (`0x490168`), as the reload queues it on the arrival lane.
     app.world_mut()
         .resource_mut::<crate::ui_world_enter::ArrivalLane>()

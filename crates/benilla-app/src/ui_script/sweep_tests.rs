@@ -139,7 +139,7 @@ fn open_everything(world: &mut World) {
 #[test]
 fn the_sweep_closes_every_window_in_the_references_order() {
     let (mut app, rx) = legs_app();
-    app.insert_non_send_resource(spied_vm(&EVENTS));
+    app.insert_non_send(spied_vm(&EVENTS));
     open_everything(app.world_mut());
     sweep_in_place(&mut app);
     assert_eq!(
@@ -188,7 +188,7 @@ fn the_sweep_closes_every_window_in_the_references_order() {
 fn the_gossip_leg_resets_the_option_and_quest_slots() {
     use benilla_protocol::messages::GossipOption;
     let (mut app, _rx) = legs_app();
-    app.insert_non_send_resource(spied_vm(&EVENTS));
+    app.insert_non_send(spied_vm(&EVENTS));
     {
         let mut gossip = app
             .world_mut()
@@ -214,7 +214,7 @@ fn the_gossip_leg_resets_the_option_and_quest_slots() {
 #[test]
 fn a_second_departure_in_one_world_closes_nothing() {
     let (mut app, rx) = legs_app();
-    app.insert_non_send_resource(spied_vm(&EVENTS));
+    app.insert_non_send(spied_vm(&EVENTS));
     sweep_in_place(&mut app);
     let _ = rx.try_iter().count();
     open_everything(app.world_mut());
@@ -235,12 +235,12 @@ fn the_sweep_drops_its_legs_sounds_and_not_the_cinematics() {
          f:SetScript('OnEvent', function() PlaySound(event) end)",
     )
     .expect("sound frame");
-    app.insert_non_send_resource(vm);
+    app.insert_non_send(vm);
     open_everything(app.world_mut());
     sweep_in_place(&mut app);
     let played = app
         .world_mut()
-        .non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .non_send_mut::<benilla_ui::script::UiScript>()
         .take_sounds();
     assert_eq!(
         played,

@@ -13,7 +13,7 @@ const GHOST: u8 = member_status::ONLINE | member_status::GHOST;
 
 /// A frame that counts the `RAID_ROSTER_UPDATE`s the VM is told of; [`fired`] takes them.
 fn watch(app: &mut App) {
-    let script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let script = app.world_mut().non_send_mut::<UiScript>();
     script
         .run(
             r#"
@@ -29,7 +29,7 @@ fn watch(app: &mut App) {
 /// Run a frame and count the `RAID_ROSTER_UPDATE`s it fired.
 fn fired(app: &mut App) -> u32 {
     frame(app);
-    let script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let script = app.world_mut().non_send_mut::<UiScript>();
     let fired: f64 = script.eval("return ROSTER").unwrap();
     script.run("ROSTER = 0").unwrap();
     fired as u32
@@ -215,7 +215,7 @@ fn answer(app: &mut App, i: u64) {
 /// A frame that counts `PARTY_MEMBERS_CHANGED` and `RAID_ROSTER_UPDATE` in the order the VM is
 /// told of them; [`told`] takes them.
 fn watch_both(app: &mut App) {
-    let script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let script = app.world_mut().non_send_mut::<UiScript>();
     script
         .run(
             r#"
@@ -234,7 +234,7 @@ fn watch_both(app: &mut App) {
 /// Run a frame and take what it told, `R` a roster update and `P` a members change, in order.
 fn told(app: &mut App) -> String {
     frame(app);
-    let script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let script = app.world_mut().non_send_mut::<UiScript>();
     let told: String = script.eval("return TOLD").unwrap();
     script.run("TOLD = \"\"").unwrap();
     told
@@ -316,7 +316,7 @@ fn a_stats_packet_moving_a_rows_online_bit_fires_no_raid_roster_update() {
 #[test]
 fn a_kick_empties_the_party_at_once_and_names_no_new_leader() {
     let mut app = app();
-    let script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let script = app.world_mut().non_send_mut::<UiScript>();
     script
         .run(
             r#"
@@ -350,7 +350,7 @@ fn a_kick_empties_the_party_at_once_and_names_no_new_leader() {
 #[test]
 fn raid_target_update_fires_per_packet_and_per_party_list() {
     let mut app = app();
-    let script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let script = app.world_mut().non_send_mut::<UiScript>();
     script
         .run(
             r#"
@@ -363,7 +363,7 @@ fn raid_target_update_fires_per_packet_and_per_party_list() {
         .unwrap();
     let marks = |app: &mut App| {
         frame(app);
-        let script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let script = app.world_mut().non_send_mut::<UiScript>();
         let n: f64 = script.eval("return MARKS").unwrap();
         script.run("MARKS = 0").unwrap();
         n as u32
@@ -585,7 +585,7 @@ fn a_vm_born_after_raid_lists_hears_only_the_lists_after_it() {
     let mut born = UiScript::new().unwrap();
     seed_vm_party(app.world_mut(), &mut born, false);
     born.run("SEEN = {}").unwrap();
-    app.insert_non_send_resource(born);
+    app.insert_non_send(born);
     watch(&mut app);
     assert_eq!(fired(&mut app), 0, "the lists before the birth");
     assert_eq!(rows(&mut app), 3.0, "the raid, read at the call");
@@ -620,7 +620,7 @@ fn one_drains_packets_signal_in_wire_order() {
             Some((1, 1, 0)),
         );
     }
-    let script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let script = app.world_mut().non_send_mut::<UiScript>();
     script
         .run(
             r#"
@@ -729,7 +729,7 @@ fn the_stock_raid_ui_repaints_a_member_who_dies_out_of_view() {
     let colour = |app: &mut App, call: &str| {
         let (r, g, b): (f32, f32, f32) = app
             .world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval(&format!("return {call}"))
             .unwrap();
         [r, g, b].map(|c| (c * 100.0).round() as i32)
@@ -760,6 +760,6 @@ fn the_stock_raid_ui_repaints_a_member_who_dies_out_of_view() {
     frame(&mut app);
     assert_eq!(text_colour(&mut app), warrior);
     assert_eq!(pullout_colour(&mut app), warrior);
-    let errors = app.world().non_send_resource::<UiScript>().errors();
+    let errors = app.world().non_send::<UiScript>().errors();
     assert!(errors.is_empty(), "script errors: {errors:?}");
 }

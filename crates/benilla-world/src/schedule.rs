@@ -59,12 +59,19 @@ impl Plugin for SchedulePlugin {
             )
                 .chain(),
         );
+        // The camera's projection and viewport, updated before the transforms propagate, so every
+        // system after the propagation reads this frame's. Bevy's UI chain (`CameraUpdateSystems`
+        // → `UiSystems::Layout`, before `Propagate`) made this order and is weak since 0.20.
+        app.configure_sets(
+            PostUpdate,
+            bevy::camera::CameraUpdateSystems.before(bevy::transform::TransformSystems::Propagate),
+        );
         move_initial_state_transition_after_startup(app);
     }
 }
 
 /// Run the initial state's `OnEnter` after startup. `bevy_state` seeds the startup
-/// `StateTransition` before `PreStartup` (`bevy_state-0.18.1/src/app.rs:309`), so an `OnEnter`
+/// `StateTransition` before `PreStartup` (`bevy_state-0.20.1/src/app.rs:336`), so an `OnEnter`
 /// for the boot state would run before the patch chain, the Lua VM, the mixer and every catalog;
 /// this moves it after `PostStartup`. Safe while no `Startup` system writes `NextState`;
 /// `insert_state`/`init_state` insert `State<S>` at plugin build either way.

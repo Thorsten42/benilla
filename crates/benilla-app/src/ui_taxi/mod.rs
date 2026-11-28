@@ -198,7 +198,7 @@ pub(super) fn mirror(world: &mut World) {
     let view = world
         .run_system_cached(|live: TaxiLive| live.view())
         .expect("the map's reads");
-    world.non_send_resource_mut::<UiScript>().set_taxi(view);
+    world.non_send_mut::<UiScript>().set_taxi(view);
 }
 
 /// A flight master's `SMSG_TAXINODE_STATUS`: `known = false` shows the green `TalkToMeGreen`
@@ -273,7 +273,7 @@ mod tests {
             .insert_resource(catalogs)
             .insert_resource(factions)
             .insert_resource(reps)
-            .insert_non_send_resource(UiScript::new().unwrap());
+            .insert_non_send(UiScript::new().unwrap());
         // A human warrior player: the master's standing leg needs the player's type, flag `0x8`
         // and template (`0x606576`-`0x6065b6`).
         app.world_mut().spawn((
@@ -311,7 +311,7 @@ mod tests {
 
         let node = |app: &mut App, name: &str| -> (i64, i64) {
             app.world_mut()
-                .non_send_resource_mut::<UiScript>()
+                .non_send_mut::<UiScript>()
                 .eval(&format!(
                     "for i = 1, NumTaxiNodes() do \
                        if TaxiNodeName(i) == {name:?} then return i, TaxiNodeCost(i) end \
@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(shown, 136);
 
         let mut calls = {
-            let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+            let mut script = app.world_mut().non_send_mut::<UiScript>();
             script.keep_calls();
             script.run(&format!("TakeTaxiNode({thelsamar})")).unwrap();
             script.take_taxi_calls()
@@ -390,7 +390,7 @@ mod tests {
                 "#,
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.world_mut()
             .resource_mut::<crate::ui_gossip::GossipState>()
             .npc = Some(MASTER);
@@ -409,7 +409,7 @@ mod tests {
                 app.world().resource::<TaxiLane>().stamped().is_empty(),
                 "the lane fired inside the packet"
             );
-            let script = app.world_mut().non_send_resource_mut::<UiScript>();
+            let script = app.world_mut().non_send_mut::<UiScript>();
             let heard = script.eval::<String>("return HEARD").unwrap();
             script.run("HEARD = ''").unwrap();
             heard
@@ -457,12 +457,12 @@ mod tests {
                 "#,
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         let learned = |app: &mut App| {
             crate::net::handlers::dispatch(app.world_mut(), vec![SessionEvent::NewTaxiPath]);
             app.world_mut().flush();
             crate::lanes::fire_in_order(app.world_mut());
-            let script = app.world_mut().non_send_resource_mut::<UiScript>();
+            let script = app.world_mut().non_send_mut::<UiScript>();
             let heard = script.eval::<String>("return HEARD").unwrap();
             script.run("HEARD = ''").unwrap();
             heard

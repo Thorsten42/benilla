@@ -313,7 +313,7 @@ fn kill_line(
 /// outlive a `/reload`. Called with the CVar fold, before the VM is replaced.
 pub(crate) fn fold_dying_vm_quest_folds(world: &mut World) {
     let Some(folds) = world
-        .get_non_send_resource::<UiScript>()
+        .get_non_send::<UiScript>()
         .map(UiScript::quest_log_carry)
     else {
         return;
@@ -1248,7 +1248,7 @@ mod tests {
                 .world_mut()
                 .spawn((ObjectStore(ObjectFields::default()), Guid(0x2A), SelfPlayer))
                 .id();
-            app.insert_non_send_resource(Self::vm());
+            app.insert_non_send(Self::vm());
             app.add_systems(
                 Update,
                 (
@@ -1274,12 +1274,12 @@ mod tests {
         /// The new VM's seat at its load, and the creature names the host reads off the cache.
         fn seat(&mut self) {
             let world = self.app.world_mut();
-            let mut script = world.remove_non_send_resource::<UiScript>().unwrap();
+            let mut script = world.remove_non_send::<UiScript>().unwrap();
             crate::ui_quest_log::seat_for_test(world, &mut script);
             for (entry, name) in &self.creatures {
                 script.set_quest_creature_name(*entry, name.clone());
             }
-            world.insert_non_send_resource(script);
+            world.insert_non_send(script);
         }
 
         /// A VM logging the quest events, with the format keys the lines fill, keeping its
@@ -1311,12 +1311,12 @@ mod tests {
 
         /// A `/reload`: a new VM over the same caches and descriptor.
         fn reload(&mut self) {
-            self.app.insert_non_send_resource(Self::vm());
+            self.app.insert_non_send(Self::vm());
             self.seat();
         }
 
         fn script(&mut self) -> Mut<'_, UiScript> {
-            self.app.world_mut().non_send_resource_mut::<UiScript>()
+            self.app.world_mut().non_send_mut::<UiScript>()
         }
 
         fn write_store(&mut self) {
@@ -1964,10 +1964,10 @@ mod tests {
             .init_resource::<crate::world_state::WorldStates>()
             .init_resource::<crate::ui_chat::ChatLog>()
             .init_resource::<crate::sound::MessageSounds>()
-            .insert_non_send_resource(Rig::vm())
+            .insert_non_send(Rig::vm())
             .add_systems(Update, fire_quest_events);
         let seen = |app: &mut App| {
-            let s = app.world_mut().non_send_resource_mut::<UiScript>();
+            let s = app.world_mut().non_send_mut::<UiScript>();
             let out = s.eval::<Vec<String>>("return SEEN").unwrap();
             s.run("SEEN = {}").unwrap();
             out

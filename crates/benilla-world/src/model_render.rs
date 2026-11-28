@@ -113,7 +113,7 @@ pub enum ShadeSel {
 }
 
 impl ShadeSel {
-    /// The `sun_scale.x` value, matching `wow_model.wgsl`'s thresholds (1.5 rig, 0.85 lit,
+    /// The `sun_scale.x` value, matching `wow_model.wesl`'s thresholds (1.5 rig, 0.85 lit,
     /// 0.5 matte, else shaded).
     pub fn selector(self) -> f32 {
         match self {
@@ -818,7 +818,7 @@ fn classify_part(
     }
     // A straddler keeps its near identity, clipped to the eye's half, and `sync_straddle_twins`
     // hangs its far twin beside it; the verdict is the word the clip itself reads.
-    let straddles = tag.is_some_and(|t| clips.straddles(crate::mesh_tag::rig_of(t.0)));
+    let straddles = tag.is_some_and(|t| clips.straddles(crate::mesh_tag::rig_of(t.value)));
     if straddles != straddling {
         trace_side(
             if straddles { "straddle" } else { "unstraddle" },
@@ -1051,7 +1051,7 @@ mod tests {
         assert_eq!((p.x, p.y, p.z, p.w), (1.0, 3.0, 1.0, 0.0));
     }
 
-    /// A stage 1 on the vertex's UV set says so in `stage1.w`, which `wow_model.wgsl` reads to
+    /// A stage 1 on the vertex's UV set says so in `stage1.w`, which `wow_model.wesl` reads to
     /// take `uv_b` and the stage's own transform, and keys a material of its own: its own
     /// coordinates and its own translation loop are each part of the look.
     #[test]

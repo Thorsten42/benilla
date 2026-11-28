@@ -359,8 +359,8 @@ pub(crate) fn update_ground_shade(
             else {
                 continue;
             };
-            if shade_of(tag.0, ext) != byte {
-                tag.0 = with_shade(tag.0, byte, ext);
+            if shade_of(tag.value, ext) != byte {
+                tag.value = with_shade(tag.value, byte, ext);
             }
         }
     }
@@ -377,8 +377,8 @@ pub(crate) fn update_ground_shade(
         let Some(byte) = card_root_shade(&root_shade, &child_of, card.follows()) else {
             continue; // a fixed terrain doodad's card: its shade rides the material selector
         };
-        if shade_of(tag.0, ext) != byte {
-            tag.0 = with_shade(tag.0, byte, ext);
+        if shade_of(tag.value, ext) != byte {
+            tag.value = with_shade(tag.value, byte, ext);
         }
     }
 }
@@ -422,7 +422,7 @@ mod tests {
     /// Run the card resolve against a world's live `ChildOf` topology.
     fn resolve(world: &mut World, map: &EntityHashMap<u8>, follows: Option<Entity>) -> Option<u8> {
         let mut state: SystemState<Query<&ChildOf>> = SystemState::new(world);
-        card_root_shade(map, &state.get(world), follows)
+        card_root_shade(map, &state.get(world).unwrap(), follows)
     }
 
     #[test]
@@ -431,9 +431,9 @@ mod tests {
         app.init_resource::<ShadeDirtyRoots>()
             .add_systems(Update, detect_shade_reclaims);
         let root = app.world_mut().spawn(GroundShade::default()).id();
-        let part = app.world_mut().spawn((MeshTag(7), ChildOf(root))).id();
+        let part = app.world_mut().spawn((MeshTag::new(7), ChildOf(root))).id();
         let other = app.world_mut().spawn(GroundShade::default()).id();
-        app.world_mut().spawn((MeshTag(9), ChildOf(other)));
+        app.world_mut().spawn((MeshTag::new(9), ChildOf(other)));
 
         app.update(); // both parts are Added ⇒ both roots flagged
         let dirty = |app: &App| {
@@ -445,7 +445,7 @@ mod tests {
         app.update(); // nobody wrote ⇒ quiet
         assert_eq!(dirty(&app), (false, false), "a settled frame flags nothing");
 
-        app.world_mut().get_mut::<MeshTag>(part).unwrap().0 = 42;
+        app.world_mut().get_mut::<MeshTag>(part).unwrap().value = 42;
         app.update();
         assert_eq!(
             dirty(&app),
@@ -567,7 +567,7 @@ mod tests {
     /// entity expression carries no `min(I, 1)`.
     #[test]
     fn the_entity_intensity_is_not_capped_in_the_shader() {
-        let src = include_str!("../../benilla-assets/src/shaders/wow_model.wgsl");
+        let src = include_str!("../../benilla-assets/src/shaders/wow_model.wesl");
         let line = src
             .lines()
             .find(|l| l.trim_start().starts_with("let intensity ="))

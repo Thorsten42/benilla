@@ -36,9 +36,9 @@ mod tests {
             .init_resource::<GroupState>()
             .insert_resource(NetCommands(tx))
             .add_plugins(super::super::UiAuraPlugin);
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run(
                 r#"
                 SEEN = {}
@@ -95,10 +95,7 @@ mod tests {
     /// The guid `token` names off the units the tokens reach now ([`crate::ui_unit::reach`]).
     fn guid_of(app: &mut App, token: &str) -> Option<u64> {
         use bevy::ecs::system::RunSystemOnce;
-        let published = app
-            .world()
-            .non_send_resource::<UiScript>()
-            .world_mouseover();
+        let published = app.world().non_send::<UiScript>().world_mouseover();
         let token = token.to_string();
         app.world_mut()
             .run_system_once(
@@ -177,7 +174,7 @@ mod tests {
 
     fn seen(app: &mut App) -> Vec<String> {
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<Vec<String>>("local s = SEEN SEEN = {} return s")
             .unwrap()
     }
@@ -937,7 +934,7 @@ mod tests {
     /// The world mouseover as the publisher (`0x492890`) writes it to `[0xb4e2c8]`.
     fn publish_mouseover(app: &mut App, guid: Option<u64>) {
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .publish_world_mouseover(guid);
     }
 

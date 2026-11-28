@@ -37,7 +37,7 @@ use benilla_assets::materials::WowModelMaterial;
 use benilla_assets::{M2Model, WmoModel};
 use bevy::app::MainScheduleOrder;
 use bevy::asset::{LoadState, RecursiveDependencyLoadState};
-use bevy::ecs::schedule::{ExecutorKind, ScheduleLabel};
+use bevy::ecs::schedule::{ScheduleLabel, SingleThreadedExecutor};
 use bevy::prelude::*;
 
 use super::super::display::{DisplayModel, ModelHandle};
@@ -64,7 +64,7 @@ pub(in crate::entities) fn plugin(app: &mut App) {
     }
     let mut schedule = Schedule::new(GlueStage);
     // One exclusive system: nothing runs beside it, so no executor threads are needed.
-    schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+    schedule.set_executor(SingleThreadedExecutor::new());
     schedule.add_systems(build_glue_stage);
     app.add_schedule(schedule);
     if let Some(mut order) = app.world_mut().get_resource_mut::<MainScheduleOrder>() {

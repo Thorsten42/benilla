@@ -270,7 +270,7 @@ mod unit_render_alpha_tests {
         build(&mut unit);
         let unit = unit.id();
         let mut state = SystemState::<UnitRenderAlpha>::new(&mut world);
-        let alpha = state.get(&world).get(unit);
+        let alpha = state.get(&world).unwrap().get(unit);
         alpha
     }
 
@@ -358,7 +358,7 @@ mod unit_render_alpha_tests {
         let gone = world.spawn_empty().id();
         world.despawn(gone);
         let mut state = SystemState::<UnitRenderAlpha>::new(&mut world);
-        assert_eq!(state.get(&world).get(gone), 1.0);
+        assert_eq!(state.get(&world).unwrap().get(gone), 1.0);
     }
 }
 
@@ -475,9 +475,9 @@ pub fn apply_render_fade(
         // `0x707b0b`, `0x707b33`), or death-only geometry shows through the ramp.
         let alpha = fade.alpha_at(t) * anim.map_or(1.0, |a| a.current);
         // `with_alpha` keeps the ground shade and never writes the untagged, opaque `0`.
-        let bits = crate::mesh_tag::with_alpha(tag.0, alpha);
-        if tag.0 != bits {
-            tag.0 = bits;
+        let bits = crate::mesh_tag::with_alpha(tag.value, alpha);
+        if tag.value != bits {
+            tag.value = bits;
         }
         // The cutout ignores `α`; a part without `FadeMaterials` still ramps, never hanging hidden.
         if let Some(fm) = fm {
@@ -655,7 +655,7 @@ impl FadeMaterials {
 
 /// The materials a spawning batch fades through. `blend: None` means it cannot feather (a
 /// WMO-display batch), the one reason to spawn opaque during the unit's ramp. A multiply batch
-/// (Mod, Mod2x) passes its steady self: its blend reads no alpha, so `wow_model.wgsl` lerps its
+/// (Mod, Mod2x) passes its steady self: its blend reads no alpha, so `wow_model.wesl` lerps its
 /// colour toward the blend identity by the tag alpha, as the reference's preset 5 does.
 pub struct FadeSet<'a> {
     pub steady: &'a Handle<WowModelMaterial>,
@@ -820,7 +820,7 @@ fn arm_fade_out(entity: Entity, now: f32, start_alpha: f32, commands: &mut Comma
 
 /// The alpha a part shows, the teardown's `startAlpha`; no tag is opaque, as in the shader.
 fn start_alpha(tag: Option<&MeshTag>) -> f32 {
-    tag.map_or(1.0, |t| crate::mesh_tag::alpha_of(t.0))
+    tag.map_or(1.0, |t| crate::mesh_tag::alpha_of(t.value))
 }
 
 /// Arm every [`FadeMaterials`] part at or under `entity`, recording each visited entity in
@@ -879,7 +879,7 @@ mod chain_tests {
 
     fn composed(app: &mut App, at: Entity) -> f32 {
         let mut sys = bevy::ecs::system::SystemState::<ModelAlphas>::new(app.world_mut());
-        let alphas = sys.get(app.world());
+        let alphas = sys.get(app.world()).unwrap();
         alphas.get(at)
     }
 
@@ -939,7 +939,7 @@ mod tests {
         world.despawn(gone);
 
         let mut state: SystemState<ModelAlphas> = SystemState::new(&mut world);
-        let alphas = state.get(&world);
+        let alphas = state.get(&world).unwrap();
         assert_eq!(alphas.get(wearer), 0.25, "the unit's own");
         assert_eq!(alphas.get(item), 0.25, "an item takes its wearer's");
         assert_eq!(alphas.get(glow), 0.25, "…and its glow takes the item's");
@@ -962,7 +962,7 @@ mod tests {
         world.entity_mut(a).insert(ParentModel(b));
 
         let mut state: SystemState<ModelAlphas> = SystemState::new(&mut world);
-        assert_eq!(state.get(&world).get(a), 1.0);
+        assert_eq!(state.get(&world).unwrap().get(a), 1.0);
     }
 
     /// The ramp runs from the unit's arrival once the world is shown, so a body that waited on its
@@ -1062,7 +1062,7 @@ mod tests {
             Query<&mut UnitAppearFade>,
             Local<Option<f32>>,
         )> = SystemState::new(&mut world);
-        let (time, viewer, commands, q, units, shown_at) = state.get_mut(&mut world);
+        let (time, viewer, commands, q, units, shown_at) = state.get_mut(&mut world).unwrap();
         arm_appear_fade(time, viewer, commands, q, units, shown_at);
 
         world.despawn(doomed);

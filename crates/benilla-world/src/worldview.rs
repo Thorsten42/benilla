@@ -3,11 +3,11 @@
 //! so a game concept wired back into the engine breaks it. A crate boundary alone cannot hold that
 //! line: two Bevy systems couple through a runtime resource with no symbol crossing between them.
 
+use bevy::camera::Hdr;
 use bevy::camera::{PerspectiveProjection, Projection};
 use bevy::core_pipeline::tonemapping::Tonemapping;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
-use bevy::render::view::Hdr;
 use bevy::window::{CursorGrabMode, PrimaryWindow};
 
 use benilla_assets::coords::wow_to_bevy;
@@ -276,6 +276,9 @@ fn spawn_view_camera(mut commands: Commands, msaa: Res<crate::view::MsaaSetting>
         }),
         Hdr,
         Tonemapping::None,
+        // `None` passes the target through, so a dither would do nothing; `Camera3d` requires
+        // `Enabled`, which Bevy warns about beside `None`.
+        bevy::core_pipeline::tonemapping::DebandDither::Disabled,
         crate::ffx_glow::FfxGlow::WORLD,
         Transform::from_translation(start + Vec3::new(0.0, VIEW_START_HEIGHT, VIEW_START_HEIGHT))
             .looking_at(start, Vec3::Y),

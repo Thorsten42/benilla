@@ -170,7 +170,7 @@ fn client() -> Client {
             f:SetScript("OnEvent", function() tinsert(SEEN, event) end)"#,
         )
         .expect("the recorder installs");
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     Client {
         app,
         rx,
@@ -441,7 +441,7 @@ fn a_skin_casts_signal_listener_sends_ahead_of_the_cast_and_its_sweep() {
     let mut c = client();
     c.app
         .world()
-        .non_send_resource::<benilla_ui::script::UiScript>()
+        .non_send::<benilla_ui::script::UiScript>()
         .run(
             r#"local r = CreateFrame("Frame")
             r:RegisterEvent("CURRENT_SPELL_CAST_CHANGED")

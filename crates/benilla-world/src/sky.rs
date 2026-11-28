@@ -29,7 +29,7 @@ use benilla_assets::AssetSet;
 /// The unlit gradient sky; the `StandardMaterial` shell only supplies `unlit` and no culling.
 pub type SkyMaterial = ExtendedMaterial<StandardMaterial, SkyExt>;
 
-/// The five sky stops, zenith to horizon, and the fog colour on one binding (100); `sky.wgsl`'s
+/// The five sky stops, zenith to horizon, and the fog colour on one binding (100); `sky.wesl`'s
 /// struct must match this field order.
 #[derive(Asset, AsBindGroup, Clone, TypePath)]
 pub struct SkyExt {
@@ -64,7 +64,7 @@ impl MaterialExtension for SkyExt {
     }
 
     fn fragment_shader() -> ShaderRef {
-        "embedded://benilla_world/shaders/sky.wgsl".into()
+        "embedded://benilla_world/shaders/sky.wesl".into()
     }
 
     /// No depth write, as every sky element inherits from `CSky::Render` (`0x6d4940`); the depth
@@ -76,7 +76,7 @@ impl MaterialExtension for SkyExt {
         _key: MaterialExtensionKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_write_enabled = false;
+            depth.depth_write_enabled = Some(false);
         }
         crate::sky_order::sky_pipeline_state(descriptor);
         Ok(())
@@ -194,7 +194,7 @@ fn setup_sky(
 }
 
 /// Pin the dome to the camera, world-aligned, just inside the far plane; the radius only keeps it
-/// unclipped, since occlusion is `sky_vertex.wgsl`'s far-depth pin.
+/// unclipped, since occlusion is `sky_vertex.wesl`'s far-depth pin.
 #[allow(clippy::type_complexity)]
 fn follow_camera(
     cam: Query<(&GlobalTransform, &Projection), With<WorldCamera>>,

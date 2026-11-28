@@ -73,7 +73,7 @@ impl Client {
 /// and chat line carries its name and first argument.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -99,7 +99,7 @@ fn client() -> Client {
             "#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
@@ -367,7 +367,7 @@ fn a_listener_reads_the_battlefield_position_an_earlier_packet_moved() {
             WSG, 3277, RECT,
         ));
     {
-        let mut script = c.app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut script = c.app.world_mut().non_send_mut::<UiScript>();
         script.set_world_map_catalog(vec![benilla_ui::script::WorldMapContinentView {
             name: "Warsong Gulch".into(),
             map_file: "WarsongGulch".into(),

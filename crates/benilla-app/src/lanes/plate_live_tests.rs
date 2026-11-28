@@ -54,7 +54,7 @@ fn plate_client() -> App {
             OBJECT_ENTRY,
             WOLF_ENTRY,
         )]));
-    crate::ui_script::test_ui::load_tooltip_template(world.non_send_resource::<UiScript>());
+    crate::ui_script::test_ui::load_tooltip_template(world.non_send::<UiScript>());
     crate::script_calls::with_hosted_vm(world, |s| {
         s.expect("a VM").run(
             r#"
@@ -249,10 +249,7 @@ fn hover(app: &mut App, pick: crate::target::Hovered, object: crate::target::Hov
     world
         .run_system_once(crate::ui_tooltip::drive_mouseover_tooltip)
         .expect("the drive runs");
-    world
-        .non_send_resource::<UiScript>()
-        .run("Seen = {}")
-        .unwrap();
+    world.non_send::<UiScript>().run("Seen = {}").unwrap();
 }
 
 /// The corpse plate publishes at the hover with no line while the owner's name is not cached

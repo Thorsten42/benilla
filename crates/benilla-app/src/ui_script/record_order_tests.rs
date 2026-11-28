@@ -23,7 +23,7 @@ fn client() -> App {
 fn client_with(size: UVec2, widescreen: bool) -> App {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
     app.insert_resource(crate::video::Widescreen(widescreen));
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, _sent) = crossbeam_channel::unbounded();
@@ -72,7 +72,7 @@ fn client_with(size: UVec2, widescreen: bool) -> App {
         .expect("the button builds");
     script.set_screen_size(1024.0, 768.0);
     script.resolve();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     let mut window = Window {
         resolution: size.into(),
@@ -86,7 +86,7 @@ fn client_with(size: UVec2, widescreen: bool) -> App {
     app.world_mut().insert_resource(PrimaryId(id));
     app.update();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"LOG = """#)
         .expect("the log clears");
     app
@@ -177,13 +177,14 @@ fn wheel_up(app: &mut App) {
             x: 0.0,
             y: 1.0,
             window,
+            phase: bevy::input::touch::TouchPhase::Moved,
         }),
     );
 }
 
 fn log(app: &App) -> String {
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<String>("return LOG")
         .expect("the log reads")
 }
@@ -257,7 +258,7 @@ fn a_box_a_key_focused_takes_the_next_key_of_the_frame() {
     key(&mut app, KeyCode::Enter, ButtonState::Pressed);
     typed(&mut app, KeyCode::KeyW, ButtonState::Pressed, Some("w"));
     app.update();
-    let s = app.world().non_send_resource::<UiScript>();
+    let s = app.world().non_send::<UiScript>();
     assert_eq!(s.eval::<String>("return ProbeBox:GetText()").unwrap(), "w");
     assert_eq!(log(&app), "", "the box took W");
 }
@@ -289,7 +290,7 @@ fn widescreen_off_takes_a_click_through_the_stretch_and_back() {
     use super::{ui_to_window, UiScreen};
     let mut app = client_with(UVec2::new(1920, 1080), false);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"local b = CreateFrame("Button", "StretchProbe")
             b:SetPoint("BOTTOMLEFT", 900, 0) b:SetWidth(124) b:SetHeight(768)
@@ -352,7 +353,7 @@ fn a_notch_over_the_world_binds_at_its_place() {
     let mut app = client();
     // The world frame over the right half, where the wheel walk meets it.
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"WorldFrame:SetPoint("BOTTOMLEFT", 512, 0)
             WorldFrame:SetWidth(512) WorldFrame:SetHeight(768)"#,
@@ -372,7 +373,7 @@ fn a_notch_over_the_world_binds_at_its_place() {
 fn a_notch_runs_no_binding_while_the_dev_overlay_holds_the_pointer() {
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"WorldFrame:SetPoint("BOTTOMLEFT", 512, 0)
             WorldFrame:SetWidth(512) WorldFrame:SetHeight(768)"#,

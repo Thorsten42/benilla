@@ -621,10 +621,10 @@ mod tests {
                  f:SetScript('OnEvent', function() CLOSES = CLOSES + 1 end)",
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         let closes = |app: &App| {
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<i64>("return CLOSES")
                 .unwrap()
         };
@@ -774,7 +774,7 @@ mod tests {
             .world_mut()
             .spawn((SelfPlayer, ObjectStore(Default::default())))
             .id();
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         // Where the dust and the rod sit: player slots, 17 worn, 81 the keyring, 39 the bank;
         // each read opens the window again, whose build counts them.
         let mut read = |dust_slot: u16, rod_slot: u16| -> (i64, bool) {
@@ -793,7 +793,7 @@ mod tests {
                 )));
             reopen(&mut app, 333, 3);
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<(i64, bool)>(
                     "local _, _, _, have = GetCraftReagentInfo(1, 1) \
                      local _, hasTool = GetCraftSpellFocus(1) return have, hasTool == 1",
@@ -855,11 +855,11 @@ mod tests {
             .spawn((SelfPlayer, ObjectStore(Default::default())));
         let script = UiScript::new().unwrap();
         script.run("HOME_INN = 'your inn'").unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         let described = |app: &mut App| {
             reopen(app, 333, 3);
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<String>("return GetCraftDescription(1)")
                 .unwrap()
         };
@@ -988,14 +988,14 @@ mod tests {
                 ..crate::ui_action::Spells::empty_for_tests()
             })
             .insert_resource(SkillLines { catalog });
-        app.insert_non_send_resource(rx);
+        app.insert_non_send(rx);
         app.world_mut().spawn((
             ObjectStore(benilla_protocol::ObjectFields::from_pairs(player)),
             SelfPlayer,
         ));
         let mut script = UiScript::new().unwrap();
         script.keep_calls();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app
     }
 
@@ -1093,7 +1093,7 @@ mod tests {
     /// Each row's `(name rank, craftType, trainingPointCost, requiredLevel)`, in display order.
     fn craft_rows(app: &mut App) -> Vec<(String, String, i64, i64)> {
         app.world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<Vec<Vec<String>>>(
                 "local t = {} for i = 1, GetNumCrafts() do \
                  local n, s, k, _, _, tp, l = GetCraftInfo(i) \
@@ -1139,7 +1139,7 @@ mod tests {
         );
         assert!(app
             .world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<bool>("return GetCraftSkillLine(1) == nil")
             .unwrap());
     }
@@ -1363,7 +1363,7 @@ mod tests {
         };
         let triple = |app: &mut App| {
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<(Option<String>, i64, i64)>("return GetCraftDisplaySkillLine()")
                 .unwrap()
         };
@@ -1409,7 +1409,7 @@ mod tests {
         let app = craft_feed_open(displays, &[7420, 7418], catalog, 3, &[]);
         let name = app
             .world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<Option<String>>("return (GetCraftDisplaySkillLine())")
             .unwrap();
         assert_eq!(name.as_deref(), Some("Tailoring"));
@@ -1444,7 +1444,7 @@ mod tests {
         let app = craft_feed_open(displays, &[9100, 9000], catalog, 1, &[]);
         let described: Vec<(String, Option<String>)> = app
             .world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<Vec<Vec<String>>>(
                 "local t = {} for i = 1, GetNumCrafts() do \
                  t[i] = { (GetCraftInfo(i)), GetCraftDescription(i) or 'nil' } end return t",
@@ -1486,7 +1486,7 @@ mod tests {
             &[(F_SKILL_1, ENCHANTING), (F_SKILL_1 + 1, 1 | 75 << 16)],
         );
         app.world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run(
                 "HEARD = {} local f = CreateFrame('Frame') f:RegisterEvent('CRAFT_SHOW') \
                  f:RegisterEvent('CRAFT_UPDATE') \
@@ -1496,7 +1496,7 @@ mod tests {
         let heard = |app: &mut App| {
             app.update();
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<Vec<String>>("local h = HEARD HEARD = {} return h")
                 .unwrap()
         };
@@ -1557,7 +1557,7 @@ mod tests {
         app.update();
         assert_eq!(
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<i64>("return GetNumCrafts()")
                 .unwrap(),
             1,
@@ -1565,7 +1565,7 @@ mod tests {
         );
         let rx = app
             .world()
-            .non_send_resource::<crossbeam_channel::Receiver<crate::net::ClientCommand>>();
+            .non_send::<crossbeam_channel::Receiver<crate::net::ClientCommand>>();
         let asked: Vec<_> = crate::query_cache::queries(rx)
             .into_iter()
             .filter(|c| matches!(c, crate::net::ClientCommand::ItemQuery { .. }))
@@ -1612,7 +1612,7 @@ mod tests {
         app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
         crate::ui_tradeskill::register_rebuild_triggers(&mut app);
         app.world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run(
                 "HEARD = {} local f = CreateFrame('Frame') f:RegisterEvent('CRAFT_SHOW') \
                  f:RegisterEvent('CRAFT_UPDATE') \
@@ -1622,7 +1622,7 @@ mod tests {
         let heard = |app: &mut App| {
             app.update();
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<Vec<String>>("local h = HEARD HEARD = {} return h")
                 .unwrap()
         };
@@ -1678,7 +1678,7 @@ mod tests {
                 .unwrap();
             script
         };
-        app.insert_non_send_resource(listening());
+        app.insert_non_send(listening());
         let world_enter = |app: &mut App| {
             app.world_mut()
                 .run_system_cached(crate::ui_tradeskill::reset_crafts_on_world_enter)
@@ -1687,7 +1687,7 @@ mod tests {
         let heard = |app: &mut App| {
             app.update();
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<Vec<String>>("local h = HEARD HEARD = {} return h")
                 .unwrap()
         };
@@ -1702,7 +1702,7 @@ mod tests {
         assert_eq!(app.world().resource::<CraftOpen>().line, None);
 
         assert_eq!(open(&mut app), ["CRAFT_UPDATE", "CRAFT_SHOW"]);
-        app.insert_non_send_resource(listening());
+        app.insert_non_send(listening());
         world_enter(&mut app);
         assert!(heard(&mut app).is_empty(), "a reload shows nothing");
         assert_eq!(app.world().resource::<CraftOpen>().line, None);

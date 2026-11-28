@@ -9,7 +9,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use anyhow::Context;
+// Named as Bevy's prelude names its own `ContextExt`, which this shadows: both give `context` and
+// `with_context`, and only anyhow's is meant here.
+use anyhow::Context as ContextExt;
 use benilla_assets::{repeat_texture_authored, LockRecover, SpatialCache};
 use benilla_formats::{blp_bytes_to_mip_chain, BlpMipChain, Chain, CharSections, CompositePlan};
 use bevy::prelude::*;

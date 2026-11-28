@@ -107,7 +107,7 @@ pub(super) fn update_model_particles(
                     // The owner-last rung (`ParticleEmitter::owner_rung`), bucketed up: bevy keys
                     // pipelines on `depth_bias`, only buckets are pre-warmed, and a bucket never
                     // sorts a shard under its quad cloud. Opaque batches take no sort bias.
-                    if let Some(m) = materials.get_mut(&material) {
+                    if let Some(mut m) = materials.get_mut(&material) {
                         if m.base.alpha_mode == AlphaMode::Blend {
                             m.base.depth_bias = benilla_formats::owner_last_rung_bucket(rung);
                         }
@@ -124,7 +124,7 @@ pub(super) fn update_model_particles(
                             Transform::IDENTITY,
                             Visibility::Hidden,
                             NoFrustumCulling,
-                            MeshTag(crate::mesh_tag::alpha_bits(1.0)),
+                            MeshTag::new(crate::mesh_tag::alpha_bits(1.0)),
                             ChildDraw,
                         ))
                         .id();
@@ -179,9 +179,9 @@ pub(super) fn update_model_particles(
                     if *vis != Visibility::Inherited {
                         *vis = Visibility::Inherited;
                     }
-                    *tag = MeshTag(crate::mesh_tag::alpha_bits(rgba[3]));
+                    *tag = MeshTag::new(crate::mesh_tag::alpha_bits(rgba[3]));
                 }
-                if let Some(m) = materials.get_mut(mat) {
+                if let Some(mut m) = materials.get_mut(mat) {
                     m.extension.tint = Vec4::new(rgba[0], rgba[1], rgba[2], 1.0);
                 }
             }

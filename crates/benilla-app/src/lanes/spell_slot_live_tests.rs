@@ -46,7 +46,7 @@ impl Client {
 
     /// What the spy heard since the last call.
     fn seen(&mut self) -> Vec<String> {
-        let script = self.app.world().non_send_resource::<UiScript>();
+        let script = self.app.world().non_send::<UiScript>();
         let seen: Vec<String> = script.eval("local s = Seen Seen = {} return s").unwrap();
         seen
     }
@@ -90,7 +90,7 @@ fn spells() -> crate::ui_action::Spells {
 /// listener reads of slots 1 and 2 as it fires.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -117,7 +117,7 @@ fn client() -> Client {
             list.join(", ")
         ))
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     let world = app.world_mut();

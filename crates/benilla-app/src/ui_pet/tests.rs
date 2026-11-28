@@ -858,7 +858,7 @@ fn a_held_pet_reads_connected_and_its_stock_power_bar_shows_its_power() {
         .resource_mut::<crate::net::GuidIndex>()
         .0
         .insert(PET, pet);
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
 
     app.update();
     // The bar's `UNIT_PET` (`0x4bc84f`), which shows the frame on the pet the getters read.
@@ -878,9 +878,7 @@ fn a_held_pet_reads_connected_and_its_stock_power_bar_shows_its_power() {
                 )
                 .unwrap()
         });
-    let script = app
-        .world()
-        .non_send_resource::<benilla_ui::script::UiScript>();
+    let script = app.world().non_send::<benilla_ui::script::UiScript>();
     assert_eq!(connected, Some(1.0), "a held pet is connected");
     assert_eq!(shown, Some(1.0), "the bar's UNIT_PET showed the frame");
     assert_eq!(
@@ -962,7 +960,7 @@ fn a_held_pet_names_its_templates_creature_type() {
         .resource_mut::<crate::net::GuidIndex>()
         .0
         .insert(PET, pet);
-    app.insert_non_send_resource(benilla_ui::script::UiScript::new().unwrap());
+    app.insert_non_send(benilla_ui::script::UiScript::new().unwrap());
 
     app.update();
     let answer = crate::ui_unit::live::eval_lent_objects::<Option<String>>(
@@ -1002,7 +1000,7 @@ fn a_pet_with_no_object_exists_and_is_not_visible() {
     std::mem::forget(rx);
     app.insert_resource(NetCommands(tx));
     summoning(&mut app, 0x77, PET);
-    app.insert_non_send_resource(benilla_ui::script::UiScript::new().unwrap());
+    app.insert_non_send(benilla_ui::script::UiScript::new().unwrap());
 
     app.update();
     let (exists, visible) = crate::ui_unit::live::eval_lent_objects::<(Option<f64>, Option<f64>)>(
@@ -1142,7 +1140,7 @@ fn a_rename_evicts_by_the_units_pet_number_for_any_unit() {
             f:SetScript("OnEvent", function() RENAMED = RENAMED + 1 end)"#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     use bevy::ecs::system::RunSystemOnce;
     app.world_mut()
         .run_system_once(
@@ -1157,7 +1155,7 @@ fn a_rename_evicts_by_the_units_pet_number_for_any_unit() {
         .unwrap();
     let heard = app
         .world()
-        .non_send_resource::<benilla_ui::script::UiScript>()
+        .non_send::<benilla_ui::script::UiScript>()
         .eval::<i64>("return RENAMED")
         .unwrap();
     assert_eq!(heard, 1, "one LOCALPLAYER_PET_RENAMED reaches the listener");

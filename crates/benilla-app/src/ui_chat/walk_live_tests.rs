@@ -171,7 +171,7 @@ fn client(zone: u32, held: Option<&[(u16, u32)]>) -> Client {
             benilla_ui::script::TokenChange::Add(benilla_ui::script::TOKEN_PLAYER),
         );
     }
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     Client { app, sent }
 }
 
@@ -524,7 +524,7 @@ fn a_reload_keeps_the_real_zone_text_and_walks_nothing() {
     c.channels().joined = vec![ChannelSlot::confirmed("General - Stale", 1).into()];
     c.app
         .world_mut()
-        .insert_non_send_resource(UiScript::new().expect("a VM"));
+        .insert_non_send(UiScript::new().expect("a VM"));
     tick(&mut c, 10);
     assert!(c.wire().is_empty(), "Elwynn was walked before the reload");
 }

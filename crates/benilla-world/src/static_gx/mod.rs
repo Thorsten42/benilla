@@ -34,10 +34,10 @@ const REBAKE_FRAMES: u32 = 120;
 /// A dirty cell this old (~10 s) bakes even if never quiet, so a trickle cannot starve it.
 const MAX_DIRTY_FRAMES: u32 = 600;
 
-/// Per-vertex word: the item index in bits 0..16, flag bits above, as `static_gx.wgsl` reads it.
+/// Per-vertex word: the item index in bits 0..16, flag bits above, as `static_gx.wesl` reads it.
 pub const ATTRIBUTE_GX_WORD: MeshVertexAttribute =
     MeshVertexAttribute::new("Gx_Word", 988_101, VertexFormat::Uint32);
-/// Per-vertex point-light anchor: the placement's world origin, as in `wow_model.wgsl`.
+/// Per-vertex point-light anchor: the placement's world origin, as in `wow_model.wesl`.
 pub const ATTRIBUTE_GX_ANCHOR: MeshVertexAttribute =
     MeshVertexAttribute::new("Gx_Anchor", 988_102, VertexFormat::Float32x3);
 
@@ -690,10 +690,9 @@ impl Plugin for StaticGxPlugin {
         info!("static-gx: ARMED (default; WOW_STATIC_GX=0 opts out) — retained static-world pass");
         app.init_resource::<StaticGx>().add_systems(
             PostUpdate,
-            // Bake, scene walk, publish; after `CheckVisibility`, which is load-bearing. A spawned
-            // exile flushed by an earlier sync point would be visible before bevy_pbr ticked its
-            // specialization, a render panic (`bevy_pbr-0.18.1/material.rs:1061`); after it, the
-            // exile shows the next frame, ticked. `chain_ignore_deferred` adds no sync points.
+            // Bake, scene walk, publish; after `CheckVisibility`, so a spawned exile first shows the
+            // next frame, once bevy_pbr has specialized it. `chain_ignore_deferred` adds no sync
+            // points.
             (
                 bake::flush_static_gx,
                 cull::cull_cells,
@@ -787,7 +786,7 @@ mod tests {
     /// fragment only modulates the texel by it.
     #[test]
     fn the_static_light_is_evaluated_per_vertex() {
-        let src = include_str!("../shaders/static_gx.wgsl");
+        let src = include_str!("../shaders/static_gx.wesl");
         let at = |needle: &str| {
             src.find(needle)
                 .unwrap_or_else(|| panic!("`{needle}` is gone"))
@@ -828,12 +827,12 @@ mod tests {
         }
     }
 
-    /// The vertex colour is the lit material inside the one clamp, as in `wow_model.wgsl`: MOCV
+    /// The vertex colour is the lit material inside the one clamp, as in `wow_model.wesl`: MOCV
     /// under GL_COLOR_MATERIAL (`0x59cfec`), a doodad's baked M2Color as `Model2.bls`'s `c28`,
     /// whose light sum clamps first only with a point light bound.
     #[test]
     fn the_static_vertex_colour_is_lit_inside_the_one_clamp() {
-        let src = include_str!("../shaders/static_gx.wgsl");
+        let src = include_str!("../shaders/static_gx.wesl");
         let at = |needle: &str| {
             src.find(needle)
                 .unwrap_or_else(|| panic!("`{needle}` is gone"))

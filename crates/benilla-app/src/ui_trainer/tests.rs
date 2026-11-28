@@ -1673,7 +1673,7 @@ mod re_derive {
         assert_eq!(super::lua_count(&mut app, every_filter), 0);
         let kinds = app
             .world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .eval::<Vec<String>>(
             "local out = {} local i = 1 while true do local _, _, t = GetTrainerServiceInfo(i) \
              if t == nil then break end table.insert(out, t) i = i + 1 end return out",
@@ -1689,7 +1689,7 @@ mod re_derive {
     fn a_row_keyed_known_keeps_the_key_until_the_next_list() {
         let mut app = super::feed_app(catalog(), skill_lines());
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("KNOWN_TALENTS_HEADER = 'My Talents'")
             .unwrap();
         let mut known = service(RANK1_WRAPPER);
@@ -1697,7 +1697,7 @@ mod re_derive {
         let list = |app: &mut App, row: TrainerSpell| super::list(app, 0x10, 1, vec![row]);
         let header = |app: &mut App| -> String {
             app.world_mut()
-                .non_send_resource_mut::<UiScript>()
+                .non_send_mut::<UiScript>()
                 .eval::<String>(
                     "SetTrainerServiceTypeFilter('all') SEEN = {} \
                      return (GetTrainerServiceInfo(1))",
@@ -1969,7 +1969,7 @@ fn feed_app(spells: SpellCatalog, lines: SkillLineCatalog) -> App {
              f:SetScript('OnEvent', function() table.insert(SEEN, event) end)",
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app
 }
 
@@ -1994,7 +1994,7 @@ pub(super) fn trigger(app: &mut App) {
 /// The lanes' drain, then the trainer events the VM saw.
 fn tick(app: &mut App) -> Vec<String> {
     crate::lanes::fire_in_order(app.world_mut());
-    let s = app.world_mut().non_send_resource_mut::<UiScript>();
+    let s = app.world_mut().non_send_mut::<UiScript>();
     assert!(s.errors().is_empty(), "script errors: {:?}", s.errors());
     let seen = s.eval::<Vec<String>>("return SEEN").unwrap();
     s.run("SEEN = {}").unwrap();
@@ -2005,7 +2005,7 @@ fn tick(app: &mut App) -> Vec<String> {
 /// call ([`super::ask_item_record`]).
 fn run_getters(app: &mut App, chunk: &str) {
     let entries = {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         s.run(chunk).unwrap();
         s.take_item_asks(benilla_ui::script::ItemCallback::Trainer)
     };
@@ -2040,13 +2040,13 @@ fn land(app: &mut App, entry: u32) {
 
 /// `chunk`'s number.
 fn lua_count(app: &mut App, chunk: &str) -> i64 {
-    let s = app.world_mut().non_send_resource_mut::<UiScript>();
+    let s = app.world_mut().non_send_mut::<UiScript>();
     s.eval::<i64>(chunk).unwrap()
 }
 
 /// `chunk`'s list of numbers.
 fn lua_numbers(app: &mut App, chunk: &str) -> Vec<i64> {
-    let s = app.world_mut().non_send_resource_mut::<UiScript>();
+    let s = app.world_mut().non_send_mut::<UiScript>();
     s.eval::<Vec<i64>>(chunk).unwrap()
 }
 
@@ -2081,7 +2081,7 @@ fn the_product_lookups_pass_the_taught_spell_as_their_owner() {
         vec![wire(100, trainer_spell_state::GREEN, 1, 1, 0)],
     );
     tick(&mut app);
-    let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut s = app.world_mut().non_send_mut::<UiScript>();
     // Row 1 is the group's header.
     s.run("GetTrainerServiceIcon(2) GetTrainerServiceDescription(2)")
         .unwrap();

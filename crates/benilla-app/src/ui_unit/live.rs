@@ -559,15 +559,15 @@ fn lend_with<R>(
         }
     }
 
-    let mut script = world.remove_non_send_resource::<UiScript>().expect("a VM");
+    let mut script = world.remove_non_send::<UiScript>().expect("a VM");
     let mut state = SystemState::<Lent>::new(world);
     let mut host = Host {
-        live: &mut state.get(world),
+        live: &mut state.get(world).unwrap(),
         objects,
         calls: Vec::new(),
     };
     let answer = script.hosted(&mut host, f);
     let calls = host.calls;
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     (answer, calls)
 }

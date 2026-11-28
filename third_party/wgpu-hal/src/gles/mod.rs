@@ -136,9 +136,9 @@ const MAX_TEXTURE_SLOTS: usize = 16;
 const MAX_SAMPLERS: usize = 16;
 const MAX_VERTEX_ATTRIBUTES: usize = 16;
 const ZERO_BUFFER_SIZE: usize = 256 << 10;
-const MAX_PUSH_CONSTANTS: usize = 64;
-// We have to account for each push constant may need to be set for every shader.
-const MAX_PUSH_CONSTANT_COMMANDS: usize = MAX_PUSH_CONSTANTS * crate::MAX_CONCURRENT_SHADER_STAGES;
+const MAX_IMMEDIATES: usize = 64;
+// We have to account for each immediate data may need to be set for every shader.
+const MAX_IMMEDIATES_COMMANDS: usize = MAX_IMMEDIATES * crate::MAX_CONCURRENT_SHADER_STAGES;
 
 impl crate::Api for Api {
     const VARIANT: wgt::Backend = wgt::Backend::Gl;
@@ -168,6 +168,7 @@ impl crate::Api for Api {
     type ShaderModule = ShaderModule;
     type RenderPipeline = RenderPipeline;
     type ComputePipeline = ComputePipeline;
+    type RayTracingPipeline = RayTracingPipeline;
 }
 
 crate::impl_dyn_resource!(
@@ -187,6 +188,7 @@ crate::impl_dyn_resource!(
     QuerySet,
     Queue,
     RenderPipeline,
+    RayTracingPipeline,
     Sampler,
     ShaderModule,
     Surface,
@@ -232,6 +234,21 @@ bitflags::bitflags! {
         ///
         /// When this is true, instance offset emulation via vertex buffer rebinding and a shader uniform will be disabled.
         const FULLY_FEATURED_INSTANCING = 1 << 16;
+        /// Supports direct multisampled rendering to a texture without needing a resolve texture.
+        const MULTISAMPLED_RENDER_TO_TEXTURE = 1 << 17;
+        /// Supports norm16 sized internal formats as filterable sampled
+        /// textures, with UNORM variants also color-renderable. SNORM
+        /// renderability is gated on `TEXTURE_FORMAT_SNORM16_RENDERABLE`.
+        const TEXTURE_FORMAT_NORM16 = 1 << 18;
+        /// Supports SNORM 16-bit formats as color attachments. Requires
+        /// `GL_EXT_render_snorm` (in addition to `GL_EXT_texture_norm16`
+        /// on GLES) - desktop GL alone only "optionally" renders SNORM 16.
+        const TEXTURE_FORMAT_SNORM16_RENDERABLE = 1 << 19;
+        /// Supports norm16 sized internal formats as image-load/store targets.
+        /// Desktop GL >= 4.2 (core image-format list) or pre-4.2 with
+        /// `GL_ARB_shader_image_load_store`; GLES needs `GL_NV_image_formats`
+        /// (which itself depends on `GL_EXT_texture_norm16`).
+        const TEXTURE_FORMAT_NORM16_STORAGE = 1 << 20;
     }
 }
 
@@ -253,17 +270,12 @@ bitflags::bitflags! {
 
 type BindTarget = u32;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 enum VertexAttribKind {
+    #[default]
     Float, // glVertexAttribPointer
     Integer, // glVertexAttribIPointer
-           //Double,  // glVertexAttribLPointer
-}
-
-impl Default for VertexAttribKind {
-    fn default() -> Self {
-        Self::Float
-    }
+             //Double,  // glVertexAttribLPointer
 }
 
 #[derive(Clone, Debug)]
@@ -291,10 +303,41 @@ struct AdapterShared {
     max_msaa_samples: i32,
 }
 
+impl fmt::Debug for AdapterShared {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            context: _, // may or may not implement Debug depending on platform
+            private_caps,
+            features,
+            limits,
+            workarounds,
+            options,
+            shading_language_version,
+            next_shader_id,
+            program_cache: _,
+            es,
+            max_msaa_samples,
+        } = self;
+        f.debug_struct("AdapterShared")
+            .field("private_caps", private_caps)
+            .field("features", features)
+            .field("limits", limits)
+            .field("workarounds", workarounds)
+            .field("options", options)
+            .field("shading_language_version", shading_language_version)
+            .field("next_shader_id", next_shader_id)
+            .field("es", es)
+            .field("max_msaa_samples", max_msaa_samples)
+            .finish_non_exhaustive()
+    }
+}
+
+#[derive(Debug)]
 pub struct Adapter {
     shared: Arc<AdapterShared>,
 }
 
+#[derive(Debug)]
 pub struct Device {
     shared: Arc<AdapterShared>,
     main_vao: glow::VertexArray,
@@ -310,11 +353,13 @@ impl Drop for Device {
     }
 }
 
+#[derive(Debug)]
 pub struct ShaderClearProgram {
     pub program: glow::Program,
     pub color_uniform_location: glow::UniformLocation,
 }
 
+#[derive(Debug)]
 pub struct Queue {
     shared: Arc<AdapterShared>,
     features: wgt::Features,
@@ -345,15 +390,31 @@ pub struct Buffer {
     raw: Option<glow::Buffer>,
     target: BindTarget,
     size: wgt::BufferAddress,
+    /// Flags to use within calls to [`Device::map_buffer`](crate::Device::map_buffer).
     map_flags: u32,
-    data: Option<Arc<MaybeMutex<Vec<u8>>>>,
-    offset_of_current_mapping: Arc<MaybeMutex<wgt::BufferAddress>>,
+    /// Buffer mapping state.
+    ///
+    /// If locked concurrently with the GL context, the GL context should be locked first.
+    map_state: Arc<MaybeMutex<BufferMapState>>,
+    /// Set when the buffer wraps an externally-owned GL name created via
+    /// [`Device::buffer_from_raw`](crate::gles::Device::buffer_from_raw).
+    ///
+    /// `Buffer` is `Clone`, so the guard is shared via `Arc`
+    /// and only fires its callback once every clone is dropped.
+    drop_guard: Option<Arc<crate::DropGuard>>,
+}
+
+#[derive(Clone, Debug)]
+struct BufferMapState {
+    /// True if the GL buffer is actually mapped, i.e. not "fake-mapped" with
+    /// an empty slice
+    mapped: bool,
+    data: Option<Vec<u8>>,
+    offset_of_current_mapping: wgt::BufferAddress,
 }
 
 #[cfg(send_sync)]
-unsafe impl Sync for Buffer {}
-#[cfg(send_sync)]
-unsafe impl Send for Buffer {}
+static_assertions::assert_impl_all!(Buffer: Send, Sync);
 
 impl crate::DynBuffer for Buffer {}
 
@@ -408,13 +469,15 @@ impl TextureInner {
 #[derive(Debug)]
 pub struct Texture {
     pub inner: TextureInner,
-    pub drop_guard: Option<crate::DropGuard>,
     pub mip_level_count: u32,
     pub array_layer_count: u32,
     pub format: wgt::TextureFormat,
-    #[allow(unused)]
     pub format_desc: TextureFormatDesc,
     pub copy_size: CopyExtent,
+
+    // The `drop_guard` field must be the last field of this struct so it is dropped last.
+    // Do not add new fields after it.
+    pub drop_guard: Option<crate::DropGuard>,
 }
 
 impl crate::DynTexture for Texture {}
@@ -555,15 +618,18 @@ struct BindGroupLayoutInfo {
 
 #[derive(Debug)]
 pub struct PipelineLayout {
-    group_infos: Box<[BindGroupLayoutInfo]>,
+    group_infos: Box<[Option<BindGroupLayoutInfo>]>,
     naga_options: naga::back::glsl::Options,
 }
 
 impl crate::DynPipelineLayout for PipelineLayout {}
 
 impl PipelineLayout {
+    /// # Panics
+    /// If the pipeline layout does not contain a bind group layout used by
+    /// the resource binding.
     fn get_slot(&self, br: &naga::ResourceBinding) -> u8 {
-        let group_info = &self.group_infos[br.group as usize];
+        let group_info = self.group_infos[br.group as usize].as_ref().unwrap();
         group_info.binding_to_slot[br.binding as usize]
     }
 }
@@ -604,8 +670,14 @@ impl crate::DynBindGroup for BindGroup {}
 type ShaderId = u32;
 
 #[derive(Debug)]
+pub enum ShaderModuleSource {
+    Naga(crate::NagaShader),
+    Passthrough { source: String },
+}
+
+#[derive(Debug)]
 pub struct ShaderModule {
-    source: crate::NagaShader,
+    source: ShaderModuleSource,
     label: Option<String>,
     id: ShaderId,
 }
@@ -649,17 +721,17 @@ struct VertexBufferDesc {
 }
 
 #[derive(Clone, Debug)]
-struct PushConstantDesc {
+struct ImmediateDesc {
     location: glow::UniformLocation,
-    ty: naga::TypeInner,
+    ty: nt::glsl::GlslUniformType,
     offset: u32,
     size_bytes: u32,
 }
 
 #[cfg(send_sync)]
-unsafe impl Sync for PushConstantDesc {}
+unsafe impl Sync for ImmediateDesc {}
 #[cfg(send_sync)]
-unsafe impl Send for PushConstantDesc {}
+unsafe impl Send for ImmediateDesc {}
 
 /// For each texture in the pipeline layout, store the index of the only
 /// sampler (in this layout) that the texture is used with.
@@ -670,9 +742,14 @@ struct PipelineInner {
     program: glow::Program,
     sampler_map: SamplerBindMap,
     first_instance_location: Option<glow::UniformLocation>,
-    push_constant_descs: ArrayVec<PushConstantDesc, MAX_PUSH_CONSTANT_COMMANDS>,
+    immediates_descs: ArrayVec<ImmediateDesc, MAX_IMMEDIATES_COMMANDS>,
     clip_distance_count: u32,
 }
+
+#[cfg(send_sync)]
+unsafe impl Sync for PipelineInner {}
+#[cfg(send_sync)]
+unsafe impl Send for PipelineInner {}
 
 #[derive(Clone, Debug)]
 struct DepthState {
@@ -699,18 +776,19 @@ struct ColorTargetDesc {
     blend: Option<BlendDesc>,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct ProgramStage {
     naga_stage: naga::ShaderStage,
     shader_id: ShaderId,
     entry_point: String,
     zero_initialize_workgroup_memory: bool,
+    constant_hash: Vec<u8>,
 }
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct ProgramCacheKey {
     stages: ArrayVec<ProgramStage, 3>,
-    group_to_binding_to_slot: Box<[Box<[u8]>]>,
+    group_to_binding_to_slot: Box<[Option<Box<[u8]>>]>,
 }
 
 type ProgramCache = FastHashMap<ProgramCacheKey, Result<Arc<PipelineInner>, crate::PipelineError>>;
@@ -719,7 +797,7 @@ type ProgramCache = FastHashMap<ProgramCacheKey, Result<Arc<PipelineInner>, crat
 pub struct RenderPipeline {
     inner: Arc<PipelineInner>,
     primitive: wgt::PrimitiveState,
-    vertex_buffers: Box<[VertexBufferDesc]>,
+    vertex_buffers: Box<[Option<VertexBufferDesc>]>,
     vertex_attributes: Box<[AttributeDesc]>,
     color_targets: Box<[ColorTargetDesc]>,
     depth: Option<DepthState>,
@@ -731,9 +809,7 @@ pub struct RenderPipeline {
 impl crate::DynRenderPipeline for RenderPipeline {}
 
 #[cfg(send_sync)]
-unsafe impl Sync for RenderPipeline {}
-#[cfg(send_sync)]
-unsafe impl Send for RenderPipeline {}
+static_assertions::assert_impl_all!(RenderPipeline: Send, Sync);
 
 #[derive(Debug)]
 pub struct ComputePipeline {
@@ -742,10 +818,13 @@ pub struct ComputePipeline {
 
 impl crate::DynComputePipeline for ComputePipeline {}
 
+#[derive(Debug)]
+pub struct RayTracingPipeline {}
+
+impl crate::DynRayTracingPipeline for RayTracingPipeline {}
+
 #[cfg(send_sync)]
-unsafe impl Sync for ComputePipeline {}
-#[cfg(send_sync)]
-unsafe impl Send for ComputePipeline {}
+static_assertions::assert_impl_all!(ComputePipeline: Send, Sync);
 
 #[derive(Debug)]
 pub struct QuerySet {
@@ -920,6 +999,7 @@ enum Command {
         attachment: u32,
         view: TextureView,
         depth_slice: Option<u32>,
+        sample_count: u32,
     },
     ResolveAttachment {
         attachment: u32,
@@ -1004,8 +1084,8 @@ enum Command {
     InsertDebugMarker(Range<u32>),
     PushDebugGroup(Range<u32>),
     PopDebugGroup,
-    SetPushConstants {
-        uniform: PushConstantDesc,
+    SetImmediates {
+        uniform: ImmediateDesc,
         /// Offset from the start of the `data_bytes`
         offset: u32,
     },
@@ -1079,7 +1159,7 @@ fn gl_debug_message_callback(source: u32, gltype: u32, id: u32, severity: u32, m
     let log_severity = match severity {
         glow::DEBUG_SEVERITY_HIGH => log::Level::Error,
         glow::DEBUG_SEVERITY_MEDIUM => log::Level::Warn,
-        glow::DEBUG_SEVERITY_LOW => log::Level::Info,
+        glow::DEBUG_SEVERITY_LOW => log::Level::Debug,
         glow::DEBUG_SEVERITY_NOTIFICATION => log::Level::Trace,
         _ => unreachable!(),
     };

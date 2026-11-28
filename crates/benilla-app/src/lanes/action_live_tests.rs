@@ -217,7 +217,7 @@ fn client_with(more: impl FnOnce(&mut World)) -> Client {
 /// [`client_with`], our player's create carrying the fields `extra` too.
 fn client_created_with(more: impl FnOnce(&mut World), extra: &[(u16, u32)]) -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -253,7 +253,7 @@ fn client_created_with(more: impl FnOnce(&mut World), extra: &[(u16, u32)]) -> C
             "#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     let world = app.world_mut();
@@ -862,7 +862,7 @@ fn set_action_reads_the_slots_cooldown_at_the_call() {
                 },
             );
     });
-    crate::ui_script::test_ui::load_tooltip_template(c.app.world().non_send_resource::<UiScript>());
+    crate::ui_script::test_ui::load_tooltip_template(c.app.world().non_send::<UiScript>());
     c.eval::<()>(
         false,
         "local a = CreateFrame('Button', 'B') a:SetPoint('CENTER', 0, 0) a:SetWidth(10) \
@@ -1091,7 +1091,7 @@ fn a_macro_bound_to_an_attack_shows_its_weapons_icon() {
     {
         let world = c.app.world_mut();
         crate::ui_macro::bind_for_test(
-            &mut world.non_send_resource_mut::<UiScript>(),
+            &mut world.non_send_mut::<UiScript>(),
             &[
                 (1, Bound::from(BoundSpell::Spell(ATTACK))),
                 (2, Bound::from(BoundSpell::Spell(AUTO_SHOT))),
@@ -1151,7 +1151,7 @@ fn a_superseded_macro_slots_cooldown_reads_the_new_rank_inside_its_packet() {
     {
         let world = c.app.world_mut();
         crate::ui_macro::bind_for_test(
-            &mut world.non_send_resource_mut::<UiScript>(),
+            &mut world.non_send_mut::<UiScript>(),
             &[(1, Bound::from(BoundSpell::Spell(FROSTBOLT)))],
         );
         world

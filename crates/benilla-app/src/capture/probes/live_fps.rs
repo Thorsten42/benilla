@@ -164,7 +164,7 @@ fn drive_live_fps(
     streamed: Query<(), With<crate::net::NetEntity>>,
     // Rigs the animation-LOD gate parked, at sample end.
     parked: Query<(), With<benilla_world::rig_anim::AnimParked>>,
-    entities: Query<()>,
+    entities: Query<(), Without<bevy::ecs::resource::IsResource>>,
     pin: SamplePin,
     // Skin-palette occupancy (`rigs=live/peak`); an empty table renders origin-collapsed rigs.
     palettes: Option<Res<benilla_world::rig_palette::RigPalettes>>,

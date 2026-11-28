@@ -9,7 +9,9 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+// Named as Bevy's prelude names its own `ContextExt`, which this shadows: both give `context` and
+// `with_context`, and only anyhow's is meant here.
+use anyhow::{Context as ContextExt, Result};
 use bevy::prelude::*;
 use kira::effect::reverb::{ReverbBuilder, ReverbHandle};
 use kira::effect::volume_control::{VolumeControlBuilder, VolumeControlHandle};

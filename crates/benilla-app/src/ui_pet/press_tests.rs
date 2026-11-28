@@ -175,7 +175,7 @@ pub(super) fn rig(
     for (i, &spell_id) in slots.iter().enumerate() {
         bar.spells.bar[i] = PetActionEntry::from(spell_id | (u32::from(PET_ACT_ENABLED) << 24));
     }
-    world.insert_non_send_resource(listening_vm());
+    world.insert_non_send(listening_vm());
     // The pet's feeds: none is left, as the send arms its GCD inside the call; the flush is the pet's
     // cooldown lane's, in the drain.
     let feed = Schedule::default();
@@ -209,7 +209,7 @@ impl Rig {
         let mut script = self
             .app
             .world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>();
+            .non_send_mut::<benilla_ui::script::UiScript>();
         script.resolve();
         let seen = script.eval::<Vec<String>>("return SEEN").unwrap();
         script.run("SEEN = {}").unwrap();
@@ -534,7 +534,7 @@ fn a_possessed_units_combat_spell_picks_its_target_and_orders_the_attack() {
         (FLAGS, 0x8),
     ]));
     // The call fires its refusals as it returns (`UI_ERROR_MESSAGE`).
-    let script = world.non_send_resource::<benilla_ui::script::UiScript>();
+    let script = world.non_send::<benilla_ui::script::UiScript>();
     script
         .run(
             r#"
@@ -550,7 +550,7 @@ fn a_possessed_units_combat_spell_picks_its_target_and_orders_the_attack() {
         let script = rig
             .app
             .world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>();
+            .non_send_mut::<benilla_ui::script::UiScript>();
         let seen = script.eval::<Vec<String>>("return ERRORS").unwrap();
         script.run("ERRORS = {}").unwrap();
         seen

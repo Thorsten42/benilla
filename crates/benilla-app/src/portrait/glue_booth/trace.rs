@@ -61,7 +61,7 @@ struct GlueDrawWatch {
     scene: Vec<Entity>,
 }
 
-impl ExtractResource for GlueDrawWatch {
+impl ExtractResource<bevy::render::RenderApp> for GlueDrawWatch {
     type Source = GlueDrawWatch;
     fn extract_resource(source: &Self::Source) -> Self {
         source.clone()
@@ -265,7 +265,7 @@ fn report_glue_draw(
             || in_binned(&alpha_mask, main)
             || transparent
                 .values()
-                .any(|p| p.items.iter().any(|i| i.entity.1 == main))
+                .any(|p| p.items.values().any(|i| i.entity.1 == main))
     };
     let body = watch.body.iter().filter(|e| submitted(e)).count();
     let scene = watch.scene.iter().filter(|e| submitted(e)).count();
@@ -292,15 +292,13 @@ fn report_glue_draw(
     }
 }
 
-/// Whether `main` sits in any view's binned phase for `BPI` this frame.
+/// Whether `main` sits in any view's binned phase for `BPI` this frame. A multidrawable batch set
+/// keeps its entities private in Bevy 0.20, so an entity drawn there reads as not submitted.
 fn in_binned<BPI: BinnedPhaseItem>(phases: &ViewBinnedRenderPhases<BPI>, main: MainEntity) -> bool {
     phases.values().any(|p| {
-        p.multidrawable_meshes
+        p.batchable_meshes
             .values()
-            .any(|bins| bins.values().any(|b| b.entities().contains_key(&main)))
-            || p.batchable_meshes
-                .values()
-                .any(|b| b.entities().contains_key(&main))
+            .any(|b| b.entities().contains_key(&main))
             || p.unbatchable_meshes
                 .values()
                 .any(|u| u.entities.contains_key(&main))

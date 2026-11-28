@@ -8,6 +8,7 @@
 //! violation whose camera seeds no group is faithful-cull residue; one that seeds a group fails.
 //! The asserting audits are data-gated and the instruments are `#[ignore]`d; all of them:
 //! `cargo test -p benilla-world --lib wmo_portal::audit -- --include-ignored --nocapture`
+#![allow(deprecated)] // glam 0.33's `Mat4::*_rh`, kept so the test matrices stay bit-identical
 
 use benilla_assets::coords::{bevy_to_wow, placement_rotation, wow_to_bevy};
 use benilla_assets::WmoGroupNav;

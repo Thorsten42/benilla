@@ -1339,7 +1339,7 @@ pub(super) fn mouseover_app() -> (App, Entity, Entity) {
             }),
         );
     }
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     (app, wolf, boar)
 }
 
@@ -1362,7 +1362,7 @@ pub(super) fn hover_unit(app: &mut App, entity: Entity, guid: u64) {
 
 pub(super) fn eval(app: &mut App, lua: &str) -> Option<i64> {
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .eval::<Option<i64>>(lua)
         .unwrap()
 }
@@ -1411,7 +1411,7 @@ fn the_mouseover_answers_get_guild_info_from_the_cache() {
         .merge(ObjectFields::from_pairs(&[(2, 0x19), (191, 7), (192, 2)]));
     let info = |app: &mut App| -> (Option<String>, i64) {
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<(Option<String>, Option<String>, i64)>(r#"return GetGuildInfo("mouseover")"#)
             .map(|(name, _, rank)| (name, rank))
             .unwrap()
@@ -1459,7 +1459,7 @@ fn the_mouseover_token_names_the_hovered_units_creature_type() {
         .id();
     let creature_type = |app: &mut App| {
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .eval::<Option<String>>(r#"return UnitCreatureType("mouseover")"#)
             .unwrap()
     };

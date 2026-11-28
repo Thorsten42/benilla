@@ -23,7 +23,9 @@
 
 use std::sync::Mutex;
 
-use anyhow::Context;
+// Named as Bevy's prelude names its own `ContextExt`, which this shadows: both give `context` and
+// `with_context`, and only anyhow's is meant here.
+use anyhow::Context as ContextExt;
 use bevy::prelude::*;
 use bevy::tasks::futures_lite::future;
 use bevy::tasks::{block_on, IoTaskPool, Task};
@@ -1257,7 +1259,7 @@ fn report_stream_voices(zone: NonSend<ZoneAudio>, mut out: NonSendMut<super::Sou
 }
 
 pub(super) fn plugin(app: &mut App) {
-    app.insert_non_send_resource(ZoneAudio::default())
+    app.insert_non_send(ZoneAudio::default())
         .add_systems(Startup, load_area_sounds.after(AssetSet::Open))
         .add_systems(
             Update,

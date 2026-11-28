@@ -206,7 +206,7 @@ pub(crate) struct UiQuadBatch;
 struct UiWhiteTexture(Handle<Image>);
 
 /// The quad material: a texture and the [`UiQuad`] flags as uniforms, drawn through the
-/// premultiplied-alpha pipeline (`ui_quad.wgsl`), or the multiply one for `MOD` ([`UiQuadKey`]). It
+/// premultiplied-alpha pipeline (`ui_quad.wesl`), or the multiply one for `MOD` ([`UiQuadKey`]). It
 /// holds no colour, so it is its identity key alone and a steady frame re-prepares none.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 #[bind_group_data(UiQuadKey)]
@@ -257,7 +257,7 @@ impl From<&UiQuadMaterial> for UiQuadKey {
     }
 }
 
-/// A run's one colour for the batch entity's [`MeshTag`], unpacked by `ui_quad.wgsl`'s vertex
+/// A run's one colour for the batch entity's [`MeshTag`], unpacked by `ui_quad.wesl`'s vertex
 /// stage, so a colour pulse is a component write, never a mesh or material write. One byte per
 /// channel, `×255 + 0.5`, as the reference packs a vertex colour (`CImVector`; `SetVertexColor`
 /// at `0x79abd0`, the frame-alpha fold at `0x77fac0`). Complemented, so an entity with no tag
@@ -305,11 +305,11 @@ pub(crate) fn tile_quad_mesh() -> Mesh {
 impl Material2d for UiQuadMaterial {
     /// Our own vertex stage, which unpacks the run's tint from the instance tag ([`tint_tag`]).
     fn vertex_shader() -> ShaderRef {
-        "embedded://benilla_app/shaders/ui_quad.wgsl".into()
+        "embedded://benilla_app/shaders/ui_quad.wesl".into()
     }
 
     fn fragment_shader() -> ShaderRef {
-        "embedded://benilla_app/shaders/ui_quad.wgsl".into()
+        "embedded://benilla_app/shaders/ui_quad.wesl".into()
     }
 
     fn alpha_mode(&self) -> bevy::sprite_render::AlphaMode2d {
@@ -318,38 +318,44 @@ impl Material2d for UiQuadMaterial {
     }
 
     fn specialize(
+        _pipeline: &bevy::sprite_render::Material2dPipeline,
         descriptor: &mut bevy::render::render_resource::RenderPipelineDescriptor,
         _layout: &bevy::mesh::MeshVertexBufferLayoutRef,
         key: Material2dKey<Self>,
     ) -> Result<(), bevy::render::render_resource::SpecializedMeshPipelineError> {
         if let Some(fragment) = descriptor.fragment.as_mut() {
             if let Some(target) = fragment.targets.first_mut().and_then(|t| t.as_mut()) {
-                let component = |src_factor, dst_factor| BlendComponent {
-                    src_factor,
-                    dst_factor,
-                    operation: BlendOperation::Add,
-                };
-                target.blend = Some(if key.bind_group_data.modulate {
-                    // EGxBlend 4, `DestColor/Zero`: the shader emits the tinted texel, so the
-                    // target is multiplied by it; its alpha stays.
-                    BlendState {
-                        color: component(BlendFactor::Dst, BlendFactor::Zero),
-                        alpha: component(BlendFactor::Zero, BlendFactor::One),
-                    }
-                } else {
-                    // `(One, OneMinusSrcAlpha)` over gamma values: the shader emits `(rgb·a, a)`
-                    // for BLEND, `(rgb·a, 0)` for ADD and `(rgb, 1)` for DISABLE and a passing
-                    // ALPHAKEY texel, so this one state is EGxBlend 0 to 3, clamped at each write
-                    // like the reference's 8-bit backbuffer.
-                    let premultiplied = component(BlendFactor::One, BlendFactor::OneMinusSrcAlpha);
-                    BlendState {
-                        color: premultiplied,
-                        alpha: premultiplied,
-                    }
-                });
+                target.blend = Some(quad_blend(key.bind_group_data.modulate));
             }
         }
         Ok(())
+    }
+}
+
+/// The blend a quad batch draws with: the multiply for `modulate`, the premultiplied over else.
+fn quad_blend(modulate: bool) -> BlendState {
+    let component = |src_factor, dst_factor| BlendComponent {
+        src_factor,
+        dst_factor,
+        operation: BlendOperation::Add,
+    };
+    if modulate {
+        // EGxBlend 4, `DestColor/Zero`: the shader emits the tinted texel, so the target is
+        // multiplied by it; its alpha stays.
+        BlendState {
+            color: component(BlendFactor::Dst, BlendFactor::Zero),
+            alpha: component(BlendFactor::Zero, BlendFactor::One),
+        }
+    } else {
+        // `(One, OneMinusSrcAlpha)` over gamma values: the shader emits `(rgb·a, a)` for BLEND,
+        // `(rgb·a, 0)` for ADD and `(rgb, 1)` for DISABLE and a passing ALPHAKEY texel, so this
+        // one state is EGxBlend 0 to 3, clamped at each write like the reference's 8-bit
+        // backbuffer.
+        let premultiplied = component(BlendFactor::One, BlendFactor::OneMinusSrcAlpha);
+        BlendState {
+            color: premultiplied,
+            alpha: premultiplied,
+        }
     }
 }
 
@@ -423,6 +429,8 @@ fn spawn_ui_camera(mut commands: Commands) {
         PlayerUiCamera,
         Name::new("player-UI camera"),
         Camera2d,
+        // No tone curve: the pass writes gamma bytes. Named because `Camera2d` requires `Linear`.
+        bevy::core_pipeline::tonemapping::Tonemapping::None,
         // No MSAA, named because silence means 4×: `Camera` requires `Msaa`, whose default is
         // `Sample4`. The world arrives resolved, and the quads are axis-aligned.
         bevy::render::view::Msaa::Off,
@@ -832,8 +840,9 @@ fn rebuild_ui_mesh(
             })
             .map(|(_, handle)| handle.id())
             .collect();
+        // `into_inner` marks the material modified; an `AssetMut` that is only dropped does not.
         for id in over {
-            stores.1.get_mut(id);
+            let _ = stores.1.get_mut(id).map(bevy::asset::AssetMut::into_inner);
         }
     }
     // The meter is off unless asked (the hover recorder, `WOW_UI_COST=1`): one bool test.
@@ -1112,7 +1121,7 @@ fn rebuild_ui_mesh(
             if pools.tags[used] != Some(tag) {
                 pools.tags[used] = Some(tag);
                 if let Some(&entity) = pools.entities.get(used) {
-                    commands.entity(entity).insert(MeshTag(tag));
+                    commands.entity(entity).insert(MeshTag::new(tag));
                 }
             }
             if pools.offsets[used] != d {
@@ -1177,7 +1186,7 @@ fn rebuild_ui_mesh(
         let mesh_handle = match pools.meshes.get(used) {
             Some(handle) => {
                 // `WOW_FREEZE_UI_MESH=1` freezes the UI at its first build, pricing the hash probe
-                // one modified mesh arms over every `Mesh3d` row (bevy 0.18's `AssetChanged`).
+                // one modified mesh arms over every `Mesh3d` row (Bevy's `AssetChanged`).
                 if !ui_mesh_frozen() {
                     let _ = meshes.insert(handle.id(), mesh);
                 }
@@ -1196,7 +1205,7 @@ fn rebuild_ui_mesh(
                 commands.entity(entity).insert((
                     Mesh2d(mesh_handle),
                     MeshMaterial2d(material_handle),
-                    MeshTag(tag),
+                    MeshTag::new(tag),
                     Transform::from_xyz(0.0, 0.0, z),
                 ));
             }
@@ -1206,7 +1215,7 @@ fn rebuild_ui_mesh(
                         UiQuadBatch,
                         Mesh2d(mesh_handle),
                         MeshMaterial2d(material_handle),
-                        MeshTag(tag),
+                        MeshTag::new(tag),
                         Transform::from_xyz(0.0, 0.0, z),
                         ui_render_layers(),
                     ))
@@ -1528,9 +1537,6 @@ mod tests {
     /// `0x80a228[4] = 1`).
     #[test]
     fn each_blend_mode_splits_the_run_and_mod_keys_the_multiply_pipeline() {
-        use bevy::render::render_resource::{
-            ColorTargetState, ColorWrites, FragmentState, RenderPipelineDescriptor,
-        };
         let mut app = rebuild_app();
         let mut quads = app.world_mut().resource_mut::<UiQuads>();
         for (i, blend) in [
@@ -1566,35 +1572,8 @@ mod tests {
             "the EGxBlend as the uniform, and MOD alone on the multiply key"
         );
 
-        let blend_of = |modulate: bool| {
-            let mut descriptor = RenderPipelineDescriptor {
-                fragment: Some(FragmentState {
-                    targets: vec![Some(ColorTargetState {
-                        format: TextureFormat::Rgba8Unorm,
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                    ..default()
-                }),
-                ..default()
-            };
-            let layout = tile_quad_mesh()
-                .get_mesh_vertex_buffer_layout(&mut bevy::mesh::MeshVertexBufferLayouts::default());
-            UiQuadMaterial::specialize(
-                &mut descriptor,
-                &layout,
-                Material2dKey {
-                    mesh_key: bevy::sprite_render::Mesh2dPipelineKey::empty(),
-                    bind_group_data: UiQuadKey { modulate },
-                },
-            )
-            .unwrap();
-            descriptor.fragment.unwrap().targets[0]
-                .clone()
-                .unwrap()
-                .blend
-                .unwrap()
-        };
+        // The material's specialization needs a render world for its pipeline; it sets this.
+        let blend_of = super::quad_blend;
         let component = |src_factor, dst_factor| BlendComponent {
             src_factor,
             dst_factor,

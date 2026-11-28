@@ -30,7 +30,7 @@ fn rolls_client() -> App {
         .resource_mut::<crate::names::NameCache>()
         .insert_player(WINNER, "Bob".into(), None);
     world
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             LOOT_ROLL_WON = "%s won: %s|Hitem:%d:%d:%d:%d|h[%s]|h%s"

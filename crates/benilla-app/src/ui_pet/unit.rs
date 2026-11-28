@@ -129,7 +129,7 @@ mod tests {
             "#,
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app
     }
 
@@ -140,7 +140,7 @@ mod tests {
 
     fn seen(app: &mut App) -> Vec<String> {
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .eval::<Vec<String>>("local s = SEEN SEEN = {} return s")
             .unwrap()
     }

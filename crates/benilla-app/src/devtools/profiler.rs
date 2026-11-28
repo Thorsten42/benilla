@@ -211,7 +211,7 @@ pub(super) fn panel_ui(
         .default_pos(egui::pos2(12.0, 120.0))
         .resizable(false)
         .frame(
-            egui::Frame::window(&ctx.style())
+            egui::Frame::window(&ctx.global_style())
                 .fill(OVERLAY_FILL)
                 .inner_margin(10),
         )

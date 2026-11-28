@@ -1,10 +1,10 @@
 // The sky-dome gradient (`SkyExt`): the five Light.dbc SkyColor stops at the reference's ring
 // elevations, then the fog colour at and below the horizon (`0x6d0d10`, `0x6d0f50`), interpolated
-// per fragment by elevation. Depth is the far pin in `sky_vertex.wgsl`; this writes colour only.
-#import bevy_pbr::{
+// per fragment by elevation. Depth is the far pin in `sky_vertex.wesl`; this writes colour only.
+import bevy_pbr::render::{
     forward_io::VertexOutput,
     mesh_view_bindings::view,
-}
+};
 
 struct SkyColors {
     sky0: vec4<f32>, // zenith (90°)
@@ -15,7 +15,7 @@ struct SkyColors {
     fog: vec4<f32>,  // horizon (0°) and below: LightIntBand row 7
     warp: vec4<f32>, // x = dawn/dusk warp strength S (0 = off), y = sun azimuth (rad), zw reserved
 };
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> sky: SkyColors;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> sky: SkyColors;
 
 // Glow `g` for a sun-relative azimuth phase, sampled linearly like `0x6d0f50` from the reference's
 // six-keyframe wrap-around table at `0xce9af8` (written by `0x6ce210`); 0.125 is the sun bearing.

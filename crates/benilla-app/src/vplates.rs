@@ -925,13 +925,13 @@ mod tests {
         script.keep_calls();
         app.add_systems(Update, apply_kept_plate_calls)
             .init_resource::<VPlateMode>()
-            .insert_non_send_resource(script);
+            .insert_non_send(script);
         app
     }
 
     fn run(app: &mut App, lua: &str) {
         app.world()
-            .non_send_resource::<benilla_ui::script::UiScript>()
+            .non_send::<benilla_ui::script::UiScript>()
             .run(lua)
             .unwrap();
         app.update();
@@ -944,7 +944,7 @@ mod tests {
 
     fn global(app: &App, name: &str) -> Option<i64> {
         app.world()
-            .non_send_resource::<benilla_ui::script::UiScript>()
+            .non_send::<benilla_ui::script::UiScript>()
             .lua()
             .globals()
             .get::<Option<i64>>(name)
@@ -999,12 +999,12 @@ mod tests {
         crate::ui_script::load_stock_bindings(
             &mut app
                 .world_mut()
-                .non_send_resource_mut::<benilla_ui::script::UiScript>(),
+                .non_send_mut::<benilla_ui::script::UiScript>(),
         );
         let key = |app: &mut App, command: &str| {
             assert!(app
                 .world()
-                .non_send_resource::<benilla_ui::script::UiScript>()
+                .non_send::<benilla_ui::script::UiScript>()
                 .execute_binding(command, true)
                 .unwrap());
             app.update();
@@ -1061,7 +1061,7 @@ mod tests {
         );
         assert!(
             app.world_mut()
-                .non_send_resource_mut::<benilla_ui::script::UiScript>()
+                .non_send_mut::<benilla_ui::script::UiScript>()
                 .take_cvar_changes()
                 .is_empty(),
             "no CVar: nothing reaches config.toml"

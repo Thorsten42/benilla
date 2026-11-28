@@ -24,18 +24,16 @@
 //! # `default-features = false`, or `--no-default-features` still builds benilla-app with `dev`.
 //! benilla-app = { git = "https://github.com/samwhosung/benilla", default-features = false }
 //! # benilla's version, adding no features: bevy's defaults bring its audio stack back.
-//! bevy = { version = "0.18.1", default-features = false }
+//! bevy = { version = "0.20.1", default-features = false }
 //!
 //! [build-dependencies]
 //! benilla-buildstamp = { git = "https://github.com/samwhosung/benilla" }
 //!
 //! # Cargo reads `[patch]` and `[profile]` from the root manifest only, so benilla's are repeated:
-//! # without the kira patch the mixer is not benilla's, without the alsa one the lock holds two
-//! # `alsa-sys` and does not resolve, and without the wgpu-hal one a presentation stall past a
-//! # second loses the device on Vulkan.
+//! # without the kira patch the mixer is not benilla's, and without the wgpu-hal one a presentation
+//! # stall past a second loses the device on Vulkan.
 //! [patch.crates-io]
 //! kira = { git = "https://github.com/samwhosung/benilla" }
-//! alsa = { git = "https://github.com/samwhosung/benilla" }
 //! wgpu-hal = { git = "https://github.com/samwhosung/benilla" }
 //!
 //! [profile.dev]

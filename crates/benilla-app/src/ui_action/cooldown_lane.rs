@@ -19,7 +19,7 @@ use crate::spell::{Cooldowns, Signal};
 use crate::ui_pet::PetBar;
 
 /// The resource that holds a cooldown list.
-pub(crate) trait HoldsList: Resource {
+pub(crate) trait HoldsList: Resource<Mutability = bevy::ecs::component::Mutable> {
     fn list_mut(&mut self) -> &mut Cooldowns;
 }
 
@@ -137,8 +137,7 @@ pub(crate) fn fire_cooldown_lane(world: &mut World) {
             super::run_watcher_refresh_once(world);
             continue;
         }
-        let Some(mut script) = world.get_non_send_resource_mut::<benilla_ui::script::UiScript>()
-        else {
+        let Some(mut script) = world.get_non_send_mut::<benilla_ui::script::UiScript>() else {
             continue;
         };
         if signal == Signal::Pair {

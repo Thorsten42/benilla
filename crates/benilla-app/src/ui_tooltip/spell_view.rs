@@ -597,7 +597,7 @@ mod tests {
         for slot in [81, 17] {
             let store = ObjectStore(ObjectFields::from_pairs(&seat(slot)));
             let mut state = bevy::ecs::system::SystemState::<Objects>::new(&mut deps.world);
-            let objects = state.get(&deps.world);
+            let objects = state.get(&deps.world).unwrap();
             let found = find_item(&store.0, &objects, 17056, ItemSearch::default());
             assert!(found.is_some(), "player slot {slot}");
         }

@@ -14,16 +14,16 @@
 // Not built: a specular term (the M2 per-material shininess is only inferred) and the WMO
 // per-group authored colour.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::alpha_discard,
     pbr_bindings,
     forward_io::VertexOutput,
     mesh_view_bindings::view,
     mesh_functions,
-}
+};
 
-// bevy_pbr 0.18.1's `forward_io::FragmentOutput`. No depth output: a fragment depth write costs
+// bevy_pbr's `forward_io::FragmentOutput`. No depth output: a fragment depth write costs
 // the pipeline early-Z, so the sky lane pins its depth in the vertex stage.
 struct WowFragOut {
     @location(0) color: vec4<f32>,
@@ -58,13 +58,13 @@ struct ModelParams {
     // are stage 0's.
     stage1_uv: vec4<f32>,
 };
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var<uniform> m: ModelParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var<uniform> m: ModelParams;
 // Stage 1's texture, sampled at `stage1_uv` when `m.stage1.x` is set.
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var stage1_texture: texture_2d<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var stage1_sampler: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var stage1_texture: texture_2d<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(102) var stage1_sampler: sampler;
 
 // The shared light buffer (`lighting::global_light`, rows as packed there), updated once per
-// frame; terrain.wgsl mirrors the prefix, so a tree and the ground under it fog alike.
+// frame; terrain.wesl mirrors the prefix, so a tree and the ground under it fog alike.
 struct WowLight {
     light_ambient: vec4<f32>, // rgb ambient; w = Mod2x scale
     light_diffuse: vec4<f32>, // rgb sun diffuse; w = clamp-light flag (>0.5 ⇒ saturate)
@@ -112,7 +112,7 @@ struct WowLight {
     water_clip: array<vec2<f32>, 2048>,
     palettes: array<vec4<f32>>,
 };
-@group(#{MATERIAL_BIND_GROUP}) @binding(90) var<storage, read> wow_light: WowLight;
+@group(constants::MATERIAL_BIND_GROUP) @binding(90) var<storage, read> wow_light: WowLight;
 
 // The M2 cutout alpha-test reference, 224/255; in sync with `materials::VANILLA_ALPHA_KEY_REF`.
 const VANILLA_ALPHA_KEY: f32 = 0.8784314;
@@ -126,25 +126,20 @@ struct WowVsOut {
     @builtin(position) position: vec4<f32>,
     @location(0) world_position: vec4<f32>,
     @location(1) world_normal: vec3<f32>,
-#ifdef VERTEX_UVS_A
+    @if(VERTEX_UVS_A)
     @location(2) uv: vec2<f32>,
-#endif
-#ifdef VERTEX_UVS_B
+    @if(VERTEX_UVS_B)
     @location(3) uv_b: vec2<f32>,
-#endif
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     @location(5) color: vec4<f32>,
-#endif
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX)
     @location(6) @interpolate(flat) instance_index: u32,
-#endif
     // The lit colour from `vertex_light`, clamped at the vertex and interpolated, as the
     // reference interpolates its vertex program's `oD0` and the FFP's lit colour.
     @location(8) primary: vec3<f32>,
-#ifdef WOW_MERGED_FADE
     // A merged blob's per-placement fade alpha, constant over the placement.
+    @if(WOW_MERGED_FADE)
     @location(9) merged_fade: f32,
-#endif
     // Stage 1's coordinate, generated or the vertex's UV set 1; (0, 0) without a stage 1.
     @location(11) stage1_uv: vec2<f32>,
 }
@@ -213,7 +208,7 @@ fn wow_normalize(v: vec3<f32>) -> vec3<f32> {
 // The point lights at P: the reference commits at most three per draw, the nearest to the
 // receiving unit's own position `anchor` (`0x71bf90` gathers by squared distance, `0x71c730` seats
 // slots 1-3). Range bounds candidacy only; a selected light falls off as `1/(0.7·d + 0.03·d²)`,
-// diffuse only, on the submitted normal (no GL_LIGHT_MODEL_TWO_SIDE). Mirrored in terrain.wgsl.
+// diffuse only, on the submitted normal (no GL_LIGHT_MODEL_TWO_SIDE). Mirrored in terrain.wesl.
 // `.w` is how many are bound, the light-count digit of the `Model2.bls` program (`0x707cf6`).
 fn point_light_sum(P: vec3<f32>, N: vec3<f32>, anchor: vec3<f32>) -> vec4<f32> {
     let count = u32(wow_light.point_count.x);
@@ -253,7 +248,7 @@ fn point_light_sum(P: vec3<f32>, N: vec3<f32>, anchor: vec3<f32>) -> vec4<f32> {
 }
 
 // The centre of the MCNK chunk under P, the light anchor for world-merged clutter, since the
-// reference gathers lights per terrain chunk (mirrored in terrain.wgsl). WoW x/y are Bevy −z/−x
+// reference gathers lights per terrain chunk (mirrored in terrain.wesl). WoW x/y are Bevy −z/−x
 // and the grid is symmetric, so snapping Bevy x/z lands on the same cells. The height is the
 // vertex's own, not the chunk record's: lights sit near the surface.
 fn mcnk_cell_anchor(P: vec3<f32>) -> vec3<f32> {
@@ -264,9 +259,9 @@ fn mcnk_cell_anchor(P: vec3<f32>) -> vec3<f32> {
     return vec3<f32>((ix + 0.5) * cell - half, P.y, (iz + 0.5) * cell - half);
 }
 
-#ifdef WOW_MERGED_FADE
 // The doodad fade curve (`0x683f80`, in sync with `model_fade::doodad_fade_alpha`): alpha =
 // 1 − (d − start)/range, d = horizontal distance − radius, over a size-bucketed band.
+@if(WOW_MERGED_FADE)
 fn merged_fade_alpha(radius: f32, horiz_dist: f32) -> f32 {
     if (radius > 7.0) {
         return 1.0;
@@ -283,49 +278,42 @@ fn merged_fade_alpha(radius: f32, horiz_dist: f32) -> f32 {
     let d = horiz_dist - radius;
     return clamp(1.0 - (d - start) / range, 0.0, 1.0);
 }
-#endif
 
-// Bevy 0.18's `forward_io::Vertex` at Bevy's locations, plus the palette joints at 10/11 (appended
+// Bevy's `forward_io::Vertex` at Bevy's locations, plus the palette joints at 10/11 (appended
 // by `WowModelExt::specialize` for a mesh with `ATTRIBUTE_WOW_JOINT_INDEX`) and the merged-blob
 // attributes at 12/13.
 struct WowVertex {
     @builtin(instance_index) instance_index: u32,
-#ifdef VERTEX_POSITIONS
+    @if(VERTEX_POSITIONS)
     @location(0) position: vec3<f32>,
-#endif
-#ifdef VERTEX_NORMALS
+    @if(VERTEX_NORMALS)
     @location(1) normal: vec3<f32>,
-#endif
-#ifdef VERTEX_UVS_A
+    @if(VERTEX_UVS_A)
     @location(2) uv: vec2<f32>,
-#endif
-#ifdef VERTEX_UVS_B
+    @if(VERTEX_UVS_B)
     @location(3) uv_b: vec2<f32>,
-#endif
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     @location(5) color: vec4<f32>,
-#endif
-#ifdef WOW_RIG_SKIN
+    @if(WOW_RIG_SKIN)
     @location(10) joint_indices: vec4<u32>,
+    @if(WOW_RIG_SKIN)
     @location(11) joint_weights: vec4<f32>,
-#endif
-#ifdef WOW_MERGED_FADE
     // The placement fade sphere: xyz = world centre, w = fade radius.
+    @if(WOW_MERGED_FADE)
     @location(12) fade_sphere: vec4<f32>,
-#endif
-#ifdef WOW_MERGED_SLOT
     // The interior-prop SH-probe slot, in place of the per-entity MeshTag payload.
+    @if(WOW_MERGED_SLOT)
     @location(13) merged_slot: u32,
-#endif
 }
 
-#ifdef WOW_RIG_SKIN
+@if(WOW_RIG_SKIN)
 fn wow_rig_slot(instance_index: u32) -> u32 {
     return (mesh_functions::get_tag(instance_index) >> 19u) & 0x7ffu;
 }
 
 // Blends the four weighted bones' palette rows into `rig_from_local`, which replaces the mesh's
 // world matrix like Bevy's `skin_model`; its translation is relative to `rig_origin[slot]`.
+@if(WOW_RIG_SKIN)
 fn wow_skin_model(instance_index: u32, indices: vec4<u32>, weights: vec4<f32>) -> mat4x4<f32> {
     let base = wow_light.rig_table[wow_rig_slot(instance_index)];
     let b0 = 3u * (base + indices.x);
@@ -354,6 +342,7 @@ fn wow_skin_model(instance_index: u32, indices: vec4<u32>, weights: vec4<f32>) -
 }
 
 // bevy_pbr::skinning's inverse-transpose via the adjugate, verbatim.
+@if(WOW_RIG_SKIN)
 fn inverse_transpose_3x3m(in: mat3x3<f32>) -> mat3x3<f32> {
     let x = cross(in[1], in[2]);
     let y = cross(in[2], in[0]);
@@ -362,6 +351,7 @@ fn inverse_transpose_3x3m(in: mat3x3<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(x / det, y / det, z / det);
 }
 
+@if(WOW_RIG_SKIN)
 fn wow_skin_normals(frame_from_local: mat4x4<f32>, normal: vec3<f32>) -> vec3<f32> {
     return wow_normalize(
         inverse_transpose_3x3m(mat3x3<f32>(
@@ -371,7 +361,6 @@ fn wow_skin_normals(frame_from_local: mat4x4<f32>, normal: vec3<f32>) -> vec3<f3
         )) * normal
     );
 }
-#endif
 
 // The body tint (an aura colouring the whole model) by the tag's rig slot, 0 = identity: the
 // material ambient+diffuse colour (gx SetState(1), GL_COLOR_MATERIAL), so it multiplies the light
@@ -523,7 +512,7 @@ fn vertex_light(
     return clamp(c * e + highlight, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
-// Bevy 0.18's `mesh.wgsl` vertex stage plus our skinning and point lights. A `MaterialExtension`
+// Bevy's `render/mesh.wesl` vertex stage plus our skinning and point lights. A `MaterialExtension`
 // replaces the whole stage, so this must track Bevy's on upgrades.
 @vertex
 fn vertex(vertex: WowVertex) -> WowVsOut {
@@ -532,100 +521,92 @@ fn vertex(vertex: WowVertex) -> WowVsOut {
     let mesh_world_from_local = mesh_functions::get_world_from_local(vertex.instance_index);
     // Precision: `frame_from_local` holds the orientation and a small translation, `frame_origin`
     // the ~9 k yd world position, so no f32 product mixes the two (an f32 ULP at 9 k is ~1 mm).
-#ifdef WOW_RIG_SKIN
+@if(WOW_RIG_SKIN)
     var frame_from_local = wow_skin_model(
         vertex.instance_index,
         vertex.joint_indices,
         vertex.joint_weights
     );
-    let frame_origin = wow_light.rig_origin[wow_rig_slot(vertex.instance_index)].xyz;
-#else
+@else
     var frame_from_local = mesh_world_from_local;
+@if(WOW_RIG_SKIN)
+    let frame_origin = wow_light.rig_origin[wow_rig_slot(vertex.instance_index)].xyz;
+@else
     let frame_origin = mesh_world_from_local[3].xyz;
+@if(!WOW_RIG_SKIN)
     frame_from_local[3] = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-#endif
 
-#ifdef VERTEX_NORMALS
-#ifdef WOW_RIG_SKIN
+@if(VERTEX_NORMALS && WOW_RIG_SKIN)
     out.world_normal = wow_skin_normals(frame_from_local, vertex.normal);
-#else
+@if(VERTEX_NORMALS && !WOW_RIG_SKIN)
     out.world_normal = mesh_functions::mesh_normal_local_to_world(
         vertex.normal,
         vertex.instance_index
     );
-#endif
-#endif
 
-#ifdef VERTEX_POSITIONS
     // Precision: camera-relative to clip space; `clip_from_world × p_world` cancels
     // catastrophically with camera and geometry near 9 k yd. `world_position` is absolute again:
     // lighting and fog need no such precision.
+@if(VERTEX_POSITIONS)
     let p_cam = (frame_from_local * vec4<f32>(vertex.position, 1.0)).xyz
         + (frame_origin - view.world_position);
+@if(VERTEX_POSITIONS)
     out.world_position = vec4<f32>(p_cam + view.world_position, 1.0);
+@if(VERTEX_POSITIONS)
     let view_rot = mat3x3<f32>(
         view.view_from_world[0].xyz,
         view.view_from_world[1].xyz,
         view.view_from_world[2].xyz,
     );
+@if(VERTEX_POSITIONS)
     out.position = view.clip_from_view * vec4<f32>(view_rot * p_cam, 1.0);
     // WMO batch order (`sun_scale.y`, 0 off WMO): the reference layers coplanar batches by MOBA
     // draw order under depth-write + LEQUAL; Bevy reorders draws, so a later batch must win the
     // reverse-Z GreaterEqual test. Scaling clip z by (1 + n·2⁻²³) raises z/w by n ULPs. Uniform
     // data, not a `DepthBiasState`, which would make every batch index its own pipeline.
+@if(VERTEX_POSITIONS)
     out.position.z *= 1.0 + m.sun_scale.y * 1.1920929e-7;
-#ifdef WOW_SKY_DEPTH
     // The WMO-skybox lane (`clutter_fade.z` bit 13): clip z = 0 is reverse-Z infinitely far, so
     // the world always draws over the sky shell (`benilla_world::sky_order`).
+@if(VERTEX_POSITIONS && WOW_SKY_DEPTH)
     out.position.z = 0.0;
-#endif
-#ifdef WOW_MERGED_FADE
     // A fully faded placement leaves the clip volume, so its triangles never rasterize.
-    let fade_d = distance(view.world_position.xz, vertex.fade_sphere.xz);
-    out.merged_fade = merged_fade_alpha(vertex.fade_sphere.w, fade_d);
-    if (out.merged_fade <= 0.0) {
-        out.position = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+@if(VERTEX_POSITIONS && WOW_MERGED_FADE) {
+        let fade_d = distance(view.world_position.xz, vertex.fade_sphere.xz);
+        out.merged_fade = merged_fade_alpha(vertex.fade_sphere.w, fade_d);
+        if (out.merged_fade <= 0.0) {
+            out.position = vec4<f32>(0.0, 0.0, 2.0, 1.0);
+        }
     }
-#endif
-#endif
 
-#ifdef VERTEX_UVS_A
+@if(VERTEX_UVS_A)
     out.uv = vertex.uv;
     // Env-mapped batches (`clutter_fade.z` bit 12; `texture_unit_lookup[texCoordSet] > 2` at
     // `0x70b8bd`) generate their texcoord per vertex (`wow_env_uv`).
-#ifdef VERTEX_POSITIONS
-#ifdef VERTEX_NORMALS
+@if(VERTEX_UVS_A && VERTEX_POSITIONS && VERTEX_NORMALS)
     if ((u32(m.clutter_fade.z) & 4096u) != 0u) {
         out.uv = wow_env_uv(view_rot * p_cam, normalize(view_rot * out.world_normal));
     }
-#endif
-#endif
-#endif
     // Stage 1's coordinate in its own interpolant: the generated one, as every stock two-texture
     // unit's second entry (`0xffff`) asks, or with `stage1.w` the vertex's UV set 1, since every
     // `Model2.bls` program passes `texcoord[k]` to stage `k`.
     out.stage1_uv = vec2<f32>(0.0);
-#ifdef VERTEX_POSITIONS
-#ifdef VERTEX_NORMALS
+@if(VERTEX_POSITIONS && VERTEX_NORMALS)
     if (m.stage1.x > 0.5 && m.stage1.w < 0.5) {
         out.stage1_uv = wow_env_uv(view_rot * p_cam, normalize(view_rot * out.world_normal));
     }
-#endif
-#endif
-#ifdef VERTEX_UVS_B
+@if(VERTEX_UVS_B)
     out.uv_b = vertex.uv_b;
+@if(VERTEX_UVS_B)
     if (m.stage1.w > 0.5) {
         out.stage1_uv = vertex.uv_b;
     }
-#endif
 
-#ifdef VERTEX_COLORS
+@if(VERTEX_COLORS)
     out.color = vertex.color;
-#endif
 
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+@if(VERTEX_OUTPUT_INSTANCE_INDEX)
     out.instance_index = vertex.instance_index;
-#endif
 
     // Point lights: none on WMO surfaces, none here on interior M2 props (their group's MOLR lights
     // are in the SH probe), else the ≤3 nearest to the instance origin (clutter: its MCNK chunk).
@@ -638,16 +619,14 @@ fn vertex(vertex: WowVertex) -> WowVsOut {
         point_lit = point_light_sum(out.world_position.xyz, out.world_normal, anchor);
     }
     var vcol = vec4<f32>(1.0);
-#ifdef VERTEX_COLORS
+@if(VERTEX_COLORS)
     vcol = vertex.color;
-#endif
     let raw_tag = mesh_functions::get_tag(vertex.instance_index);
-#ifdef WOW_MERGED_SLOT
     // A merged blob bakes the probe slot per vertex; its tag carries only fog and alpha.
+@if(WOW_MERGED_SLOT)
     let probe_slot = vertex.merged_slot;
-#else
+@else
     let probe_slot = ((raw_tag & 0x3fffffffu) >> 6u) & 0x1fffu;
-#endif
     out.primary = vertex_light(out.world_normal, point_lit, vcol, probe_slot, raw_tag);
     return out;
 }
@@ -665,61 +644,57 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
         }
     }
     // The far-clip wall: discard past `farclip` (`fog_params.w`, 0 = off) by planar eye depth, as
-    // terrain.wgsl does.
+    // terrain.wesl does.
     if (wow_light.fog_params.w > 0.0) {
         let clip_z = -(view.view_from_world * vec4<f32>(in.world_position.xyz, 1.0)).z;
         if (clip_z > wow_light.fog_params.w) {
             discard;
         }
     }
-#ifdef WOW_WATER_CLIP
     // The straddle split: a translucent model crossing its water plane draws on each side of the
     // water pass (the far copy has `clutter_fade.z` bit 11) and each copy keeps its half, the
     // reference's `M2UseClipPlanes` plane at the waterline. In sync with `straddle::keeps`.
-    let water_clip = wow_light.water_clip[(mesh_functions::get_tag(in.instance_index) >> 19u) & 0x7ffu];
-    if (water_clip.y != 0.0) {
-        let far_copy = (u32(m.clutter_fade.z) & 2048u) != 0u;
-        let keep_side = select(water_clip.y, -water_clip.y, far_copy);
-        if (keep_side * (in.world_position.y - water_clip.x) < 0.0) {
-            discard;
+    @if(WOW_WATER_CLIP) {
+        let water_clip = wow_light.water_clip[(mesh_functions::get_tag(in.instance_index) >> 19u) & 0x7ffu];
+        if (water_clip.y != 0.0) {
+            let far_copy = (u32(m.clutter_fade.z) & 2048u) != 0u;
+            let keep_side = select(water_clip.y, -water_clip.y, far_copy);
+            if (keep_side * (in.world_position.y - water_clip.x) < 0.0) {
+                discard;
+            }
         }
     }
-#endif
     // Rebuild Bevy's `VertexOutput` with the M2 texture transform (`wow_uv_affine`), t =
     // `sun_scale.zw` plus its mat-anim delta, R and s from the `anim_slots.z` row.
     var vo: VertexOutput;
     vo.position = in.position;
     vo.world_position = in.world_position;
     vo.world_normal = in.world_normal;
-#ifdef VERTEX_UVS_A
     // An env-mapped coordinate takes no UV animation: the reference excludes an env stage from
     // `textureTransform`.
+    @if(VERTEX_UVS_A)
     if ((u32(m.clutter_fade.z) & 4096u) != 0u) {
         vo.uv = in.uv;
     } else {
         let uv_t = in.uv + m.sun_scale.zw + wow_light.matanim[u32(m.anim_slots.x)].xy;
         vo.uv = wow_uv_affine(uv_t, wow_light.matanim[u32(m.anim_slots.z)]);
     }
-#endif
-#ifdef VERTEX_UVS_B
+    @if(VERTEX_UVS_B)
     vo.uv_b = in.uv_b;
-#endif
-#ifdef VERTEX_COLORS
     // The vertex colour is the lit material, inside the clamp (`vertex_light`), so Bevy folds
     // only its alpha into the texel.
+    @if(VERTEX_COLORS)
     vo.color = vec4<f32>(1.0, 1.0, 1.0, in.color.a);
-#endif
-#ifdef VERTEX_OUTPUT_INSTANCE_INDEX
+    @if(VERTEX_OUTPUT_INSTANCE_INDEX)
     vo.instance_index = in.instance_index;
-#endif
     var pbr_input = pbr_input_from_standard_material(vo, is_front);
     var base_color = pbr_input.material.base_color;
     // WMO MOCV alpha is lighting data (the TRANS lerp, the INT glow mask), and the reference's WMO
     // output alpha is tex.a alone. Bevy folds the vertex alpha into base_color, so re-sample the
     // texel alpha: dividing the fold back out loses everything where MOCV.a ≈ 0.
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     if (m.model_flags.x > 0.5) {
-#ifdef VERTEX_UVS_A
+        @if(VERTEX_UVS_A)
         base_color.a = textureSampleBias(
             pbr_bindings::base_color_texture,
             pbr_bindings::base_color_sampler,
@@ -728,28 +703,25 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
             // coverage from another mip erodes out of step with the art.
             view.mip_bias,
         ).a;
-#else
+        @else
         base_color.a = 1.0;
-#endif
     }
-#endif
     // The detail-doodad LOD bias (`0x6813f4`): on the atlases whose alpha pyramid is binary below
     // mip 0 it keeps every fragment below full alpha, so the fade erodes per pixel, not per leaf.
     // wgpu has no sampler LOD bias and the sampler is shared with unbiased batches, so it goes on
     // this sample. `* vo.color` reproduces Bevy's fold of the vertex alpha.
     if (m.clutter_fade.w > 0.5) {
-#ifdef VERTEX_UVS_A
-        var biased = textureSampleBias(
-            pbr_bindings::base_color_texture,
-            pbr_bindings::base_color_sampler,
-            vo.uv,
-            view.mip_bias + DETAIL_DOODAD_LOD_BIAS,
-        );
-#ifdef VERTEX_COLORS
-        biased = biased * vo.color;
-#endif
-        base_color = biased;
-#endif
+        @if(VERTEX_UVS_A) {
+            var biased = textureSampleBias(
+                pbr_bindings::base_color_texture,
+                pbr_bindings::base_color_sampler,
+                vo.uv,
+                view.mip_bias + DETAIL_DOODAD_LOD_BIAS,
+            );
+            @if(VERTEX_COLORS)
+            biased = biased * vo.color;
+            base_color = biased;
+        }
     }
     // The clutter distance fade, the reference's stage-1 ramp: u = (z_eye − 52.5)/17.5 by a
     // camera-space texgen (`0x6b2b80`), so the boundary is a view plane, not a sphere; the ramp is
@@ -788,10 +760,9 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
     let fade_tag = raw_tag & 0x3fffffffu;
     let alpha6 = f32(fade_tag & 0x3fu) / 63.0;
     var obj_fade = select(alpha6, 1.0, fade_tag == 0u);
-#ifdef WOW_MERGED_FADE
     // A merged blob's per-vertex fade composes where the tag fade does, so it feathers the same.
+    @if(WOW_MERGED_FADE)
     obj_fade = obj_fade * in.merged_fade;
-#endif
     let inst_tint = body_tint(fade_tag);
     // The blend twin re-applies its source's cutout: the reference scales ALPHAREF with the fade,
     // so the cutoff stays tex.a < 224/255 on the unfaded alpha. Only for a source batch that
@@ -813,16 +784,15 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
             faded_alpha = stage_alpha(stage1_preset, faded_alpha, tex1.a);
         }
     }
-    let base = alpha_discard(pbr_input.material, base_color);
+    let base = alpha_discard(pbr_input.material.flags, pbr_input.material.alpha_cutoff, base_color);
 
     // --- Lighting --------------------------------------------------------------------------------
     // The stage-0 modulate: the texel times the lit colour `vertex_light` clamped per vertex.
     let is_wmo = m.model_flags.x > 0.5;
     let is_interior = m.model_flags.z > 0.5;
     var vcol = vec4<f32>(1.0);
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     vcol = in.color;
-#endif
     // Gamma-space colours: lighting runs on the authored byte values. `m.tint` plus its mat-anim
     // delta is the animated M2Color tint; `albedo` is a WMO's unlit `tex × MOCV`.
     let anim_tint = m.tint.rgb + wow_light.matanim[u32(m.anim_slots.y)].xyz;
@@ -838,7 +808,7 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
             // by 1 − MOCV.a (blend 7, INVSRCALPHA/ONE), `0x6b5190`, as one lerp.
             lit_rgb = base.rgb * m.tint.rgb * mix(vcol.rgb, in.primary, vcol.a);
         }
-#ifdef VERTEX_COLORS
+        @if(VERTEX_COLORS)
         if (is_interior && m.tint.w > 0.5 && m.tint.w < 1.5) {
             // INT: the reference's interior pixel shader, `tex·MOCV.rgb·(1 + 4·MOCV.a)` with only
             // the framebuffer's final clamp.
@@ -848,7 +818,6 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
                 vec3<f32>(1.0),
             );
         }
-#endif
     }
     // The unlit path: an M2's unlit program outputs `c28 + c29` (`0x70c663`-`0x70c693` fold the
     // tint·M2Color term into `c29` beside the highlight), so the texel modulates
@@ -874,7 +843,7 @@ fn fragment(in: WowVsOut, @builtin(front_facing) is_front: bool) -> WowFragOut {
         rgb = stage1_rgb(stage1_preset, rgb, tex1, obj_fade);
     }
 
-    // Linear fog by planar eye depth, as in terrain.wgsl. Per-batch colour policy (`clutter_fade.z`
+    // Linear fog by planar eye depth, as in terrain.wesl. Per-batch colour policy (`clutter_fade.z`
     // bits 4-6, the M2 state setter `0x70baf0`): 0 scene, 1 black (additive), 2 white (Mod),
     // 3 grey (Mod2x), 4 unfogged (render flag 0x02). Tag bit 30, not the static `model_flags.z`,
     // selects the interior triple: WMO content by the per-group `[0xca7f00]` gate on the pushes

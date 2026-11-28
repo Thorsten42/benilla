@@ -41,7 +41,7 @@ pub type ClipWord = [f32; 2];
 /// The no-clip word; zero, so a zeroed region (a studio buffer's) is inert.
 pub const NO_CLIP: ClipWord = [0.0, 0.0];
 
-/// Bytes per slot: two `f32`, `wow_model.wgsl`'s `array<vec2<f32>, 2048>`.
+/// Bytes per slot: two `f32`, `wow_model.wesl`'s `array<vec2<f32>, 2048>`.
 const SLOT_BYTES: u64 = 8;
 
 /// The clip region's offset in a `wow_light` buffer: after the mat-anim table, before the palette
@@ -57,6 +57,7 @@ pub(crate) fn region_bytes() -> u64 {
 
 /// The clip table by `MeshTag` rig slot; generation-stamped, so a dry world uploads nothing.
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct WaterClips {
     slots: Arc<Vec<ClipWord>>,
     generation: u64,
@@ -132,7 +133,7 @@ pub(crate) fn straddles(d: f32, r: f32, was: bool) -> bool {
     side_booleans(d, slack) == (true, true)
 }
 
-/// The Rust twin of `wow_model.wgsl`'s `WOW_WATER_CLIP`: whether a fragment at height `y` survives
+/// The Rust twin of `wow_model.wesl`'s `WOW_WATER_CLIP`: whether a fragment at height `y` survives
 /// on this copy (`far_copy`: the `FAR_SIDE_MARKER` twin); the plane itself survives on both.
 pub fn keeps(word: ClipWord, y: f32, far_copy: bool) -> bool {
     if word[1] == 0.0 {
@@ -357,7 +358,7 @@ pub(crate) fn sync_straddle_twins(
                 let mut t = commands.spawn((
                     Mesh3d(mesh.0.clone()),
                     MeshMaterial3d(far_h.clone()),
-                    MeshTag(tag.0),
+                    MeshTag::new(tag.value),
                     Transform::IDENTITY,
                     StraddleTwinOf(part),
                     ChildOf(part),
@@ -388,8 +389,8 @@ pub(crate) fn sync_straddle_twins(
         let Ok((_, ptag, pmesh, pmat, ..)) = parts.get(of.0) else {
             continue; // the batch is going away, and the child with it
         };
-        if tag.0 != ptag.0 {
-            tag.0 = ptag.0;
+        if tag.value != ptag.value {
+            tag.value = ptag.value;
         }
         if mesh.0 != pmesh.0 {
             mesh.0 = pmesh.0.clone();

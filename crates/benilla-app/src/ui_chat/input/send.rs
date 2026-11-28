@@ -501,7 +501,7 @@ fn dead_may_send(kind: SendType) -> bool {
 #[cfg(test)]
 pub(crate) fn chat_world(script: UiScript) -> (World, crossbeam_channel::Receiver<ClientCommand>) {
     let mut world = World::new();
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     let (tx, rx) = crossbeam_channel::unbounded();
     world.insert_resource(NetCommands(tx));
     world.init_resource::<super::super::feed::ChatLog>();
@@ -525,9 +525,9 @@ pub(crate) fn chat_world(script: UiScript) -> (World, crossbeam_channel::Receive
 pub(crate) fn run_chat(world: &mut World, lua: &str) -> benilla_ui::mlua::Result<()> {
     let mut state =
         bevy::ecs::system::SystemState::<(ChatSender, crate::ui_party::RosterLive)>::new(world);
-    let mut script = world.remove_non_send_resource::<UiScript>().expect("a VM");
+    let mut script = world.remove_non_send::<UiScript>().expect("a VM");
     let r = {
-        let (mut sender, roster) = state.get_mut(world);
+        let (mut sender, roster) = state.get_mut(world).unwrap();
         let apply = |script: &mut UiScript, call| match call {
             benilla_ui::script::ScriptCall::SendChat(send) => sender.send_chat(script, send),
             benilla_ui::script::ScriptCall::RandomRoll { min, max } => {
@@ -548,6 +548,6 @@ pub(crate) fn run_chat(world: &mut World, lua: &str) -> benilla_ui::mlua::Result
         script.hosted(&mut host, |s| s.run(lua))
     };
     state.apply(world);
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     r
 }

@@ -76,8 +76,8 @@ fn track_pointer_over_ui(
     mut keyboard: ResMut<crate::ui_script::EguiKeyboard>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
-    over.0 = ctx.is_pointer_over_area() || ctx.wants_pointer_input();
-    keyboard.0 = ctx.wants_keyboard_input();
+    over.0 = ctx.is_pointer_over_egui() || ctx.egui_wants_pointer_input();
+    keyboard.0 = ctx.egui_wants_keyboard_input();
     Ok(())
 }
 
@@ -197,9 +197,9 @@ fn feed_gated_egui_output(
                 None => {
                     // `get_mut`: `get` needs bevy_egui's `immutable_ctx` feature. The font
                     // texture delta must reach the GPU exactly once, so the cache drops it.
-                    let out = ctx.get_mut().run(egui::RawInput::default(), |_| {});
+                    let out = ctx.get_mut().run_ui(egui::RawInput::default(), |_| {});
                     let mut keep = out.clone();
-                    keep.textures_delta = Default::default();
+                    keep.textures_delta.clear();
                     keep.shapes.clear();
                     *cached = Some(keep);
                     out
@@ -217,6 +217,8 @@ fn spawn_egui_camera(mut commands: Commands) {
         // Named for [`crate::preflight`]'s MSAA check, which reports cameras by name.
         Name::new("egui dev-overlay camera"),
         Camera2d,
+        // No tone curve over egui's colours. Named because `Camera2d` requires `Linear`.
+        bevy::core_pipeline::tonemapping::Tonemapping::None,
         // Set explicitly: `Camera` requires `Msaa`, default `Sample4`, and Bevy keys the 2D depth
         // texture on the target alone, so this must match the player-UI camera's `Msaa::Off` or a
         // pass fails validation. egui feathers its own edges anyway.

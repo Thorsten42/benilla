@@ -202,7 +202,7 @@ impl Bags {
                 },
             );
         }
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         Self { app, rx }
     }
 
@@ -252,7 +252,7 @@ impl Bags {
     }
 
     fn script(&mut self) -> Mut<'_, UiScript> {
-        self.app.world_mut().non_send_resource_mut::<UiScript>()
+        self.app.world_mut().non_send_mut::<UiScript>()
     }
 
     /// What went on the wire, the name and item queries aside.
@@ -678,7 +678,7 @@ fn with_bank(h: &mut Bags) {
         false,
     );
     world
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_bank(Some(benilla_ui::script::BankState::default()));
 }
 

@@ -50,7 +50,7 @@ fn spy(app: &mut App, extra: &[&str], close_on_hide: bool) {
         .map(|e| format!("{e:?}"))
         .collect();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(&format!(
             r#"
             local close = {close_on_hide}

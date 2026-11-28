@@ -38,13 +38,10 @@ pub(crate) struct HeldItemLocks {
 /// of `[0xb4d900]` and `[0xb4e248]`), so a held item stays held, with its lock, and an armed wrap
 /// stays armed.
 pub(crate) fn fold_dying_vm_item_locks(world: &mut World) {
-    let Some(held) = world
-        .get_non_send_resource::<UiScript>()
-        .map(|s| HeldItemLocks {
-            locks: s.item_locks(),
-            cursor: s.held_cursor(),
-        })
-    else {
+    let Some(held) = world.get_non_send::<UiScript>().map(|s| HeldItemLocks {
+        locks: s.item_locks(),
+        cursor: s.held_cursor(),
+    }) else {
         return;
     };
     world.insert_resource(held);

@@ -425,7 +425,7 @@ impl ScriptCallHost<'_, '_> {
 /// press's pick) through the call host, in the order made. Whether any waited.
 pub(crate) fn submit_waiting_clicks(world: &mut bevy::prelude::World) -> bool {
     let waiting = world
-        .get_non_send_resource::<UiScript>()
+        .get_non_send::<UiScript>()
         .is_some_and(|s| s.has_click_calls());
     if waiting {
         super::with_hosted_vm(world, |script| {
@@ -442,7 +442,7 @@ pub(crate) fn submit_waiting_clicks(world: &mut bevy::prelude::World) -> bool {
 /// the click's legs.
 #[cfg(test)]
 pub(crate) fn release_click(world: &mut bevy::prelude::World, mode: ClickMode) {
-    if world.get_non_send_resource::<UiScript>().is_none() {
+    if world.get_non_send::<UiScript>().is_none() {
         super::insert_test_vm(world);
     }
     let now = world.resource::<bevy::prelude::Time>().elapsed_secs();
@@ -467,7 +467,7 @@ pub(crate) fn click_plate(
     action: PlateAction,
     scripted: bool,
 ) {
-    if world.get_non_send_resource::<UiScript>().is_none() {
+    if world.get_non_send::<UiScript>().is_none() {
         super::insert_test_vm(world);
     }
     super::with_hosted_vm(world, |script| {
@@ -485,10 +485,10 @@ pub(crate) fn click_plate(
 /// shows inside it, as `DisplayError` (`0x496720`) signals before it returns.
 #[cfg(test)]
 pub(crate) fn record_error_lines(world: &mut bevy::prelude::World) {
-    if world.get_non_send_resource::<UiScript>().is_none() {
+    if world.get_non_send::<UiScript>().is_none() {
         super::insert_test_vm(world);
     }
-    let script = world.non_send_resource::<UiScript>();
+    let script = world.non_send::<UiScript>();
     if script
         .eval::<bool>("return ERROR_LINES ~= nil")
         .unwrap_or(false)
@@ -513,7 +513,7 @@ pub(crate) fn record_error_lines(world: &mut bevy::prelude::World) {
 /// The catalog keys of the lines shown since [`record_error_lines`], in the order shown.
 #[cfg(test)]
 pub(crate) fn error_lines(world: &bevy::prelude::World) -> Vec<&'static str> {
-    let Some(script) = world.get_non_send_resource::<UiScript>() else {
+    let Some(script) = world.get_non_send::<UiScript>() else {
         return Vec::new();
     };
     let lines: Vec<String> = script.eval("return ERROR_LINES or {}").unwrap_or_default();
@@ -532,7 +532,7 @@ pub(crate) fn error_lines(world: &bevy::prelude::World) -> Vec<&'static str> {
 #[cfg(test)]
 pub(crate) fn take_error_lines(world: &bevy::prelude::World) -> Vec<&'static str> {
     let keys = error_lines(world);
-    if let Some(script) = world.get_non_send_resource::<UiScript>() {
+    if let Some(script) = world.get_non_send::<UiScript>() {
         let _ = script.run("if ERROR_LINES then ERROR_LINES = {} end");
     }
     keys

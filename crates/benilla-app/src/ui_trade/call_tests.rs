@@ -108,7 +108,7 @@ fn client() -> Trade {
             end)"#,
         )
         .expect("the recorder installs");
-    app.world_mut().insert_non_send_resource(script);
+    app.world_mut().insert_non_send(script);
     Trade { app, rx }
 }
 
@@ -428,10 +428,7 @@ fn a_refused_placement_writes_nothing_and_drops_the_item_unlocked() {
         (true, true)
     );
     assert!(
-        !t.app
-            .world()
-            .non_send_resource::<UiScript>()
-            .item_locked(CLOTH),
+        !t.app.world().non_send::<UiScript>().item_locked(CLOTH),
         "the put-back unlocks it"
     );
     assert_eq!(
@@ -1371,16 +1368,13 @@ fn a_cancel_behind_a_drop_started_open_undoes_what_the_open_placed() {
         "the cancels follow the placement"
     );
     assert!(
-        !t.app
-            .world()
-            .non_send_resource::<UiScript>()
-            .item_locked(CLOTH),
+        !t.app.world().non_send::<UiScript>().item_locked(CLOTH),
         "the cancel unlocks what the open placed"
     );
     // An entry's arrival unlocks the item unless it sits in an open trade (`0x4bfd20`), which
     // tests the cell first: shut, it frees the item the table still names.
     run(&mut t, "PickupContainerItem(0, 1)");
-    let mut vm = t.app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut vm = t.app.world_mut().non_send_mut::<UiScript>();
     vm.unlock_entry_items(&[CLOTH]);
     assert!(!vm.item_locked(CLOTH), "the window is shut");
 }

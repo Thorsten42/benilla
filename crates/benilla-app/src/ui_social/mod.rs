@@ -934,7 +934,7 @@ struct LfgCarry(benilla_ui::script::LfgStore);
 /// VM gets them back ([`seed_vm_lfg`]).
 pub(crate) fn fold_dying_vm_lfg(world: &mut World) {
     let Some(store) = world
-        .get_non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .get_non_send_mut::<benilla_ui::script::UiScript>()
         .map(|mut s| s.take_lfg_store())
     else {
         return;

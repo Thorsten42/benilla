@@ -336,7 +336,7 @@ fn rebind_app(script: UiScript) -> bevy::prelude::App {
         .init_resource::<crate::net::GuidIndex>()
         .init_resource::<crate::field_watch::NoticeLane>()
         .insert_resource(crate::net::NetCommands(crossbeam_channel::unbounded().0))
-        .insert_non_send_resource(script);
+        .insert_non_send(script);
     app
 }
 
@@ -344,14 +344,14 @@ fn rebind_app(script: UiScript) -> bevy::prelude::App {
 /// it after the table is read ([`super::read_macro_scope`]).
 fn load(app: &mut bevy::prelude::App) {
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .derive_macro_bindings(|_, _| true);
 }
 
 /// Macro `id`'s cached cast as the VM's record holds it.
 fn bound(app: &bevy::prelude::App, id: u32) -> super::run::Bound {
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .macro_bindings()
         .get(&id)
         .copied()
@@ -385,7 +385,7 @@ fn book_slot(spell_id: u32, name: &str) -> benilla_ui::script::SpellSlotView {
 /// One `SMSG_PET_SPELLS`'s derivation after its book's sort (`0x4bdae0` → `0x4f0ce0`), as its
 /// notice fires it.
 fn pet_spell_list(app: &mut bevy::prelude::App) {
-    super::derive_pet_followers(&mut app.world_mut().non_send_resource_mut::<UiScript>());
+    super::derive_pet_followers(&mut app.world_mut().non_send_mut::<UiScript>());
 }
 
 /// `0x4f0ce0`, from each pet spell message (`0x4bdae0`), derives only the records whose cached
@@ -441,7 +441,7 @@ fn the_pets_spell_list_rebinds_the_failed_and_the_pet_bound_macros_only() {
         (pet_spell, pet_spell, shadow_bolt),
         "the pet is out: both forms bind its spell, with its book"
     );
-    let script = app.world().non_send_resource::<UiScript>();
+    let script = app.world().non_send::<UiScript>();
     assert_eq!(
         script
             .eval::<(Option<i64>, Option<i64>)>("return GetActionAutocast(1)")
@@ -452,7 +452,7 @@ fn the_pets_spell_list_rebinds_the_failed_and_the_pet_bound_macros_only() {
 
     // The pet's book empties with no spell message: nothing is derived again.
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_pet_book(PetBookState::default());
     app.update();
     assert_eq!(
@@ -465,7 +465,7 @@ fn the_pets_spell_list_rebinds_the_failed_and_the_pet_bound_macros_only() {
     // pet's book. A quoted call made now never found the spell.
     pet_spell_list(&mut app);
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(r#"CreateMacro("Later", 1, 'CastSpellByName("Seduction")')"#)
         .unwrap();
     app.update();
@@ -492,7 +492,7 @@ fn the_pets_spell_list_rebinds_the_failed_and_the_pet_bound_macros_only() {
 
     // It returns: the two that kept the pet's book bind again, the one made without it does not.
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_pet_book(seduction);
     pet_spell_list(&mut app);
     app.update();
@@ -541,7 +541,7 @@ fn a_save_writes_the_sorted_table_and_a_load_sorts_it_again() {
     *files.identity.get(&script) = Some(("Realm".into(), "Probeone".into()));
     let mut app = App::new();
     app.insert_resource(files)
-        .insert_non_send_resource(script)
+        .insert_non_send(script)
         .add_systems(Update, super::save_dirty_macros);
     app.update();
 
@@ -563,7 +563,7 @@ fn bound_of(app: &bevy::prelude::App, id: u32) -> super::run::BoundSpell {
 fn learn(app: &mut bevy::prelude::App, slots: Vec<benilla_ui::script::SpellSlotView>) {
     let ids: Vec<u32> = slots.iter().map(|s| s.spell_id).collect();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_spellbook(benilla_ui::script::SpellBookState {
             tabs: Vec::new(),
             slots,
@@ -601,7 +601,7 @@ fn only_a_create_or_an_edit_of_that_macro_derives_its_spell_again() {
     );
 
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run("EditMacro(GetMacroIndexByName('Say'), nil, nil, '/say yo')")
         .unwrap();
     app.update();
@@ -612,7 +612,7 @@ fn only_a_create_or_an_edit_of_that_macro_derives_its_spell_again() {
     );
 
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(r#"CreateMacro("Again", 1, "/cast Pyroblast")"#)
         .unwrap();
     app.update();
@@ -623,7 +623,7 @@ fn only_a_create_or_an_edit_of_that_macro_derives_its_spell_again() {
     );
 
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run("EditMacro(GetMacroIndexByName('Pyro'), 'Pyro')")
         .unwrap();
     app.update();
@@ -649,7 +649,7 @@ fn the_players_arrival_derives_every_macro() {
     assert_eq!(bound_of(&app, 1), BoundSpell::Unresolved);
     // The book the arrival's learns built, with no bar or macro change beside it.
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_spellbook(benilla_ui::script::SpellBookState {
             tabs: Vec::new(),
             slots: vec![book_slot(11366, "Pyroblast")],
@@ -754,12 +754,12 @@ fn an_edit_derives_against_the_book_at_its_call() {
     assert_eq!(bound_of(&app, 1), BoundSpell::None);
 
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run("EditMacro(1, nil, nil, '/cast Frostbolt(Rank 1)')")
         .unwrap();
     // The next packet: rank 2 supersedes rank 1.
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_spellbook(benilla_ui::script::SpellBookState {
             tabs: Vec::new(),
             slots: vec![ranked(205, "Rank 2")],
@@ -773,7 +773,7 @@ fn an_edit_derives_against_the_book_at_its_call() {
 /// ([`super::register_macro_readers`]), each scope read at once on a settled section.
 fn load_into(app: &mut bevy::prelude::App, mut script: UiScript) {
     super::register_macro_readers(app.world_mut(), &mut script);
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
 }
 
 /// The macro load's harness over a state folder of its own, its VM loaded: the settled sections'
@@ -812,7 +812,7 @@ fn file_app(script: UiScript) -> bevy::prelude::App {
 
 fn macro_names(app: &bevy::prelude::App) -> Vec<String> {
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .macros()
         .views()
         .map(|m| m.name.clone())
@@ -903,7 +903,7 @@ fn the_macro_reader_derives_after_its_update_macros() {
         .unwrap();
     let mut app = file_app(script);
     app.update();
-    let script = app.world().non_send_resource::<UiScript>();
+    let script = app.world().non_send::<UiScript>();
     assert_eq!(
         script.eval::<Vec<String>>("return SEEN").unwrap(),
         ["nil", "1"],
@@ -943,7 +943,7 @@ fn the_macro_reader_reads_each_scope_as_its_section_settles() {
     app.update();
     assert!(macro_names(&app).is_empty(), "pending: the reader is held");
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(r#"CreateMacro("Hi", 1, "/say hi")"#)
         .unwrap();
     app.update();
@@ -996,7 +996,7 @@ fn a_macro_save_marks_both_sections_for_the_shutdown() {
     };
     assert!(!armed(&app, 4) && !armed(&app, 5));
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(r#"CreateMacro("Hi", 1, "/say hi")"#)
         .unwrap();
     app.update();

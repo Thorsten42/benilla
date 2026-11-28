@@ -37,6 +37,7 @@ use bevy::ecs::schedule::SystemKey;
 use bevy::prelude::*;
 
 use crate::game_plugins::schedule_tests::{census, type_names_available, SyncPoints};
+use crate::resource_access as ra;
 
 /// The systems that may run after the dispatch (`apply_net_updates`) and run ahead of the drain
 /// (`fire_in_order`), by a suffix of the system's name, with what each writes of the state a
@@ -171,13 +172,9 @@ fn writers_between(app: &mut App) -> Option<BTreeMap<String, BTreeSet<String>>> 
     use bevy::ecs::system::System;
     // What the getters read as they run: every live family's access.
     let mut live = IntoSystem::into_system(|_: crate::script_calls::live::LiveReads| {});
-    let live = System::initialize(&mut live, world)
-        .filtered_accesses()
-        .to_vec();
+    let live = ra::filtered(&System::initialize(&mut live, world)).to_vec();
     let mut host = IntoSystem::into_system(|_: crate::script_calls::ScriptCallHost| {});
-    let host = System::initialize(&mut host, world)
-        .filtered_accesses()
-        .to_vec();
+    let host = ra::filtered(&System::initialize(&mut host, world)).to_vec();
     let mut read_resources = HashSet::new();
     let mut read_components = HashSet::new();
     // What a listener inside the dispatch reads past the live families: every resource and
@@ -188,7 +185,7 @@ fn writers_between(app: &mut App) -> Option<BTreeMap<String, BTreeSet<String>>> 
     crate::net::handlers::measure(world);
     let queues: HashSet<ComponentId> = super::guard_tests::lane_types()
         .into_iter()
-        .filter_map(|t| world.components().get_resource_id(t))
+        .filter_map(|t| world.components().get_id(t))
         .collect();
     let is_state = |world: &World, id: ComponentId| {
         !queues.contains(&id) && !super::guard_tests::is_messages(world, id)
@@ -201,27 +198,20 @@ fn writers_between(app: &mut App) -> Option<BTreeMap<String, BTreeSet<String>>> 
     let handlers = world.resource::<crate::net::handlers::NetHandlers>();
     let mut handler_reads = HashSet::new();
     for (_, access) in handlers.accesses() {
-        let access = access.combined_access();
-        handler_reads.extend(
-            access
-                .resource_reads()
-                .filter(|id| !access.has_resource_write(*id)),
-        );
+        handler_reads.extend(ra::reads(&ra::of_set(world, access)));
     }
     read_resources.extend(handler_reads.into_iter().filter(|id| is_state(world, *id)));
     for fa in &host {
         read_resources.extend(
-            fa.access()
-                .resource_reads_and_writes()
+            ra::reads_and_writes(&ra::of_filtered(world, fa))
+                .into_iter()
                 .filter(|id| is_state(world, *id)),
         );
-        if let Ok(kinds) = fa.access().try_iter_component_access() {
-            read_components.extend(kinds.map(|k| match k {
-                ComponentAccessKind::Archetypal(id)
-                | ComponentAccessKind::Shared(id)
-                | ComponentAccessKind::Exclusive(id) => id,
-            }));
-        }
+        read_components.extend(ra::components(world, fa.access()).map(|k| match k {
+            ComponentAccessKind::Archetypal(id)
+            | ComponentAccessKind::Shared(id)
+            | ComponentAccessKind::Exclusive(id) => id,
+        }));
     }
     // What each lane's firing touches as it fires, inside its packet in the reference: its
     // declared access ([`super::LaneReads`] for an exclusive one), less the call host's it lends,
@@ -242,30 +232,28 @@ fn writers_between(app: &mut App) -> Option<BTreeMap<String, BTreeSet<String>>> 
         }
         for fa in own {
             read_resources.extend(
-                fa.access()
-                    .resource_reads_and_writes()
+                ra::reads_and_writes(&ra::of_filtered(world, fa))
+                    .into_iter()
                     .filter(|id| is_state(world, *id)),
             );
-            if let Ok(kinds) = fa.access().try_iter_component_access() {
-                read_components.extend(kinds.map(|k| match k {
-                    ComponentAccessKind::Archetypal(id)
-                    | ComponentAccessKind::Shared(id)
-                    | ComponentAccessKind::Exclusive(id) => id,
-                }));
-            }
-        }
-    }
-    for fa in &live {
-        read_resources.extend(fa.access().resource_reads_and_writes());
-        if let Ok(kinds) = fa.access().try_iter_component_access() {
-            read_components.extend(kinds.map(|k| match k {
+            read_components.extend(ra::components(world, fa.access()).map(|k| match k {
                 ComponentAccessKind::Archetypal(id)
                 | ComponentAccessKind::Shared(id)
                 | ComponentAccessKind::Exclusive(id) => id,
             }));
         }
+    }
+    for fa in &live {
+        read_resources.extend(ra::reads_and_writes(&ra::of_filtered(world, fa)));
+        read_components.extend(ra::components(world, fa.access()).map(|k| match k {
+            ComponentAccessKind::Archetypal(id)
+            | ComponentAccessKind::Shared(id)
+            | ComponentAccessKind::Exclusive(id) => id,
+        }));
         read_components.extend(fa.with_filters().chain(fa.without_filters()));
     }
+    // The marker a resource's own access filters on, which names no component state.
+    read_components.remove(&bevy::ecs::resource::IS_RESOURCE);
     // Bevy's default filter, which every query carries.
     if let Some(id) = world
         .components()
@@ -275,7 +263,7 @@ fn writers_between(app: &mut App) -> Option<BTreeMap<String, BTreeSet<String>>> 
     }
     let vm = world
         .components()
-        .get_resource_id(TypeId::of::<benilla_ui::script::UiScript>());
+        .get_id(TypeId::of::<benilla_ui::script::UiScript>());
     // Each system's access, read before the census builds the schedule.
     type Seen = (Vec<FilteredAccess>, bool, bool);
     let systems: HashMap<SystemKey, Seen> = world.schedule_scope(Update, |world, schedule| {
@@ -285,8 +273,9 @@ fn writers_between(app: &mut App) -> Option<BTreeMap<String, BTreeSet<String>>> 
             .systems
             .iter()
             .filter_map(|(k, system, _)| {
-                let access = graph.systems.get(k)?.access.filtered_accesses().to_vec();
-                Some((k, (access, system.is_exclusive(), system.has_deferred())))
+                let declared = graph.systems.get(k)?.access();
+                let access = ra::filtered(declared).to_vec();
+                Some((k, (access, declared.is_exclusive(), system.has_deferred())))
             })
             .collect()
     });
@@ -346,13 +335,19 @@ fn writers_between(app: &mut App) -> Option<BTreeMap<String, BTreeSet<String>>> 
         }
         for fa in own {
             let a = fa.access();
+            let resources = ra::of_filtered(world, fa);
             writes.extend(
-                a.resource_writes()
-                    .chain(a.resource_reads().filter(|id| through_a_read(world, *id)))
+                ra::writes(&resources)
+                    .into_iter()
+                    .chain(
+                        ra::reads(&resources)
+                            .into_iter()
+                            .filter(|id| through_a_read(world, *id)),
+                    )
                     .filter(|id| read_resources.contains(id) && Some(*id) != vm)
                     .map(name),
             );
-            match a.try_iter_component_access() {
+            match a.try_iter_access() {
                 Ok(kinds) => writes.extend(
                     kinds
                         .filter_map(|k| match k {

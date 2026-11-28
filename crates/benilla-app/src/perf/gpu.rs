@@ -3,8 +3,8 @@
 //! bevy's in-pass diagnostics cannot.
 //!
 //! Resolving the query set in the same command buffer as the timed work reads zeros on Metal, so
-//! the query set holds two pairs that alternate by frame ([`pairs`]): the `begin` node resolves
-//! the pair the previous frame wrote into a ring of `MAP_READ` buffers on the graph's own encoder,
+//! the query set holds two pairs that alternate by frame ([`pairs`]): the `begin` pass resolves
+//! the pair the previous frame wrote into a ring of `MAP_READ` buffers on its own encoder,
 //! then writes this frame's. `Cleanup` only starts the map, which lands in the next frame's
 //! `queue.submit` (every submit maintains the device), so the meter adds no submission or poll.
 //! The freshest delta is published in nanoseconds through one shared `AtomicU64`.
@@ -14,15 +14,14 @@ use std::sync::Arc;
 
 use bevy::core_pipeline::core_2d::{Opaque2d, Transparent2d};
 use bevy::core_pipeline::core_3d::{AlphaMask3d, Opaque3d, Transparent3d};
+use bevy::core_pipeline::schedule::camera_driver;
 use bevy::pbr::Shadow;
 use bevy::prelude::*;
-use bevy::render::graph::CameraDriverLabel;
-use bevy::render::render_graph::{
-    Node, NodeRunError, RenderGraph, RenderGraphContext, RenderLabel,
-};
 use bevy::render::render_phase::{ViewBinnedRenderPhases, ViewSortedRenderPhases};
 use bevy::render::render_resource::{Buffer, BufferDescriptor, BufferUsages, MapMode};
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue};
+use bevy::render::renderer::{
+    RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue,
+};
 use bevy::render::{Render, RenderApp, RenderSystems};
 use bevy::ui_render::TransparentUi;
 use wgpu::{QuerySet, QuerySetDescriptor, QueryType};
@@ -92,8 +91,9 @@ fn count_draws(
             .map(|p| {
                 p.0.values()
                     .map(|phase| {
-                        let multi: usize =
-                            phase.multidrawable_meshes.values().map(|b| b.len()).sum();
+                        // A multidrawable batch set keeps its bins private in Bevy 0.20, so each
+                        // counts once, as the one multi-draw that encodes it.
+                        let multi = phase.multidrawable_meshes.len();
                         let unbatchable: usize = phase
                             .unbatchable_meshes
                             .values()
@@ -119,7 +119,7 @@ fn count_draws(
                     .map(|phase| {
                         phase
                             .items
-                            .iter()
+                            .values()
                             .filter(|i| !i.batch_range().is_empty())
                             .count()
                     })
@@ -178,25 +178,22 @@ struct GpuStamp {
     shared: Arc<AtomicU64>,
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct GpuStampBeginLabel;
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct GpuStampEndLabel;
-
-struct GpuStampNode {
-    index: u32,
+/// The sentinel pass before the camera driver.
+fn gpu_stamp_begin(world: &World, render_context: RenderContext) {
+    gpu_stamp(world, render_context, 0);
 }
 
-impl Node for GpuStampNode {
-    fn run(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext,
-        world: &World,
-    ) -> Result<(), NodeRunError> {
+/// The sentinel pass after the camera driver, before the graph's submit.
+fn gpu_stamp_end(world: &World, render_context: RenderContext) {
+    gpu_stamp(world, render_context, 1);
+}
+
+/// One sentinel pass: `index` 0 resolves the previous pair and stamps this frame's begin, 1 its end.
+fn gpu_stamp(world: &World, mut render_context: RenderContext, index: u32) {
+    {
         if let Some(stamp) = world.get_resource::<GpuStamp>() {
             let (write, resolve) = pairs(stamp.frame);
-            if self.index == 0 {
+            if index == 0 {
                 if let Some(slot) = stamp.slot {
                     // A later submission than the stamps it reads, on the graph's own encoder.
                     let encoder = render_context.command_encoder();
@@ -211,7 +208,7 @@ impl Node for GpuStampNode {
             }
             // A sentinel pass, not a bare `write_timestamp`: Apple GPUs sample counters only at
             // stage boundaries, and an encoder-level stamp resolves to zero.
-            let (begin, end) = if self.index == 0 {
+            let (begin, end) = if index == 0 {
                 (Some(write * 2), None)
             } else {
                 (None, Some(write * 2 + 1))
@@ -236,9 +233,9 @@ impl Node for GpuStampNode {
                         end_of_pass_write_index: end,
                     }),
                     occlusion_query_set: None,
+                    multiview_mask: None,
                 });
         }
-        Ok(())
     }
 }
 
@@ -328,7 +325,11 @@ fn readback(stamp: Option<ResMut<GpuStamp>>) {
     for i in 0..RING {
         if stamp.ring[i].1.load(Ordering::Relaxed) == MAPPED {
             let (t0, t1) = {
-                let data = stamp.ring[i].0.slice(..).get_mapped_range();
+                let data = stamp.ring[i]
+                    .0
+                    .slice(..)
+                    .get_mapped_range()
+                    .expect("a MAPPED slot holds a landed mapping");
                 let words: &[u64] = bytemuck::cast_slice(&data);
                 (words[0], words[1])
             };
@@ -366,11 +367,18 @@ pub(crate) fn plugin(app: &mut App) {
             .chain()
             .in_set(RenderSystems::Cleanup),
     );
-    let mut graph = render_app.world_mut().resource_mut::<RenderGraph>();
-    graph.add_node(GpuStampBeginLabel, GpuStampNode { index: 0 });
-    graph.add_node(GpuStampEndLabel, GpuStampNode { index: 1 });
-    graph.add_node_edge(GpuStampBeginLabel, CameraDriverLabel);
-    graph.add_node_edge(CameraDriverLabel, GpuStampEndLabel);
+    // Bracketing the camera driver in the root graph, both inside its one submit.
+    render_app.add_systems(
+        RenderGraph,
+        (
+            gpu_stamp_begin
+                .in_set(RenderGraphSystems::Render)
+                .before(camera_driver),
+            gpu_stamp_end
+                .in_set(RenderGraphSystems::Render)
+                .after(camera_driver),
+        ),
+    );
 }
 
 #[cfg(test)]

@@ -66,7 +66,7 @@ pub(super) struct CompositeRig {
 ///
 /// The target is float and un-encoded, like the portrait booths': the UI pass does its one sRGB
 /// encode at the end, and un-encoded 8-bit values band. The tile draw writes the texel un-encoded
-/// (the [`UiQuad::alpha_test`](crate::ui_pass::UiQuad::alpha_test) arm in `ui_quad.wgsl`) and the
+/// (the [`UiQuad::alpha_test`](crate::ui_pass::UiQuad::alpha_test) arm in `ui_quad.wesl`) and the
 /// blit quad encodes it like any other UI texture.
 pub(super) fn setup_composite(
     mut commands: Commands,
@@ -96,6 +96,9 @@ pub(super) fn setup_composite(
         .spawn((
             Name::new("minimap composite camera"),
             Camera2d,
+            // No tone curve: the bake writes the tiles' values. Named because `Camera2d` requires
+            // `Linear`.
+            bevy::core_pipeline::tonemapping::Tonemapping::None,
             // No MSAA, like the reference's plain RGBA8 target: multisampling an alpha-tested edge
             // gives partial coverage over the black clear, the grey seam this target removes.
             bevy::render::view::Msaa::Off,

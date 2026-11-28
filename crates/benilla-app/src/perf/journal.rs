@@ -277,7 +277,7 @@ fn journal_fps(
     time: Res<Time<Real>>,
     player: Option<Res<crate::player::Player>>,
     streamed: Query<(), With<crate::net::NetEntity>>,
-    entities: Query<()>,
+    entities: Query<(), Without<bevy::ecs::resource::IsResource>>,
     residency: JournalResidency,
     gpu: JournalGpu,
 ) {

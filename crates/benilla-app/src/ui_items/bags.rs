@@ -294,15 +294,15 @@ pub(crate) fn eval_with_bags<T: benilla_ui::mlua::FromLuaMulti>(
 ) -> T {
     let mut state = bevy::ecs::system::SystemState::<BagLive>::new(world);
     let mut script = world
-        .remove_non_send_resource::<benilla_ui::script::UiScript>()
+        .remove_non_send::<benilla_ui::script::UiScript>()
         .expect("a VM");
     let out = {
-        let mut bags = state.get(world);
+        let mut bags = state.get(world).unwrap();
         script
             .reading(&mut bags, |s| s.eval::<T>(chunk))
             .unwrap_or_else(|e| panic!("{chunk}: {e}"))
     };
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     out
 }
 

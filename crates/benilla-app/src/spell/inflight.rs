@@ -1003,7 +1003,7 @@ mod tests {
                 fn apply(&mut self, _: &mut UiScript, call: ScriptCall) -> Option<CallTail> {
                     if call == ScriptCall::SpellStopCasting {
                         let mut cancel = SystemState::<SelfCancel>::new(self.0);
-                        cancel.get_mut(self.0).stop_casting();
+                        cancel.get_mut(self.0).unwrap().stop_casting();
                         cancel.apply(self.0);
                     }
                     None
@@ -1011,16 +1011,16 @@ mod tests {
 
                 fn read_live(&mut self, ask: &mut benilla_ui::script::live::LiveAsk<'_>) -> bool {
                     let mut live = SystemState::<crate::ui_cast::CastLive>::new(self.0);
-                    live.get(self.0).answer(ask)
+                    live.get(self.0).unwrap().answer(ask)
                 }
             }
 
             let world = app.world_mut();
-            let mut script = world.remove_non_send_resource::<UiScript>().expect("a VM");
+            let mut script = world.remove_non_send::<UiScript>().expect("a VM");
             let answer = script.hosted(&mut Host(world), |s| {
                 s.eval::<Option<i64>>("return SpellStopCasting()")
             });
-            world.insert_non_send_resource(script);
+            world.insert_non_send(script);
             answer.unwrap()
         }
 
@@ -1223,7 +1223,7 @@ mod tests {
         #[test]
         fn esc_cannot_stop_a_channel() {
             let (mut app, rx) = harness(HashMap::new());
-            app.insert_non_send_resource(UiScript::new().unwrap());
+            app.insert_non_send(UiScript::new().unwrap());
             let now = Instant::now();
             app.world_mut()
                 .resource_mut::<ActiveChannel>()
@@ -1252,7 +1252,7 @@ mod tests {
         fn esc_cancels_the_auto_repeat_first_and_the_cast_on_the_next_press() {
             const AUTO_SHOT: u32 = 75;
             let (mut app, rx) = harness(HashMap::new());
-            app.insert_non_send_resource(UiScript::new().unwrap());
+            app.insert_non_send(UiScript::new().unwrap());
             app.world_mut().resource_mut::<AutoRepeatActive>().0 = Some(AUTO_SHOT);
             app.world_mut()
                 .resource_mut::<PendingCast>()
@@ -1311,7 +1311,7 @@ mod tests {
                     ..Default::default()
                 },
             )]));
-            app.insert_non_send_resource(UiScript::new().unwrap());
+            app.insert_non_send(UiScript::new().unwrap());
             fill_record(&mut app);
             app.world_mut()
                 .resource_mut::<QueuedMeleeSpell>()
@@ -1363,9 +1363,9 @@ mod tests {
                     ..Default::default()
                 },
             )]));
-            app.insert_non_send_resource(UiScript::new().unwrap());
+            app.insert_non_send(UiScript::new().unwrap());
             app.world_mut()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .run(
                     "STOPS, FAILS = 0, 0 \
                      local f = CreateFrame('Frame') \
@@ -1407,7 +1407,7 @@ mod tests {
             app.world_mut()
                 .run_system_once(crate::ui_cast::signal_reports)
                 .unwrap();
-            let script = app.world().non_send_resource::<UiScript>();
+            let script = app.world().non_send::<UiScript>();
             assert_eq!(script.eval::<i64>("return STOPS").unwrap(), 1);
             assert_eq!(script.eval::<i64>("return FAILS").unwrap(), 0);
             assert_eq!(
@@ -1475,7 +1475,7 @@ mod tests {
         #[test]
         fn esc_takes_the_cast_first_and_the_strike_on_the_next_press() {
             let (mut app, rx) = harness(HashMap::new());
-            app.insert_non_send_resource(UiScript::new().unwrap());
+            app.insert_non_send(UiScript::new().unwrap());
             app.world_mut()
                 .resource_mut::<QueuedMeleeSpell>()
                 .arm(HEROIC_STRIKE);
@@ -1610,7 +1610,7 @@ mod tests {
                 (FIREBALL, SpellDisplay::default()),
                 (FROSTBOLT, SpellDisplay::default()),
             ]));
-            app.insert_non_send_resource(UiScript::new().unwrap());
+            app.insert_non_send(UiScript::new().unwrap());
             fill_record(&mut app);
             app.world_mut()
                 .resource_mut::<PendingCast>()
@@ -1709,7 +1709,7 @@ mod tests {
         #[test]
         fn a_cast_with_no_answer_holds_the_slot_until_esc() {
             let (mut app, rx) = harness(HashMap::from([(FIREBALL, SpellDisplay::default())]));
-            app.insert_non_send_resource(UiScript::new().unwrap());
+            app.insert_non_send(UiScript::new().unwrap());
             let sent = Instant::now()
                 .checked_sub(Duration::from_secs(60))
                 .expect("a clock a minute old");

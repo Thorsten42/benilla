@@ -470,7 +470,7 @@ fn the_author_owns_the_tree_then_releases_at_opaque() {
         .world_mut()
         .spawn((
             fm.clone(),
-            MeshTag(0),
+            MeshTag::new(0),
             MeshMaterial3d(cutout.clone()),
             ChildOf(root),
         ))
@@ -480,7 +480,7 @@ fn the_author_owns_the_tree_then_releases_at_opaque() {
         .world_mut()
         .spawn((
             fm.clone(),
-            MeshTag(0),
+            MeshTag::new(0),
             MeshMaterial3d(cutout.clone()),
             ChildOf(joint),
         ))
@@ -496,7 +496,7 @@ fn the_author_owns_the_tree_then_releases_at_opaque() {
     app.update();
 
     for part in [body, weapon] {
-        let tag = app.world().entity(part).get::<MeshTag>().unwrap().0;
+        let tag = app.world().entity(part).get::<MeshTag>().unwrap().value;
         assert!(
             (benilla_world::mesh_tag::alpha_of(tag) - 0.3).abs() < 1.0 / 63.0,
             "part {part} carries the aura alpha (tag {tag:#x})"
@@ -522,7 +522,7 @@ fn the_author_owns_the_tree_then_releases_at_opaque() {
     }
     app.update();
     for part in [body, weapon] {
-        let tag = app.world().entity(part).get::<MeshTag>().unwrap().0;
+        let tag = app.world().entity(part).get::<MeshTag>().unwrap().value;
         assert!((benilla_world::mesh_tag::alpha_of(tag) - 1.0).abs() < 1.0 / 63.0);
         assert_eq!(
             app.world()

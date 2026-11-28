@@ -1339,7 +1339,7 @@ mod player_zone_tests {
                 ..Default::default()
             },
         ]);
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         let selection = |app: &mut App| {
             app.world_mut()
                 .run_system_cached(feed_world_map)
@@ -1381,14 +1381,14 @@ mod player_zone_tests {
                 arrow = ({P:GetChildren()})[1]"#,
             )
             .expect("the arrow");
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         let turned = |app: &mut App| {
             app.world_mut()
                 .run_system_cached(feed_world_map)
                 .expect("the feed runs");
             let world = app.world();
             world
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .run("UpdateWorldMapArrowFrames()")
                 .expect("the update");
             crate::script_calls::eval_in_vm::<f32>(world, "return arrow:GetFacing()")

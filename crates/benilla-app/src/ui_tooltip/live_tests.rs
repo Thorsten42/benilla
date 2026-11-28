@@ -106,7 +106,7 @@ fn world() -> World {
     world.entity_mut(me).insert(crate::net::SelfPlayer);
     unit(&mut world, PET, &[reach(4.0)]);
     unit(&mut world, MOB, &[reach(2.0)]);
-    world.insert_non_send_resource(UiScript::new().expect("a VM"));
+    world.insert_non_send(UiScript::new().expect("a VM"));
     world
 }
 
@@ -124,13 +124,13 @@ fn ask<Q: LiveQuery>(world: &mut World, q: Q) -> Option<Q::Answer> {
         }
     }
 
-    let mut script = world.remove_non_send_resource::<UiScript>().expect("a VM");
+    let mut script = world.remove_non_send::<UiScript>().expect("a VM");
     let mut state = SystemState::<TooltipLive>::new(world);
     let lua = script.lua().clone();
-    let answer = script.hosted(&mut Host(&mut state.get(world)), |_| {
+    let answer = script.hosted(&mut Host(&mut state.get(world).unwrap()), |_| {
         benilla_ui::script::live::ask(&lua, &q)
     });
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     answer
 }
 

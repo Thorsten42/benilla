@@ -4,9 +4,9 @@
 //! ([`crate::nameplates`]) that persist on the GPU.
 //!
 //! Cells go up as sub-rect `RenderQueue::write_texture` writes, so the texture's identity never
-//! changes. `Assets::get_mut` must never touch the sheet: in Bevy 0.18.1 a modified `Image` is
-//! re-prepared into a new, blank `wgpu::Texture`, since the sheet keeps no CPU-side bytes, and every
-//! cell would be lost.
+//! changes. `Assets::get_mut` must never touch the sheet: a modified `Image` with no CPU-side bytes
+//! keeps its `wgpu::Texture` only while its descriptor is unchanged (`GpuImage::prepare_asset`),
+//! else it is re-created blank and every cell is lost.
 //!
 //! Deviation: one sheet, where the reference keeps up to 8 pages per font (`[CGxFont+0x18c]`),
 //! because a nameplate bakes its glyphs into one mesh with one material, which a page would split.

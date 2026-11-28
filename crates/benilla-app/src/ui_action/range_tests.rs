@@ -100,7 +100,7 @@ fn range_answers(
         last: None,
         lit: None,
     });
-    app.insert_non_send_resource(UiScript::new().unwrap());
+    app.insert_non_send(UiScript::new().unwrap());
     crate::ui_action::eval_live(
         app.world_mut(),
         "return ActionHasRange(1) == 1, IsActionInRange(1)",

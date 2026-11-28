@@ -77,9 +77,9 @@ field() { grep -m1 "^$2" "$1" 2>/dev/null | sed -E "s/^$2[[:space:]]*=[[:space:]
   echo
 
   # Shaders are embedded and addressed by their owning crate, so the crate is part of the name.
-  echo "## WGSL shaders (\`crates/*/src/shaders/\`, embedded)"
+  echo "## WESL shaders (\`crates/*/src/shaders/\`, embedded)"
   echo
-  for s in crates/*/src/shaders/*.wgsl; do
+  for s in crates/*/src/shaders/*.wesl; do
     [ -f "$s" ] || continue
     crate=$(echo "$s" | sed -E 's@crates/([^/]+)/.*@\1@' | tr - _)
     echo "- \`embedded://$crate/shaders/$(basename "$s")\`"
@@ -132,7 +132,7 @@ echo "genmap: wrote $out/MAP.md"
 
 # ── docs/DEVIATIONS.md ─────────────────────────────────────────────────────────────────────────────
 # Every place benilla writes down that it differs from 1.12.1: the `Deviates` rows of the CVar table,
-# and each `Deviation:` comment in the crates (Rust and WGSL `//`, Lua `--`, XML `<!-- -->`). A
+# and each `Deviation:` comment in the crates (Rust and WESL `//`, Lua `--`, XML `<!-- -->`). A
 # deviation's wording is read from where it lives, so the list cannot drift from the code.
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/genmap.XXXXXX") || exit 1
 trap 'rm -rf "$tmp"; [ "$out" = docs ] || rm -rf "$out"' EXIT
@@ -187,7 +187,7 @@ LC_ALL=C grep -rIlE 'Deviation:' crates 2>/dev/null | LC_ALL=C sort | grep -vE '
     while ((getline s < f) > 0) L[++n] = s
     close(f)
     ext = f; sub(/.*\./, "", ext)
-    if (ext != "rs" && ext != "wgsl" && ext != "xml" && ext != "lua") return
+    if (ext != "rs" && ext != "wesl" && ext != "xml" && ext != "lua") return
     cr = f; sub(/^crates\//, "", cr); sub(/\/.*/, "", cr)
     rel = f; sub(/^crates\/[^\/]*\//, "", rel)
     xin = 0; skipping = 0; pend = 0

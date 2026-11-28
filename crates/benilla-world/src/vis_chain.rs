@@ -1,7 +1,7 @@
 //! Visibility-chain-only nodes: entities that carry hide-propagation to renderable descendants
 //! but never render (rig anchors, joints, anim-host, tile and net-object roots, attachment
 //! wrappers). Bevy sweeps every `ViewVisibility` row twice a frame and once more per active
-//! camera, renderable or not (bevy_camera 0.18.1, `visibility/mod.rs`), and `Visibility` requires
+//! camera, renderable or not (bevy_camera 0.20.1, `visibility/mod.rs`), and `Visibility` requires
 //! the component, so [`VisChainOnly::vis_chain_only`] removes it after spawn and keeps
 //! `Visibility` and `InheritedVisibility`.
 //!

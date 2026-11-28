@@ -381,7 +381,7 @@ fn quest_failed(world: &mut World, quest_id: u32, timed: bool) {
     use benilla_protocol::messages::{quest_slot_state, PLAYER_QUEST_LOG_SLOTS};
     debug!("net: quest {quest_id} failed (timed: {timed})");
     let latched = world
-        .get_non_send_resource::<benilla_ui::script::UiScript>()
+        .get_non_send::<benilla_ui::script::UiScript>()
         .is_some_and(|s| s.quest_log_latched(quest_id));
     let failed = world
         .query_filtered::<&crate::net::ObjectStore, With<crate::net::SelfPlayer>>()
@@ -491,7 +491,7 @@ mod tests {
         let mut q = crate::ui_quest_log::fixture::quest(7, "Deliver the Message", 1);
         q.record.objectives[0] = crate::ui_quest_log::fixture::kill(40, 3);
         crate::ui_quest_log::fixture::seat(&mut script, &[q]);
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         let epoch = world.resource::<QuestGiver>().reask_epoch();
         let mut fail = |timed| {
             world
@@ -499,7 +499,7 @@ mod tests {
                 .unwrap();
             let lines = world.resource_mut::<QuestGiverLane>().take_lines().len();
             let reasked = world.resource::<QuestGiver>().reask_epoch();
-            let mut script = world.non_send_resource_mut::<benilla_ui::script::UiScript>();
+            let mut script = world.non_send_mut::<benilla_ui::script::UiScript>();
             let refreshes = script.take_quest_giver_refreshes();
             (lines, script.quest_log_latched(7), reasked, refreshes)
         };

@@ -35,7 +35,7 @@ pub enum BlpVariant {
     Cursor,
 }
 
-/// Per-load settings for [`BlpImageLoader`]: choose the [`BlpVariant`] via `load_with_settings`.
+/// Per-load settings for [`BlpImageLoader`]: choose the [`BlpVariant`] via `LoadBuilder::with_settings`.
 #[derive(Default, Clone, Serialize, Deserialize)]
 pub struct BlpLoaderSettings {
     pub variant: BlpVariant,

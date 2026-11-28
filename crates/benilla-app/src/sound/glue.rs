@@ -363,7 +363,7 @@ fn report_stream_voices(music: NonSend<GlueMusic>, mut out: NonSendMut<super::So
 
 pub(super) fn plugin(app: &mut App) {
     app.add_message::<GlueMusicRequest>()
-        .insert_non_send_resource(GlueMusic::default())
+        .insert_non_send(GlueMusic::default())
         .add_systems(
             Update,
             (

@@ -21,7 +21,7 @@
 //! Per window the reference bilerps the camera's corner rays (`0xc7bcd8`) into 6 planes
 //! (`0x6865f0`→`0x686640`): a sub-frustum over the portal chain's screen-space AABB, tested per
 //! object on the whole AABB (`0x682f40`), with no scissor or clip plane. Here the rect is a scale
-//! and offset on clip space, and [`Frustum::from_clip_from_world`] extracts the same planes.
+//! and offset on clip space, and [`ViewFrustum::from_clip_from_world`](bevy::shape::ViewFrustum::from_clip_from_world) extracts the same planes.
 //!
 //! Terrain is tagged per 33.333 yd MCNK cell: a 533 yd tile around the camera reaches every
 //! window's side of the view. The far band keeps its whole-tile box, the reference's far tier.
@@ -111,7 +111,9 @@ pub(crate) fn window_frustum(rect: Rect, clip_from_world: &Mat4) -> Frustum {
         Vec4::new(0.0, 0.0, 1.0, 0.0),
         Vec4::new(-(x0 + x1) / w, -(y0 + y1) / h, 0.0, 1.0),
     );
-    Frustum::from_clip_from_world(&(rect_to_ndc * *clip_from_world))
+    Frustum(bevy::shape::ViewFrustum::from_clip_from_world(
+        &(rect_to_ndc * *clip_from_world),
+    ))
 }
 
 /// [`window_frustum`] behind the open-world walk's entry gate: `0x682fa0` returns before touching a

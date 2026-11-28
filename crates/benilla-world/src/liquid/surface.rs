@@ -61,7 +61,7 @@ impl LiquidPath {
         matches!(self, Self::WmoInterior)
     }
 
-    /// The renderer selector `liquid.wgsl` branches on (`LiquidParams.path.x`).
+    /// The renderer selector `liquid.wesl` branches on (`LiquidParams.path.x`).
     fn shader_id(self) -> f32 {
         match self {
             Self::Adt => 0.0,
@@ -281,9 +281,9 @@ pub(crate) fn spawn_wmo_liquids<'a>(
                 MeshMaterial3d(material),
                 transform,
                 LiquidSurface,
-                // Bit 30 is the interior-fog lane (`liquid.wgsl`'s `room_fog`), written each frame
+                // Bit 30 is the interior-fog lane (`liquid.wesl`'s `room_fog`), written each frame
                 // by the `Visibility` authority off the pool's room; spawned clear.
-                bevy::mesh::MeshTag(0),
+                bevy::mesh::MeshTag::new(0),
                 // Every kind, the lava and slime hum too.
                 LiquidSoundSource {
                     nibble: lq.sound_nibble,
@@ -391,7 +391,7 @@ pub(super) fn setup_liquid(
                         if path.interior_fog() { 1.0 } else { 0.0 },
                         WATER_SHININESS,
                     ),
-                    // Which of the reference's three liquid renderers `liquid.wgsl` runs.
+                    // Which of the reference's three liquid renderers `liquid.wesl` runs.
                     path: Vec4::new(path.shader_id(), 0.0, 0.0, 0.0),
                     // x reserved; y = frame count; z = scroll; w = clock enable (0 on a
                     // deterministic run: frame 0, scroll 0).

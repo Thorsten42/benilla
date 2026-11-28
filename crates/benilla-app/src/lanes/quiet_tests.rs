@@ -56,7 +56,7 @@ fn a_units_health_packet_changes_nothing_but_the_unit() {
 fn world_client() -> (App, crossbeam_channel::Sender<SessionEvent>) {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
     // A system that needs the render world skips here.
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -65,7 +65,7 @@ fn world_client() -> (App, crossbeam_channel::Sender<SessionEvent>) {
     let (inbound, rx) = crossbeam_channel::unbounded();
     app.insert_resource(crate::net::NetEvents::for_test(rx));
     app.update();
-    app.insert_non_send_resource(benilla_ui::script::UiScript::new().expect("a VM"));
+    app.insert_non_send(benilla_ui::script::UiScript::new().expect("a VM"));
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(0x7);

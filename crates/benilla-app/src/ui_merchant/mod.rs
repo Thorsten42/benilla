@@ -660,13 +660,13 @@ pub(crate) mod purse_fixture {
             }
         }
         let world = app.world_mut();
-        let mut script = world.remove_non_send_resource::<UiScript>().expect("a VM");
+        let mut script = world.remove_non_send::<UiScript>().expect("a VM");
         let mut state = bevy::ecs::system::SystemState::<live::MerchantLive>::new(world);
-        let mut family = state.get_mut(world);
+        let mut family = state.get_mut(world).unwrap();
         let r = script.hosted(&mut Host(&mut family), |s| {
             s.eval::<T>(chunk).expect("runs")
         });
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         r
     }
 
@@ -908,9 +908,9 @@ mod tests {
             can_repair: npc_flags & NPC_FLAG_REPAIR != 0,
             ..Default::default()
         }));
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         let mut calls = {
-            let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+            let mut script = app.world_mut().non_send_mut::<UiScript>();
             script.run("RepairAllItems()").unwrap();
             script.take_merchant_calls()
         };
@@ -924,7 +924,7 @@ mod tests {
             )
             .unwrap();
         let sent = rx.try_iter().collect();
-        let lines = shown(app.world().non_send_resource::<UiScript>());
+        let lines = shown(app.world().non_send::<UiScript>());
         (sent, lines, sounded(app.world()))
     }
 
@@ -1004,7 +1004,7 @@ mod tests {
         let (full, discounted) = sword_prices();
         let priced = |slot_field: u16, read: &str| {
             let (mut app, _) = repair_app(slot_field);
-            app.insert_non_send_resource(sword_vm());
+            app.insert_non_send(sword_vm());
             let read_cost = |app: &mut App| live_eval::<i64>(app, read);
             let at_vendor = read_cost(&mut app);
             app.world_mut().resource_mut::<MerchantOpen>().clear();
@@ -1039,7 +1039,7 @@ mod tests {
         const ITEM_FLAGS: u16 = 21;
         const WRAPPED: u32 = 0x8;
         let (mut app, _) = repair_app(FIELD_PLAYER_INV_SLOT_HEAD + 2 * 15);
-        app.insert_non_send_resource(sword_vm());
+        app.insert_non_send(sword_vm());
         let cost = |app: &mut App| {
             live_eval::<i64>(
                 app,
@@ -1084,7 +1084,7 @@ mod tests {
         // A banker open too: the vault's slots read empty to the tooltip without one
         // (`0x6228a0`).
         script.set_bank(Some(benilla_ui::script::BankState::default()));
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
 
         let entity =
             |app: &App, guid: u64| app.world().resource::<crate::net::GuidIndex>().0[&guid];

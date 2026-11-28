@@ -137,15 +137,17 @@ fn tick_clouds(
     };
     if changed {
         if let Some(layer) = clock.as_ref() {
-            if let Some(image) = images.get_mut(&layer.image) {
+            if let Some(mut image) = images.get_mut(&layer.image) {
                 image
                     .data
                     .as_mut()
                     .expect("cpu-side cloud image")
                     .copy_from_slice(cov.kernel.rgba().as_flattened());
-                // Touch the material: a modified Image gets a new GPU texture, and a stale bind
-                // group keeps sampling the first upload.
-                materials.get_mut(&layer.material);
+                // Touch the material (`into_inner` marks it modified): a modified Image can get a
+                // new GPU texture, and a stale bind group keeps sampling the first upload.
+                let _ = materials
+                    .get_mut(&layer.material)
+                    .map(bevy::asset::AssetMut::into_inner);
             }
         }
     }

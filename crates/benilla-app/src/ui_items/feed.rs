@@ -747,7 +747,7 @@ pub(crate) struct VmItemRecords(crate::ui_script::VmMemo<Option<u64>>);
 /// record's lines through the host at the call ([`ItemViewLive`]).
 pub(crate) fn seed_vm_item_records(world: &mut World, script: &mut UiScript) {
     let mut state = bevy::ecs::system::SystemState::<(Option<Res<Items>>, RecordViews)>::new(world);
-    let (items, views) = state.get(world);
+    let (items, views) = state.get(world).unwrap();
     let Some(items) = items else {
         return;
     };
@@ -1933,7 +1933,7 @@ mod ask_tests {
     /// `GetItemInfo(25)` off the VM's copy, with no host lent.
     fn name(app: &mut App) -> Option<String> {
         app.world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>()
+            .non_send_mut::<benilla_ui::script::UiScript>()
             .eval::<Option<String>>("return (GetItemInfo(25))")
             .unwrap()
     }
@@ -1946,10 +1946,10 @@ mod ask_tests {
         app.world_mut()
             .resource_mut::<Items>()
             .insert_template(25, Some(crate::items::test_template("Linen Cloth")));
-        app.insert_non_send_resource(benilla_ui::script::UiScript::new().unwrap());
+        app.insert_non_send(benilla_ui::script::UiScript::new().unwrap());
         app.update();
         assert_eq!(name(&mut app).as_deref(), Some("Linen Cloth"));
-        app.insert_non_send_resource(benilla_ui::script::UiScript::new().unwrap());
+        app.insert_non_send(benilla_ui::script::UiScript::new().unwrap());
         app.update();
         assert_eq!(
             name(&mut app).as_deref(),
@@ -1968,14 +1968,14 @@ mod ask_tests {
             .insert_template(25, Some(crate::items::test_template("Linen Cloth")));
         let mut script = benilla_ui::script::UiScript::new().unwrap();
         super::seed_vm_item_records(app.world_mut(), &mut script);
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         assert_eq!(
             name(&mut app).as_deref(),
             Some("Linen Cloth"),
             "seated at the load"
         );
         app.world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>()
+            .non_send_mut::<benilla_ui::script::UiScript>()
             .drop_item_template(25);
         app.world_mut()
             .resource_mut::<Items>()
@@ -1988,7 +1988,7 @@ mod ask_tests {
         );
         assert_eq!(
             app.world_mut()
-                .non_send_resource_mut::<benilla_ui::script::UiScript>()
+                .non_send_mut::<benilla_ui::script::UiScript>()
                 .eval::<Option<String>>("return (GetItemInfo(26))")
                 .unwrap()
                 .as_deref(),
@@ -2005,7 +2005,7 @@ mod ask_tests {
         app.world_mut()
             .resource_mut::<Items>()
             .insert_template(25, Some(crate::items::test_template("Linen Cloth")));
-        app.insert_non_send_resource(benilla_ui::script::UiScript::new().unwrap());
+        app.insert_non_send(benilla_ui::script::UiScript::new().unwrap());
         app.update();
         assert_eq!(name(&mut app).as_deref(), Some("Linen Cloth"));
         app.world_mut()
@@ -2020,10 +2020,10 @@ mod ask_tests {
     #[test]
     fn get_item_info_never_queries_a_miss() {
         let (mut app, rx) = feed_app();
-        app.insert_non_send_resource(benilla_ui::script::UiScript::new().unwrap());
+        app.insert_non_send(benilla_ui::script::UiScript::new().unwrap());
         let run = |app: &mut App, lua: &str| {
             app.world_mut()
-                .non_send_resource_mut::<benilla_ui::script::UiScript>()
+                .non_send_mut::<benilla_ui::script::UiScript>()
                 .run(lua)
                 .unwrap();
             app.update();
@@ -2069,11 +2069,11 @@ mod ask_tests {
                 ..Default::default()
             },
         );
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.update();
         let line: String = app
             .world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>()
+            .non_send_mut::<benilla_ui::script::UiScript>()
             .eval(
                 r#"
                 local tt = CreateFrame("GameTooltip", "TT", nil, "TestTooltipTemplate")
@@ -2104,7 +2104,7 @@ mod ask_tests {
         .add_systems(Update, super::copy_suffix_template);
         let script = benilla_ui::script::UiScript::new().unwrap();
         script.run(r#"ITEM_SUFFIX_TEMPLATE = "%s -- %s""#).unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.update();
         let name = |app: &App| {
             let props = app.world().resource::<crate::items::RandomProperties>();
@@ -2112,7 +2112,7 @@ mod ask_tests {
         };
         assert_eq!(name(&app), "Robe -- of the Bear");
         app.world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>()
+            .non_send_mut::<benilla_ui::script::UiScript>()
             .run(r#"ITEM_SUFFIX_TEMPLATE = nil"#)
             .unwrap();
         app.update();

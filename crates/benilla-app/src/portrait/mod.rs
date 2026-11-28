@@ -150,7 +150,7 @@ const _: () = assert!(
     GLUE_LAYER > PORTRAIT_LAYER_BASE + SLOTS.len() - 1,
     "booth layers must not overlap the per-slot portrait layers"
 );
-/// The round portraits' bake size, square (the reference bakes 64²); `ui_quad.wgsl`'s `circular`
+/// The round portraits' bake size, square (the reference bakes 64²); `ui_quad.wesl`'s `circular`
 /// cuts the circle at draw time.
 const PORTRAIT_SIZE: u32 = 256;
 /// Stamped by the attach path on every unit-model part child: the part's skinned and static
@@ -916,8 +916,11 @@ pub(crate) fn new_target_image_sized(width: u32, height: u32) -> Image {
 pub(crate) fn booth_view_shape() -> impl Bundle {
     (
         Camera3d::default(),
-        bevy::render::view::Hdr,
+        bevy::camera::Hdr,
         Tonemapping::None,
+        // `None` passes the target through, so a dither would do nothing; `Camera3d` requires
+        // `Enabled`, which Bevy warns about beside `None`.
+        bevy::core_pipeline::tonemapping::DebandDither::Disabled,
         Msaa::Off,
         // No Bevy light reaches a booth, so skip the per-view cluster rebuild.
         bevy::light::cluster::ClusterConfig::None,

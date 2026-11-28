@@ -21,7 +21,7 @@ pub(crate) struct TokenFlagsCarried(benilla_ui::script::TokenFlagsCarry);
 /// deselect (`0x490bdf`).
 pub(crate) fn fold_dying_vm_token_flags(world: &mut World) {
     let Some(carry) = world
-        .get_non_send_resource_mut::<UiScript>()
+        .get_non_send_mut::<UiScript>()
         .map(|mut s| s.take_token_flags())
     else {
         return;
@@ -1057,7 +1057,7 @@ mod tests {
         for guid in seated {
             script.unit_token_flags(guid, benilla_ui::script::TokenChange::Update);
         }
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
     }
 
     fn fired(app: &mut App, notices: &[FieldNotice]) -> Vec<String> {
@@ -1065,7 +1065,7 @@ mod tests {
             .resource_mut::<crate::field_watch::NoticeLane>()
             .write_batch(notices.iter().copied());
         app.world_mut().run_system_once(fire_field_notices).unwrap();
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         s.resolve();
         let out = s.eval::<Vec<String>>("return SEEN").unwrap();
         s.run("SEEN = {}").unwrap();
@@ -1255,7 +1255,7 @@ mod tests {
     fn a_global_notice_fires_bare_and_the_pvp_preference_speaks() {
         let mut app = world(seated());
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run(
                 r#"
                 ERR_PVP_TOGGLE_ON = "on"
@@ -1357,7 +1357,7 @@ mod tests {
             index.0.insert(MOB, mob);
         }
         {
-            let script = app.world_mut().non_send_resource_mut::<UiScript>();
+            let script = app.world_mut().non_send_mut::<UiScript>();
             script
                 .run(
                     r#"
@@ -1392,7 +1392,7 @@ mod tests {
             .resource_mut::<crate::target::Selection>()
             .guid = Some(seated().target);
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .set_unit_guids(&seated());
         assert_eq!(
             fired(&mut app, &[drunk(ME, 60, 40)]),
@@ -1455,7 +1455,7 @@ mod tests {
             crate::net::ObjectStore(benilla_protocol::ObjectFields::from_pairs(&[(36, 0x0101)])),
         ));
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run(
                 r#"ERR_SKILL_GAINED_S = "You have gained the %s skill."
                 ERR_SKILL_UP_SI = "Your skill in %s has increased to %d.""#,
@@ -1560,7 +1560,7 @@ mod tests {
             player: ME,
             ..Default::default()
         });
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         let me = app
             .world_mut()
             .spawn((
@@ -1576,7 +1576,7 @@ mod tests {
     }
 
     fn seen(app: &mut App) -> Vec<String> {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         s.resolve();
         let out = s.eval::<Vec<String>>("return SEEN").unwrap();
         s.run("SEEN = {}").unwrap();
@@ -1626,7 +1626,7 @@ mod tests {
                 player: ME,
                 ..Default::default()
             });
-            app.insert_non_send_resource(reloaded);
+            app.insert_non_send(reloaded);
             reenter(&mut app);
             assert_eq!(
                 seen(&mut app),
@@ -1676,7 +1676,7 @@ mod tests {
             assert_eq!(seen(&mut app), heard, "form {form}: the login");
             let reloaded = UiScript::new().unwrap();
             reloaded.run(spy).unwrap();
-            app.insert_non_send_resource(reloaded);
+            app.insert_non_send(reloaded);
             reenter(&mut app);
             assert_eq!(seen(&mut app), heard, "form {form}: the reload");
         }
@@ -1711,7 +1711,7 @@ mod tests {
                 benilla_formats::FactionCatalog::from_rows(Default::default(), Default::default()),
             ));
             {
-                let s = app.world().non_send_resource::<UiScript>();
+                let s = app.world().non_send::<UiScript>();
                 for file in [
                     r"Interface\FrameXML\GlobalStrings.lua",
                     r"Interface\FrameXML\Fonts.xml",
@@ -1741,7 +1741,7 @@ mod tests {
             }
             app.add_systems(Update, super::super::seat_tokens);
             arrive(&mut app);
-            let s = app.world().non_send_resource::<UiScript>();
+            let s = app.world().non_send::<UiScript>();
             let shown = |frame: &str| {
                 s.eval::<bool>(&format!("return {frame}:IsShown() ~= nil"))
                     .unwrap()

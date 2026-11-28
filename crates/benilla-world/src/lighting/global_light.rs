@@ -118,6 +118,7 @@ pub struct WorldPointLight {
 
 /// The packed light for this frame, extracted for [`upload_light`].
 #[derive(Resource, Clone, Copy, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 struct WowLightData(LightStd430);
 
 impl Default for WowLightData {
@@ -132,6 +133,7 @@ impl Default for WowLightData {
 /// The persistent storage buffer every material binds, created by [`new_shared_light_buffer`] and
 /// extracted to the render world; a `Buffer` clone shares the GPU resource.
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct SharedLightBuffer(pub Buffer);
 
 /// Registers the light pack, the probe publish, their extracts and the render-world uploads.
@@ -174,7 +176,7 @@ pub fn new_shared_light_buffer(device: &RenderDevice) -> SharedLightBuffer {
 
 /// The shared light buffer's full size: the per-frame blob ([`LIGHT_HEADER_ROWS`] rows and the
 /// point table), the interior-prop probe region and the skin-palette regions. Every buffer bound
-/// as `wow_light` must be this big: wgpu validates the bound size against `wow_model.wgsl`'s
+/// as `wow_light` must be this big: wgpu validates the bound size against `wow_model.wesl`'s
 /// whole layout at each draw.
 pub fn light_blob_bytes() -> u64 {
     per_frame_blob_bytes()
@@ -278,7 +280,7 @@ fn build_light_data(
         let now = time.elapsed_secs_f64();
         if now - *last_dump >= every {
             *last_dump = now;
-            // Candidates for the camera chunk's three slots: the Chebyshev box of `terrain.wgsl`'s
+            // Candidates for the camera chunk's three slots: the Chebyshev box of `terrain.wesl`'s
             // `TERRAIN_REACH` (keep in sync), with the 48 yd sphere's count beside it.
             let cell = 533.333_3 / 16.0;
             let half = 32.0 * 533.333_3;
@@ -366,7 +368,7 @@ fn upload_light(
 mod tests {
     use super::*;
 
-    /// `wow_model.wgsl`'s exterior doodad and entity lane over the packed rows gives
+    /// `wow_model.wesl`'s exterior doodad and entity lane over the packed rows gives
     /// `E = A + I·D·(4/17)(0.375 + 2μ + 1.875μ²)`: ambient never scales by the intensity I, and
     /// every sun band scales by it once. `eval_sh_lane` mirrors the WGSL line for line, so a swap
     /// in the shader shows only when the two are read side by side.
@@ -379,7 +381,7 @@ mod tests {
         let mut rows = [[0.0f32; 4]; LIGHT_HEADER_ROWS];
         pack_model_core_rows(&mut rows, ambient, diffuse, sun_dir);
 
-        /// The SH branch of `wow_model.wgsl`'s exterior lane, verbatim.
+        /// The SH branch of `wow_model.wesl`'s exterior lane, verbatim.
         fn eval_sh_lane(rows: &[[f32; 4]; LIGHT_HEADER_ROWS], n: Vec3, intensity: f32) -> [f32; 3] {
             let quad = [n.x * n.y, n.y * n.z, n.z * n.z, n.x * n.z];
             let x2y2 = n.x * n.x - n.y * n.y;

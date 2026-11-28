@@ -12,7 +12,7 @@ use bevy::math::Vec4;
 use bevy::prelude::*;
 use bevy::render::extract_resource::ExtractResource;
 
-/// Capacity of the probe table, mirrored by `wow_model.wgsl`'s `prop_probes` array (keep in sync):
+/// Capacity of the probe table, mirrored by `wow_model.wesl`'s `prop_probes` array (keep in sync):
 /// a city WMO streams in thousands of lit interior props at once.
 pub const MAX_PROP_PROBES: usize = 8192;
 
@@ -156,6 +156,7 @@ impl PropProbes {
 
 /// The render-world mirror of the probe table, an `Arc` bump per frame.
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct PropProbeExtract {
     rows: Arc<Vec<[[f32; 4]; 7]>>,
     high: usize,
@@ -234,18 +235,18 @@ pub(super) fn upload_prop_probes(
     }
 }
 
-/// On one entity per lit interior prop; its hook returns the slot to the table. `on_replace`, not
+/// On one entity per lit interior prop; its hook returns the slot to the table. `on_discard`, not
 /// `on_remove`: an insert over a live slot must free the old one, and `on_remove` never fires on
 /// an overwrite.
 #[derive(Component)]
-#[component(on_replace = free_prop_probe_slot)]
+#[component(on_discard = free_prop_probe_slot)]
 pub struct PropProbeSlot(pub u16);
 
 fn free_prop_probe_slot(mut world: DeferredWorld, ctx: HookContext) {
     let slot = world
         .get::<PropProbeSlot>(ctx.entity)
         .map(|s| s.0)
-        .expect("on_replace runs with the outgoing component still present");
+        .expect("on_discard runs with the outgoing component still present");
     world.resource_mut::<PropProbes>().release(slot);
 }
 

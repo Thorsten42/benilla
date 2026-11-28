@@ -200,7 +200,7 @@ struct ViewReader(SystemState<Option<CastState<'static, 'static>>>);
 /// The live view, `None` in a harness without the cast state.
 fn live_view(world: &mut World) -> Option<CastView> {
     let mut reader = world.remove_resource::<ViewReader>()?;
-    let view = reader.0.get(world).as_ref().map(CastState::view);
+    let view = reader.0.get(world).unwrap().as_ref().map(CastState::view);
     world.insert_resource(reader);
     view
 }
@@ -311,7 +311,7 @@ fn end_cast_views(world: &mut World) {
         let Some(view) = view else {
             return;
         };
-        if let Some(mut script) = world.get_non_send_resource_mut::<UiScript>() {
+        if let Some(mut script) = world.get_non_send_mut::<UiScript>() {
             views.show(&mut script, view);
         }
         views.live = Some(view);

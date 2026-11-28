@@ -17,7 +17,7 @@ fn client() -> (App, Receiver<ClientCommand>) {
     let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
     let (tx, rx) = crossbeam_channel::unbounded();
     app.insert_resource(NetCommands(tx));
-    app.insert_non_send_resource(UiScript::new().expect("a VM"));
+    app.insert_non_send(UiScript::new().expect("a VM"));
     (app, rx)
 }
 
@@ -77,7 +77,7 @@ fn a_chunks_party_verbs_send_in_call_order_with_every_other_verb() {
     // Our player's object and a party we lead: `LeaveParty` (`0x4e9196`) and `ConvertToRaid`
     // (`0x4bbc96`-`0x4bbcbc`) send only then.
     lead(app.world_mut(), 0x10, &[(0x21, "Bob")]);
-    let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut script = app.world_mut().non_send_mut::<UiScript>();
     script.set_unit_guids(&benilla_ui::script::UnitGuids {
         player: 0x10,
         ..Default::default()
@@ -133,7 +133,7 @@ fn invite_to_party_flags_the_grouping_tutorial_before_its_invite() {
         ..Default::default()
     };
     world
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_unit_guids(&benilla_ui::script::UnitGuids {
             player: ME,
             target: BOB,
@@ -167,7 +167,7 @@ fn do_ready_check_shows_its_start_line_inside_the_call() {
     let (mut app, rx) = client();
     let world = app.world_mut();
     lead(world, 0x10, &[]);
-    let script = world.non_send_resource_mut::<UiScript>();
+    let script = world.non_send_mut::<UiScript>();
     script
         .run(
             r#"READY_CHECK_START = "Ready check started."
@@ -225,7 +225,7 @@ fn the_group_verbs_gate_on_the_world_group_at_the_call() {
     lead(world, 0x10, &[]);
     world.resource_mut::<crate::ui_party::GroupState>().leader = 0;
     world
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_party(benilla_ui::script::PartyState {
             members: vec![benilla_ui::script::PartyMemberInfo {
                 name: "Bob".into(),
@@ -252,7 +252,7 @@ fn the_by_name_verbs_find_the_name_in_the_world_group_at_the_call() {
     let (mut app, rx) = client();
     let world = app.world_mut();
     lead(world, 0x10, &[(0x21, "Bob")]);
-    world.non_send_resource_mut::<UiScript>().set_unit(
+    world.non_send_mut::<UiScript>().set_unit(
         "player",
         Some(benilla_ui::script::UnitState {
             exists: true,

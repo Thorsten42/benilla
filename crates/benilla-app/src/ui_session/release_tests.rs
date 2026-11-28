@@ -50,7 +50,7 @@ fn seat(mut app: App) -> (App, Entity) {
     app.insert_resource(crate::net::NetCommands(tx))
         .insert_resource(spells)
         .insert_resource(SelfGuid(Some(ME)))
-        .insert_non_send_resource(crate::ui_script::sweep_test::spied_vm(&[
+        .insert_non_send(crate::ui_script::sweep_test::spied_vm(&[
             "BANKFRAME_CLOSED",
             "MERCHANT_CLOSED",
             "GOSSIP_CLOSED",
@@ -147,12 +147,12 @@ fn a_shapeshift_into_a_form_that_cannot_interact_closes_the_window() {
 #[test]
 fn a_form_change_closes_the_window_after_its_own_signals() {
     let (mut app, _) = seat(crate::game_plugins::schedule_tests::headless_client());
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ))
     .insert_resource(State::new(crate::client_state::ClientState::InWorld));
     let world = app.world_mut();
-    world.insert_non_send_resource(crate::ui_script::sweep_test::spied_vm(&[
+    world.insert_non_send(crate::ui_script::sweep_test::spied_vm(&[
         "UPDATE_BONUS_ACTIONBAR",
         "BANKFRAME_CLOSED",
     ]));

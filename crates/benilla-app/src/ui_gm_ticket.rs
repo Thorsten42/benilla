@@ -503,7 +503,7 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         let mut app = crate::game_plugins::schedule_tests::headless_client();
         app.insert_resource(NetCommands(tx));
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         // Each chunk with the host lent, which sends inside the verb.
         let run = |app: &mut App, lua: &str| {
             crate::script_calls::with_hosted_vm(app.world_mut(), |s| {
@@ -534,7 +534,7 @@ mod tests {
             }
         ));
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .set_gm_survey_tables(benilla_ui::script::GmSurveyTables {
                 id: 6,
                 questions: [28, 29, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -557,7 +557,7 @@ mod tests {
         }
         // `BuySkillTier` on a line its tier prices within the player's points: once.
         {
-            let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+            let mut script = app.world_mut().non_send_mut::<UiScript>();
             script.set_skills(benilla_ui::script::SkillsState {
                 entries: vec![benilla_ui::script::SkillEntry {
                     skill_id: 129,

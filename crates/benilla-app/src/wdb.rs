@@ -91,7 +91,9 @@ const FORMAT: u32 = 1;
 
 /// A store the reference saves: the answer whose body is its record, and how a record read off
 /// disk is filed.
-pub(crate) trait SavedCache: Resource + Default {
+pub(crate) trait SavedCache:
+    Resource<Mutability = bevy::ecs::component::Mutable> + Default
+{
     /// The reference's file name, without `.wdb`.
     const FILE: &'static str;
     /// The reference's tag, the header's first dword (the constructor's first argument, `BOMW` for
@@ -394,7 +396,10 @@ pub(crate) fn free_store_callbacks(world: &mut World) {
 }
 
 /// One resource's lists, where it stands; no reader sees a change, as no record moved.
-fn free<R: Resource>(world: &mut World, free: fn(&mut R)) {
+fn free<R: Resource<Mutability = bevy::ecs::component::Mutable>>(
+    world: &mut World,
+    free: fn(&mut R),
+) {
     if let Some(mut lists) = world.get_resource_mut::<R>() {
         free(lists.bypass_change_detection());
     }

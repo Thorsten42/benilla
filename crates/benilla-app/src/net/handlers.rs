@@ -166,7 +166,10 @@ pub(crate) fn measure(world: &mut World) {
                 .unregister_system(id)
                 .expect("a registered handler")
                 .system();
-            accesses.push((name, system.initialize(world)));
+            accesses.push((
+                name,
+                crate::resource_access::declared(system.initialize(world)),
+            ));
             let again = world.register_boxed_system(system);
             handlers.registered[i].0 = again;
             for list in handlers.by_kind.values_mut() {
@@ -540,12 +543,12 @@ mod tests {
     }
 
     fn raises_in_a_handler(_: In<SessionEvent>, world: &mut World) {
-        let mut ui = world.non_send_resource_mut::<benilla_ui::script::UiScript>();
+        let mut ui = world.non_send_mut::<benilla_ui::script::UiScript>();
         ui.fire_event("PLAYER_MONEY", Vec::new());
     }
 
     fn raises_at_a_packets_end(world: &mut World, _: crate::lanes::Stamp) {
-        let mut ui = world.non_send_resource_mut::<benilla_ui::script::UiScript>();
+        let mut ui = world.non_send_mut::<benilla_ui::script::UiScript>();
         ui.fire_event("PLAYER_MONEY", Vec::new());
     }
 
@@ -558,7 +561,7 @@ mod tests {
     fn armed() -> App {
         let mut app = App::new();
         crate::ui_script::raise_origin::arm_each_frame(&mut app);
-        app.insert_non_send_resource(benilla_ui::script::UiScript::new().expect("a VM"))
+        app.insert_non_send(benilla_ui::script::UiScript::new().expect("a VM"))
             .add_systems(Update, dispatch_a_pong);
         app
     }

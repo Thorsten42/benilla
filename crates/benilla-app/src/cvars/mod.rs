@@ -1141,7 +1141,7 @@ pub(crate) fn fold_dying_vm_cvars(world: &mut World) {
         return;
     }
     let events = world.resource_scope(|world, mut cvars: Mut<Cvars>| {
-        let Some(mut script) = world.get_non_send_resource_mut::<UiScript>() else {
+        let Some(mut script) = world.get_non_send_mut::<UiScript>() else {
             return Vec::new();
         };
         cvars.drain_vm(&mut script);
@@ -2584,7 +2584,7 @@ mod tests {
         app.update();
         let changed = Instant::now();
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run(r#"SetCVar("MusicVolume", 0.75)"#)
             .unwrap();
         app.update();
@@ -2629,7 +2629,7 @@ mod tests {
         assert_eq!(res::<Cvars>(&app).get("accountName"), Some("PLAYER"));
         let glue = app
             .world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<String>("return GetCVar('accountName')")
             .unwrap();
         assert_eq!(glue, "PLAYER", "the VM's mirror has it");
@@ -2738,7 +2738,7 @@ mod tests {
         assert_eq!(app.world().resource::<SoundConfig>().music, 0.1);
         assert_eq!(
             app.world_mut()
-                .non_send_resource_mut::<UiScript>()
+                .non_send_mut::<UiScript>()
                 .cvar("MusicVolume")
                 .as_deref(),
             Some("0.1")
@@ -2746,7 +2746,7 @@ mod tests {
 
         // The Lua write (what a settings slider will do) reaches the knob on the next frame…
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run(r#"SetCVar("MusicVolume", 0.75)"#)
             .unwrap();
         app.update();
@@ -2905,7 +2905,7 @@ mod tests {
             .init_resource::<crate::creature_anim::blood::ViolenceLevel>()
             .init_resource::<crate::player::Approach>()
             .add_plugins(CvarPlugin);
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         app
     }
 
@@ -3186,7 +3186,7 @@ mod tests {
             (z.outdoor, z.inside)
         };
         {
-            let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+            let mut script = app.world_mut().non_send_mut::<UiScript>();
             assert_eq!(script.cvar("minimapZoom").as_deref(), Some("5"));
             // The widget is born first, then the persisted level is pushed into it: seeding a
             // widget that does not exist is a no-op.
@@ -3207,7 +3207,7 @@ mod tests {
         );
 
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("m:SetZoom(1)")
             .unwrap();
         app.update();
@@ -3761,13 +3761,13 @@ mod tests {
     #[test]
     fn the_engine_cvar_verbs_run_their_callbacks_inside_the_call() {
         let mut app = crate::game_plugins::schedule_tests::headless_client();
-        app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+        app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
             bevy::ecs::error::ignore,
         ));
         let (tx, _rx) = crossbeam_channel::unbounded();
         app.insert_resource(crate::net::NetCommands(tx));
         app.update();
-        app.insert_non_send_resource(UiScript::new().expect("a VM"));
+        app.insert_non_send(UiScript::new().expect("a VM"));
         // The registry seeds the new VM's mirror.
         app.update();
         let window: String = crate::script_calls::with_hosted_vm(app.world_mut(), |s| {
@@ -3804,7 +3804,7 @@ mod tests {
     #[test]
     fn an_okay_with_a_new_resolution_and_multisample_commits_both() {
         let mut app = crate::game_plugins::schedule_tests::headless_client();
-        app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+        app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
             bevy::ecs::error::ignore,
         ));
         let (tx, _rx) = crossbeam_channel::unbounded();
@@ -3816,7 +3816,7 @@ mod tests {
         let mut script = UiScript::new().expect("a VM");
         let size = |width, height| benilla_ui::script::ScreenResolution { width, height };
         script.set_screen_resolutions(vec![size(800, 600), size(1024, 768)], Some(size(800, 600)));
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.update();
         let (resolution, samples): (String, String) =
             crate::script_calls::with_hosted_vm(app.world_mut(), |s| {

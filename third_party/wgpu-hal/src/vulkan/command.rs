@@ -138,8 +138,9 @@ impl crate::CommandEncoder for super::CommandEncoder {
         // previous name assigned to this.
         unsafe { self.device.set_object_name(raw, label.unwrap_or_default()) };
 
-        // Reset this in case the last renderpass was never ended.
+        // Reset some state in case the last renderpass was never ended.
         self.rpass_debug_marker_active = false;
+        self.end_of_pass_timer_query = None;
 
         let vk_info = vk::CommandBufferBeginInfo::default()
             .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
@@ -284,7 +285,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
         if self.device.workarounds.contains(
             super::Workarounds::FORCE_FILL_BUFFER_WITH_SIZE_GREATER_4096_ALIGNED_OFFSET_16,
         ) && range_size >= 4096
-            && range.start % 16 != 0
+            && !range.start.is_multiple_of(16)
         {
             let rounded_start = wgt::math::align_to(range.start, 16);
             let prefix_size = rounded_start - range.start;
@@ -609,7 +610,8 @@ impl crate::CommandEncoder for super::CommandEncoder {
                                 // index buffer we need to have IndexType::NONE_KHR as our index type.
                                 .index_type(vk::IndexType::NONE_KHR)
                                 .vertex_data(vk::DeviceOrHostAddressConstKHR {
-                                    device_address: get_device_address(triangles.vertex_buffer),
+                                    device_address: get_device_address(triangles.vertex_buffer)
+                                        + (triangles.first_vertex as u64 * triangles.vertex_stride),
                                 })
                                 .vertex_format(conv::map_vertex_format(triangles.vertex_format))
                                 .max_vertex(triangles.vertex_count)
@@ -626,12 +628,9 @@ impl crate::CommandEncoder for super::CommandEncoder {
 
                             range = range
                                 .primitive_count(indices.count / 3)
-                                .primitive_offset(indices.offset)
-                                .first_vertex(triangles.first_vertex);
+                                .primitive_offset(indices.offset);
                         } else {
-                            range = range
-                                .primitive_count(triangles.vertex_count / 3)
-                                .first_vertex(triangles.first_vertex);
+                            range = range.primitive_count(triangles.vertex_count / 3);
                         }
 
                         if let Some(ref transform) = triangles.transform {
@@ -772,6 +771,12 @@ impl crate::CommandEncoder for super::CommandEncoder {
             )
         };
     }
+
+    unsafe fn set_acceleration_structure_dependencies(
+        _command_buffers: &[&super::CommandBuffer],
+        _dependencies: &[&super::AccelerationStructure],
+    ) {
+    }
     // render
 
     unsafe fn begin_render_pass(
@@ -784,7 +789,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
             colors: ArrayVec::default(),
             depth_stencil: None,
             sample_count: desc.sample_count,
-            multiview: desc.multiview,
+            multiview_mask: desc.multiview_mask,
         };
         let mut fb_key = super::FramebufferKey {
             raw_pass: vk::RenderPass::null(),
@@ -813,10 +818,11 @@ impl crate::CommandEncoder for super::CommandEncoder {
                 });
                 let color = super::ColorAttachmentKey {
                     base: cat.target.make_attachment_key(cat.ops),
-                    resolve: cat
-                        .resolve_target
-                        .as_ref()
-                        .map(|target| target.make_attachment_key(crate::AttachmentOps::STORE)),
+                    resolve: cat.resolve_target.as_ref().map(|target| {
+                        target.make_attachment_key(
+                            crate::AttachmentOps::LOAD_CLEAR | crate::AttachmentOps::STORE,
+                        )
+                    }),
                 };
 
                 rp_key.colors.push(Some(color));
@@ -824,15 +830,6 @@ impl crate::CommandEncoder for super::CommandEncoder {
                 if let Some(ref at) = cat.resolve_target {
                     vk_clear_values.push(unsafe { mem::zeroed() });
                     fb_key.push_view(at.view.identified_raw_view());
-                }
-
-                // Assert this attachment is valid for the detected multiview, as a sanity check
-                // The driver crash for this is really bad on AMD, so the check is worth it
-                if let Some(multiview) = desc.multiview {
-                    assert_eq!(cat.target.view.layers, multiview);
-                    if let Some(ref resolve_target) = cat.resolve_target {
-                        assert_eq!(resolve_target.view.layers, multiview);
-                    }
                 }
             } else {
                 rp_key.colors.push(None);
@@ -850,12 +847,6 @@ impl crate::CommandEncoder for super::CommandEncoder {
                 stencil_ops: ds.stencil_ops,
             });
             fb_key.push_view(ds.target.view.identified_raw_view());
-
-            // Assert this attachment is valid for the detected multiview, as a sanity check
-            // The driver crash for this is really bad on AMD, so the check is worth it
-            if let Some(multiview) = desc.multiview {
-                assert_eq!(ds.target.view.layers, multiview);
-            }
         }
 
         let render_area = vk::Rect2D {
@@ -942,7 +933,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
         group: &super::BindGroup,
         dynamic_offsets: &[wgt::DynamicOffset],
     ) {
-        let sets = [*group.set.raw()];
+        let sets = [group.set.raw()];
         unsafe {
             self.device.raw.cmd_bind_descriptor_sets(
                 self.active,
@@ -954,10 +945,9 @@ impl crate::CommandEncoder for super::CommandEncoder {
             )
         };
     }
-    unsafe fn set_push_constants(
+    unsafe fn set_immediates(
         &mut self,
         layout: &super::PipelineLayout,
-        stages: wgt::ShaderStages,
         offset_bytes: u32,
         data: &[u32],
     ) {
@@ -965,7 +955,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
             self.device.raw.cmd_push_constants(
                 self.active,
                 layout.raw,
-                conv::map_shader_stage(stages),
+                vk::ShaderStageFlags::ALL,
                 offset_bytes,
                 bytemuck::cast_slice(data),
             )
@@ -994,6 +984,7 @@ impl crate::CommandEncoder for super::CommandEncoder {
 
     unsafe fn set_render_pipeline(&mut self, pipeline: &super::RenderPipeline) {
         unsafe {
+            self.current_pipeline_is_multiview = pipeline.is_multiview;
             self.device.raw.cmd_bind_pipeline(
                 self.active,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -1081,6 +1072,12 @@ impl crate::CommandEncoder for super::CommandEncoder {
         first_instance: u32,
         instance_count: u32,
     ) {
+        if self.current_pipeline_is_multiview
+            && (first_instance as u64 + instance_count as u64 - 1)
+                > self.device.private_caps.multiview_instance_index_limit as u64
+        {
+            panic!("This vulkan device is affected by [#8333](https://github.com/gfx-rs/wgpu/issues/8333)");
+        }
         unsafe {
             self.device.raw.cmd_draw(
                 self.active,
@@ -1099,6 +1096,12 @@ impl crate::CommandEncoder for super::CommandEncoder {
         first_instance: u32,
         instance_count: u32,
     ) {
+        if self.current_pipeline_is_multiview
+            && (first_instance as u64 + instance_count as u64 - 1)
+                > self.device.private_caps.multiview_instance_index_limit as u64
+        {
+            panic!("This vulkan device is affected by [#8333](https://github.com/gfx-rs/wgpu/issues/8333)");
+        }
         unsafe {
             self.device.raw.cmd_draw_indexed(
                 self.active,
@@ -1130,15 +1133,35 @@ impl crate::CommandEncoder for super::CommandEncoder {
         offset: wgt::BufferAddress,
         draw_count: u32,
     ) {
-        unsafe {
-            self.device.raw.cmd_draw_indirect(
-                self.active,
-                buffer.raw,
-                offset,
-                draw_count,
-                size_of::<wgt::DrawIndirectArgs>() as u32,
-            )
-        };
+        if draw_count >= 1
+            && self.device.private_caps.multi_draw_indirect
+            && draw_count <= self.device.private_caps.max_draw_indirect_count
+        {
+            unsafe {
+                self.device.raw.cmd_draw_indirect(
+                    self.active,
+                    buffer.raw,
+                    offset,
+                    draw_count,
+                    size_of::<wgt::DrawIndirectArgs>() as u32,
+                )
+            };
+        } else {
+            for i in 0..draw_count {
+                let indirect_offset = offset
+                    + i as wgt::BufferAddress
+                        * size_of::<wgt::DrawIndirectArgs>() as wgt::BufferAddress;
+                unsafe {
+                    self.device.raw.cmd_draw_indirect(
+                        self.active,
+                        buffer.raw,
+                        indirect_offset,
+                        1,
+                        size_of::<wgt::DrawIndirectArgs>() as u32,
+                    )
+                };
+            }
+        }
     }
     unsafe fn draw_indexed_indirect(
         &mut self,
@@ -1146,7 +1169,10 @@ impl crate::CommandEncoder for super::CommandEncoder {
         offset: wgt::BufferAddress,
         draw_count: u32,
     ) {
-        if draw_count >= 1 && self.device.private_caps.multi_draw_indirect {
+        if draw_count >= 1
+            && self.device.private_caps.multi_draw_indirect
+            && draw_count <= self.device.private_caps.max_draw_indirect_count
+        {
             unsafe {
                 self.device.raw.cmd_draw_indexed_indirect(
                     self.active,
@@ -1157,12 +1183,15 @@ impl crate::CommandEncoder for super::CommandEncoder {
                 )
             };
         } else {
-            for _ in 0..draw_count {
+            for i in 0..draw_count {
+                let indirect_offset = offset
+                    + i as wgt::BufferAddress
+                        * size_of::<wgt::DrawIndexedIndirectArgs>() as wgt::BufferAddress;
                 unsafe {
                     self.device.raw.cmd_draw_indexed_indirect(
                         self.active,
                         buffer.raw,
-                        offset,
+                        indirect_offset,
                         1,
                         size_of::<wgt::DrawIndexedIndirectArgs>() as u32,
                     )
@@ -1312,19 +1341,111 @@ impl crate::CommandEncoder for super::CommandEncoder {
         };
     }
 
-    unsafe fn dispatch(&mut self, count: [u32; 3]) {
+    unsafe fn dispatch_workgroups(&mut self, count: [u32; 3]) {
         unsafe {
             self.device
                 .raw
                 .cmd_dispatch(self.active, count[0], count[1], count[2])
         };
     }
-    unsafe fn dispatch_indirect(&mut self, buffer: &super::Buffer, offset: wgt::BufferAddress) {
+    unsafe fn dispatch_workgroups_indirect(
+        &mut self,
+        buffer: &super::Buffer,
+        offset: wgt::BufferAddress,
+    ) {
         unsafe {
             self.device
                 .raw
                 .cmd_dispatch_indirect(self.active, buffer.raw, offset)
         }
+    }
+
+    // ray tracing
+
+    unsafe fn begin_ray_tracing_pass(&mut self, desc: &crate::RayTracingPassDescriptor<'_>) {
+        self.bind_point = vk::PipelineBindPoint::RAY_TRACING_KHR;
+        if let Some(label) = desc.label {
+            unsafe { self.begin_debug_marker(label) };
+            self.rpass_debug_marker_active = true;
+        }
+    }
+    unsafe fn end_ray_tracing_pass(&mut self) {
+        if self.rpass_debug_marker_active {
+            unsafe { self.end_debug_marker() };
+            self.rpass_debug_marker_active = false
+        }
+    }
+
+    unsafe fn trace_rays(
+        &mut self,
+        count: [u32; 3],
+        ray_generation_group_data: crate::PipelineGroupData<super::Buffer>,
+        miss_group_data: crate::PipelineGroupData<super::Buffer>,
+        intersection_group_data: crate::PipelineGroupData<super::Buffer>,
+    ) {
+        let ray_tracing_functions = self
+            .device
+            .extension_fns
+            .ray_tracing
+            .as_ref()
+            .expect("Feature `EXPERIMENTAL_RAY_TRACING` not enabled");
+
+        let ray_tracing_pipeline_functions = self
+            .device
+            .extension_fns
+            .ray_tracing_pipelines
+            .as_ref()
+            .expect("Feature `EXPERIMENTAL_RAY_TRACING_PIPELINES` not enabled");
+
+        let get_device_address = |buffer: &super::Buffer| unsafe {
+            ray_tracing_functions
+                .buffer_device_address
+                .get_buffer_device_address(
+                    &vk::BufferDeviceAddressInfo::default().buffer(buffer.raw),
+                )
+        };
+
+        unsafe {
+            ray_tracing_pipeline_functions.cmd_trace_rays(
+                self.raw_handle(),
+                &vk::StridedDeviceAddressRegionKHR {
+                    device_address: get_device_address(ray_generation_group_data.buffer)
+                        + ray_generation_group_data.offset,
+                    stride: ray_generation_group_data.stride,
+                    size: ray_generation_group_data.stride /* no need for multiplying by count, vulkan requires the ray gen sbt to be just one group */,
+                },
+                &vk::StridedDeviceAddressRegionKHR {
+                    device_address: get_device_address(miss_group_data.buffer)
+                        + miss_group_data.offset,
+                    stride: miss_group_data.stride,
+                    size: miss_group_data.stride * miss_group_data.count,
+                },
+                &vk::StridedDeviceAddressRegionKHR {
+                    device_address: get_device_address(intersection_group_data.buffer)
+                        + intersection_group_data.offset,
+                    stride: intersection_group_data.stride,
+                    size: intersection_group_data.stride * intersection_group_data.count,
+                },
+                &vk::StridedDeviceAddressRegionKHR {
+                    device_address: 0,
+                    stride: 0,
+                    size: 0,
+                },
+                count[0],
+                count[1],
+                count[2],
+            )
+        };
+    }
+
+    unsafe fn set_ray_tracing_pipeline(&mut self, pipeline: &super::RayTracingPipeline) {
+        unsafe {
+            self.device.raw.cmd_bind_pipeline(
+                self.active,
+                vk::PipelineBindPoint::RAY_TRACING_KHR,
+                pipeline.raw,
+            )
+        };
     }
 
     unsafe fn copy_acceleration_structure_to_acceleration_structure(

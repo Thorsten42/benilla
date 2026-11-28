@@ -599,7 +599,7 @@ pub(crate) struct UiModelsPlugin;
 impl Plugin for UiModelsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<UiModelTiles>()
-            .init_non_send_resource::<TileState>()
+            .init_non_send::<TileState>()
             .add_systems(Startup, setup_tiles)
             // Ahead of the extract, which publishes the tile requests (`paint_script`).
             .add_systems(
@@ -712,7 +712,7 @@ fn setup_tiles(
 }
 
 /// `pipe_warm`'s orthographic twin of [`setup_tiles`]' camera, kept in its shape: bevy_pbr keys
-/// mesh pipelines on the projection class (`bevy_pbr-0.18.1` `render/mesh.rs:397`). The real one
+/// mesh pipelines on the projection class (`bevy_pbr-0.20.1` `render/mesh.rs:465`). The real one
 /// is not borrowed, since switching it on would draw the warm models into the live atlas.
 pub(crate) fn spawn_warm_tile_cam(
     commands: &mut Commands,
@@ -1307,9 +1307,9 @@ fn sync_tiles(
                     if *pvis != want {
                         *pvis = want;
                     }
-                    let bits = benilla_world::mesh_tag::with_alpha(tag.0, a);
-                    if tag.0 != bits {
-                        tag.0 = bits;
+                    let bits = benilla_world::mesh_tag::with_alpha(tag.value, a);
+                    if tag.value != bits {
+                        tag.value = bits;
                     }
                 }
             }
@@ -1972,7 +1972,7 @@ fn build_tile(
         let mut child = commands.spawn((
             Mesh3d(mesh),
             MeshMaterial3d(part_mats[i].clone()),
-            MeshTag(benilla_world::mesh_tag::spawn_tag(tag_slot, 1.0)),
+            MeshTag::new(benilla_world::mesh_tag::spawn_tag(tag_slot, 1.0)),
             Transform::IDENTITY,
             layer.clone(),
             ChildOf(root),

@@ -2587,12 +2587,12 @@ fn the_chat_cache_restore_is_finished_before_player_login() {
     crate::ui_script::load_ingame_ui_on_world_entry(&mut world);
     // The cascade, as the unit feed runs it once the player is in the world.
     world
-        .non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .non_send_mut::<benilla_ui::script::UiScript>()
         .fire_world_enter();
 
     let read = |expr: &str| -> String {
         world
-            .non_send_resource::<benilla_ui::script::UiScript>()
+            .non_send::<benilla_ui::script::UiScript>()
             .eval::<Option<String>>(&format!("return tostring({expr})"))
             .ok()
             .flatten()
@@ -2652,7 +2652,7 @@ const SYSTEM_TAP: &str = r#"
 
 /// The `CHAT_MSG_SYSTEM` texts [`SYSTEM_TAP`] has seen, emptied for the next read.
 fn system_lines(world: &mut bevy::prelude::World) -> Vec<String> {
-    let script = world.non_send_resource::<benilla_ui::script::UiScript>();
+    let script = world.non_send::<benilla_ui::script::UiScript>();
     let lines: Vec<String> = script.lua().globals().get("SYSTEM").expect("the tap is in");
     script
         .lua()
@@ -2894,7 +2894,7 @@ fn a_channel_number_sends_as_the_walk_and_the_notices_leave_its_slot() {
             })
             .collect();
         let script = world
-            .remove_non_send_resource::<benilla_ui::script::UiScript>()
+            .remove_non_send::<benilla_ui::script::UiScript>()
             .expect("the VM");
         (sent, script)
     };
@@ -3059,7 +3059,7 @@ fn chat_sends_as(
     super::run_chat(&mut world, REFUSAL_TAP).expect("the tap is in");
     super::run_chat(&mut world, lua).expect("lua");
     let refused = world
-        .non_send_resource::<benilla_ui::script::UiScript>()
+        .non_send::<benilla_ui::script::UiScript>()
         .eval::<Vec<String>>("return REFUSED")
         .expect("the tap reads");
     (
@@ -3542,7 +3542,7 @@ fn the_call_host_applies_the_chat_calls_inside_the_verb() {
     let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
     let (tx, rx) = crossbeam_channel::unbounded();
     app.insert_resource(NetCommands(tx));
-    app.world_mut().insert_non_send_resource(in_world_vm());
+    app.world_mut().insert_non_send(in_world_vm());
     // `SendChatMessage` needs the player object (`0x49f219`).
     crate::test_support::hold_self_player(app.world_mut(), 0x7, &[]);
     let sent_at_each_line = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
@@ -3580,7 +3580,7 @@ fn an_away_lines_listener_sends_ahead_of_the_packets_after_it() {
     let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
     let (tx, rx) = crossbeam_channel::unbounded();
     app.insert_resource(NetCommands(tx));
-    app.world_mut().insert_non_send_resource(in_world_vm());
+    app.world_mut().insert_non_send(in_world_vm());
     // Alive (`UNIT_FIELD_HEALTH`), so the say passes the dead check (`0x49f592`).
     crate::test_support::hold_self_player(app.world_mut(), 0x7, &[(22, 100)]);
     crate::script_calls::with_hosted_vm(app.world_mut(), |s| {
@@ -3945,7 +3945,7 @@ fn unit_combat_fires_at_its_place_in_the_drain() {
     let mut feed = super::notice_tests::Feed::new();
     feed.world.resource_mut::<crate::net::SelfGuid>().0 = Some(7);
     feed.world
-        .non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .non_send_mut::<benilla_ui::script::UiScript>()
         .set_unit_guids(&benilla_ui::script::UnitGuids {
             player: 7,
             ..Default::default()
@@ -4002,7 +4002,7 @@ fn unit_combat_fires_for_every_token_naming_the_unit() {
     let mut feed = super::notice_tests::Feed::new();
     feed.world.resource_mut::<crate::net::SelfGuid>().0 = Some(7);
     feed.world
-        .non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .non_send_mut::<benilla_ui::script::UiScript>()
         .set_unit_guids(&benilla_ui::script::UnitGuids {
             player: 7,
             pet: 9,
@@ -4209,12 +4209,12 @@ fn the_combat_edge_and_the_regen_notice_fire_in_their_packets_order() {
         "#,
         )
         .unwrap();
-        world.insert_non_send_resource(s);
+        world.insert_non_send(s);
 
         crate::net::handlers::dispatch(world, packets);
         crate::lanes::fire_in_order(world);
         let order = world
-            .non_send_resource::<benilla_ui::script::UiScript>()
+            .non_send::<benilla_ui::script::UiScript>()
             .eval::<String>("return table.concat(Heard, ' ')")
             .unwrap();
         assert_eq!(order, heard);
@@ -4325,12 +4325,12 @@ fn a_notices_chat_line_shows_where_the_notice_fires() {
         "#,
         )
         .unwrap();
-        world.insert_non_send_resource(s);
+        world.insert_non_send(s);
 
         crate::net::handlers::dispatch(world, packets);
         crate::lanes::fire_in_order(world);
         let order = world
-            .non_send_resource::<benilla_ui::script::UiScript>()
+            .non_send::<benilla_ui::script::UiScript>()
             .eval::<String>("return table.concat(Heard, ' ')")
             .unwrap();
         assert_eq!(order, heard);

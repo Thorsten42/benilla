@@ -36,7 +36,7 @@ pub(super) fn install_glue_side_vm(world: &mut World, screen: &str) {
 /// (`ui_chat::commands`), no frames and no font objects.
 fn install_boot_vm(world: &mut World) {
     if let Some(script) = strings_vm(world) {
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
     }
 }
 
@@ -107,7 +107,7 @@ fn install_glue_vm(world: &mut World, screen: Option<&str>) -> bool {
             "return type(CharacterSelect) == 'table' and type(CharacterSelect_OnShow) == 'function'",
         )
         .unwrap_or(false);
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     charselect
 }
 
@@ -130,7 +130,7 @@ pub(crate) fn seed_billing(world: &World, script: &mut UiScript) {
 fn start_server_alert(world: &mut World, script: &UiScript) {
     let url = script.global_text("SERVER_ALERT_URL");
     if let Some(fetch) = super::server_alert::begin_once(&url) {
-        if let Some(shared) = world.get_non_send_resource::<super::glue_mgr::SharedGlueMgr>() {
+        if let Some(shared) = world.get_non_send::<super::glue_mgr::SharedGlueMgr>() {
             shared.get_mut().set_alert_fetch(fetch);
         }
     }
@@ -142,7 +142,7 @@ fn start_server_alert(world: &mut World, script: &UiScript) {
 /// change) seats the same cells unread, and only the accepts write them.
 fn seed_agreements(world: &mut World, script: &mut UiScript) {
     let Some(shared) = world
-        .get_non_send_resource::<super::glue_mgr::SharedGlueMgr>()
+        .get_non_send::<super::glue_mgr::SharedGlueMgr>()
         .cloned()
     else {
         return;
@@ -169,13 +169,13 @@ fn new_vm<E: std::fmt::Display>(
     // The client globals the VM holds that no rebuild resets: `[0xcf4d24]`, written only by
     // `SetEuropeanNumbers` (`0x771c40`), outlives a `ReloadUI` and a logout.
     let european_numbers = world
-        .get_non_send_resource::<UiScript>()
+        .get_non_send::<UiScript>()
         .is_some_and(UiScript::european_numbers);
     let mut script = match make() {
         Ok(s) => s,
         Err(e) => {
             error!("ui_script: VM init failed: {e}");
-            world.remove_non_send_resource::<UiScript>();
+            world.remove_non_send::<UiScript>();
             return None;
         }
     };
@@ -346,8 +346,8 @@ pub(crate) struct ParkedGlueVm(UiScript);
 /// `OnEnter(InWorld)`: arm the deferred entry load and park the glue VM.
 pub(crate) fn arm_entry_ui_load(world: &mut World) {
     world.insert_resource(PendingEntryUiLoad);
-    if let Some(vm) = world.remove_non_send_resource::<UiScript>() {
-        world.insert_non_send_resource(ParkedGlueVm(vm));
+    if let Some(vm) = world.remove_non_send::<UiScript>() {
+        world.insert_non_send(ParkedGlueVm(vm));
     }
 }
 
@@ -362,14 +362,14 @@ fn mint_entry_vm(world: &mut World) {
     crate::cvars::fold_dying_vm_cvars(world);
     if let Some(mut script) = new_vm(world, UiScript::new) {
         crate::ui_macro::install_icon_source(world, &mut script);
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
     }
 }
 
 /// Put the parked glue VM back into the world, if one is parked.
 fn unpark_glue_vm(world: &mut World) {
-    if let Some(ParkedGlueVm(vm)) = world.remove_non_send_resource::<ParkedGlueVm>() {
-        world.insert_non_send_resource(vm);
+    if let Some(ParkedGlueVm(vm)) = world.remove_non_send::<ParkedGlueVm>() {
+        world.insert_non_send(vm);
     }
 }
 
@@ -441,7 +441,7 @@ pub(crate) fn run_pending_entry_load(world: &mut World) {
         start.elapsed().as_secs_f32() * 1000.0,
         covering,
         world
-            .get_non_send_resource::<UiScript>()
+            .get_non_send::<UiScript>()
             .map_or(0, UiScript::session),
     );
 }
@@ -521,7 +521,7 @@ fn load_ingame_ui_seated(world: &mut World, seat: LoadSeat) {
         // A capture without the UI enters on a boot VM, since the glue VM's frames would paint
         // the login screen over the world; a reload already holds one.
         if world
-            .get_non_send_resource::<UiScript>()
+            .get_non_send::<UiScript>()
             .is_some_and(|s| s.vm_kind() == benilla_ui::script::VmKind::Glue)
         {
             crate::cvars::fold_dying_vm_cvars(world);
@@ -531,7 +531,7 @@ fn load_ingame_ui_seated(world: &mut World, seat: LoadSeat) {
     }
     mint_entry_vm(world);
     crate::player::camera_at_interface_load(world);
-    let Some(mut script) = world.remove_non_send_resource::<UiScript>() else {
+    let Some(mut script) = world.remove_non_send::<UiScript>() else {
         warn!("ui_script: entering the world with no VM — the in-game UI will not load");
         return;
     };
@@ -753,7 +753,7 @@ fn load_ingame_ui_seated(world: &mut World, seat: LoadSeat) {
     }
     // The load is over: disarm its instruction bound, so no handler is killed for being slow.
     script.clear_instruction_budget();
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     world.insert_resource(AddOnIdentity(identity));
     // Arm the world latch, the reference's `0x490168 call 0x4908c0`: a reload creates no entity
     // to re-arm it, so without this a second `/reload` would not fire `PLAYER_LEAVING_WORLD`. Only
@@ -854,14 +854,14 @@ pub(crate) struct AddOnIdentity(pub(crate) Option<(String, String)>);
 /// `0x490cd9` → `0x458f60`), around the whole of it, on the VM in the world: `true` when entered.
 fn silence_ui_shutdown(world: &World) -> bool {
     world
-        .get_non_send_resource::<UiScript>()
+        .get_non_send::<UiScript>()
         .map(UiScript::push_sound_suppression)
         .is_some()
 }
 
 /// Leave [`silence_ui_shutdown`]'s scope on the same VM.
 fn unsilence_ui_shutdown(world: &World) {
-    if let Some(script) = world.get_non_send_resource::<UiScript>() {
+    if let Some(script) = world.get_non_send::<UiScript>() {
         script.pop_sound_suppression();
     }
 }
@@ -1223,7 +1223,7 @@ pub(crate) fn shutdown_on_exit(
     world: &mut World,
     exits: &mut bevy::ecs::system::SystemState<MessageReader<AppExit>>,
 ) {
-    if exits.get_mut(world).read().next().is_none() {
+    if exits.get_mut(world).unwrap().read().next().is_none() {
         return;
     }
     let in_world = world
@@ -1413,7 +1413,7 @@ mod tests {
         let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
         // The whole schedule, with no world loaded: a system missing what world entry inserts
         // (the camera rig, the map) skips rather than panics.
-        app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+        app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
             bevy::ecs::error::ignore,
         ));
         let notes: Rc<RefCell<Vec<String>>> = Rc::default();
@@ -1444,7 +1444,7 @@ mod tests {
                  end)",
             )
             .expect("the recorder installs");
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.world_mut()
             .run_schedule(OnExit(crate::client_state::ClientState::InWorld));
         assert_eq!(*notes.borrow(), ["logout TRACK", "clear", "clear"]);
@@ -1459,7 +1459,7 @@ mod tests {
         use std::rc::Rc;
 
         let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
-        app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+        app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
             bevy::ecs::error::ignore,
         ));
         app.insert_resource(crate::cinematic::Cinematic::playing_for_test());
@@ -1484,7 +1484,7 @@ mod tests {
                  f:SetScript('OnEvent', function() Note(event) end)",
             )
             .expect("the recorder installs");
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.world_mut()
             .run_schedule(OnExit(crate::client_state::ClientState::InWorld));
         assert_eq!(
@@ -1699,9 +1699,9 @@ mod tests {
         let mut world = World::new();
         let first = UiScript::new().unwrap();
         assert!(!first.european_numbers(), "off at boot");
-        world.insert_non_send_resource(first);
+        world.insert_non_send(first);
         let text = |world: &World| {
-            let script = world.non_send_resource::<UiScript>();
+            let script = world.non_send::<UiScript>();
             script
                 .run(
                     "F = CreateFrame('Frame'):CreateFontString() \
@@ -1711,20 +1711,20 @@ mod tests {
             script.eval::<String>("return F:GetText()").unwrap()
         };
         world
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run("SetEuropeanNumbers(1)")
             .unwrap();
         for _ in 0..2 {
             let next = new_vm(&mut world, UiScript::new).expect("a VM");
-            world.insert_non_send_resource(next);
+            world.insert_non_send(next);
             assert_eq!(text(&world), "1,5");
         }
         world
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run("SetEuropeanNumbers(false)")
             .unwrap();
         let next = new_vm(&mut world, UiScript::new).expect("a VM");
-        world.insert_non_send_resource(next);
+        world.insert_non_send(next);
         assert_eq!(text(&world), "1.5");
     }
 
@@ -1733,21 +1733,21 @@ mod tests {
         let mut world = World::new();
         let boot = UiScript::new().unwrap();
         let session = boot.session();
-        world.insert_non_send_resource(boot);
+        world.insert_non_send(boot);
         arm_entry_ui_load(&mut world);
         assert!(
-            world.get_non_send_resource::<UiScript>().is_none(),
+            world.get_non_send::<UiScript>().is_none(),
             "no VM in the deferral window"
         );
         assert!(world.get_resource::<PendingEntryUiLoad>().is_some());
-        assert!(world.get_non_send_resource::<ParkedGlueVm>().is_some());
+        assert!(world.get_non_send::<ParkedGlueVm>().is_some());
         // Left the world before the load ran: the VM comes back, untouched.
         unpark_glue_vm(&mut world);
         let vm = world
-            .get_non_send_resource::<UiScript>()
+            .get_non_send::<UiScript>()
             .expect("the parked VM is back");
         assert_eq!(vm.session(), session, "the same VM, no session moved");
-        assert!(world.get_non_send_resource::<ParkedGlueVm>().is_none());
+        assert!(world.get_non_send::<ParkedGlueVm>().is_none());
     }
 
     /// A capture without the UI enters the world on a boot VM, not the glue VM parked at the
@@ -1763,11 +1763,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(State::new(crate::client_state::ClientState::InWorld));
         world.insert_resource(crate::run_mode::CaptureMode);
-        world.insert_non_send_resource(UiScript::new_glue().unwrap());
+        world.insert_non_send(UiScript::new_glue().unwrap());
         arm_entry_ui_load(&mut world);
         run_pending_entry_load(&mut world);
         assert_eq!(
-            world.non_send_resource::<UiScript>().vm_kind(),
+            world.non_send::<UiScript>().vm_kind(),
             benilla_ui::script::VmKind::InGame
         );
     }
@@ -1939,10 +1939,10 @@ mod tests {
             let mut world = World::new();
             world.insert_resource(State::new(ClientState::Login));
             world.insert_resource(cvars);
-            world.init_non_send_resource::<super::super::glue_mgr::SharedGlueMgr>();
+            world.init_non_send::<super::super::glue_mgr::SharedGlueMgr>();
             setup_script(&mut world);
             world
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<(bool, bool, bool)>(
                     "return TOSFrame:IsShown() == 1, AccountLoginUI:IsShown() == 1, \
                      AccountLoginAccountEdit:IsVisible() == 1",
@@ -1976,13 +1976,13 @@ mod tests {
             show_notice: false,
         };
         let flags = |world: &World| {
-            let script = world.non_send_resource::<UiScript>();
+            let script = world.non_send::<UiScript>();
             GlueNotice::ALL.map(|n| script.glue_notice(n))
         };
         let mut world = World::new();
         world.insert_resource(State::new(ClientState::Login));
         world.insert_resource(crate::cvars::Cvars::with_value("readTOS", "1"));
-        world.init_non_send_resource::<super::super::glue_mgr::SharedGlueMgr>();
+        world.init_non_send::<super::super::glue_mgr::SharedGlueMgr>();
         setup_script(&mut world);
         let seeded = [
             accepted,
@@ -2003,7 +2003,7 @@ mod tests {
 
         // An accept stores its cell, and a rebuild after the option was reset keeps that too.
         world
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run("AcceptScanning()")
             .unwrap();
         world
@@ -2029,26 +2029,20 @@ mod tests {
         let shown = |world: &World, frame: &str| {
             benilla_formats::wow_data().is_none()
                 || world
-                    .non_send_resource::<UiScript>()
+                    .non_send::<UiScript>()
                     .eval::<bool>(&format!("return {frame}:IsShown() == 1"))
                     .unwrap()
         };
         let mut world = World::new();
         world.insert_resource(State::new(ClientState::Login));
         setup_script(&mut world);
-        assert_eq!(
-            world.non_send_resource::<UiScript>().vm_kind(),
-            VmKind::Glue
-        );
+        assert_eq!(world.non_send::<UiScript>().vm_kind(), VmKind::Glue);
         assert!(shown(&world, "AccountLogin"), "the boot screen is login");
 
         world.insert_resource(State::new(ClientState::CharSelect));
         world.init_resource::<PendingEntryUiLoad>();
         end_ui_session(&mut world);
-        assert_eq!(
-            world.non_send_resource::<UiScript>().vm_kind(),
-            VmKind::Glue
-        );
+        assert_eq!(world.non_send::<UiScript>().vm_kind(), VmKind::Glue);
         assert!(
             shown(&world, "CharacterSelect"),
             "a logout puts the character screen up"
@@ -2059,7 +2053,7 @@ mod tests {
         world.insert_resource(ReloadUiPending(true));
         run_pending_reload(&mut world);
         assert_eq!(
-            world.non_send_resource::<UiScript>().vm_kind(),
+            world.non_send::<UiScript>().vm_kind(),
             VmKind::InGame,
             "the reload's VM is a boot VM, never the glue's"
         );
@@ -2071,11 +2065,7 @@ mod tests {
     #[test]
     fn only_the_entry_vm_gets_the_macro_icon_source() {
         use crate::client_state::ClientState;
-        let has = |world: &World| {
-            world
-                .non_send_resource::<UiScript>()
-                .has_macro_icon_source()
-        };
+        let has = |world: &World| world.non_send::<UiScript>().has_macro_icon_source();
         let mut world = World::new();
         world.insert_resource(State::new(ClientState::Login));
         setup_script(&mut world);
@@ -2092,12 +2082,12 @@ mod tests {
         let mut world = World::new();
         let glue = UiScript::new().unwrap();
         let glue_session = glue.session();
-        world.insert_non_send_resource(glue);
+        world.insert_non_send(glue);
 
         mint_entry_vm(&mut world);
 
         let entry = world
-            .get_non_send_resource::<UiScript>()
+            .get_non_send::<UiScript>()
             .expect("the entry load has a VM to run on");
         assert_ne!(
             entry.session(),
@@ -2112,22 +2102,22 @@ mod tests {
     #[test]
     fn a_one_shot_spent_against_the_character_screens_vm_is_spent_again_after_the_entry() {
         let mut world = World::new();
-        world.insert_non_send_resource(UiScript::new().expect("a glue VM"));
+        world.insert_non_send(UiScript::new().expect("a glue VM"));
         let mut told: super::super::VmMemo<bool> = Default::default();
 
         assert!(
-            told.claim(world.non_send_resource::<UiScript>()),
+            told.claim(world.non_send::<UiScript>()),
             "the window: a feed fires its login one-shot at the frameless character-screen VM"
         );
         assert!(
-            !told.claim(world.non_send_resource::<UiScript>()),
+            !told.claim(world.non_send::<UiScript>()),
             "and the memo has it as told — which is correct for THAT VM"
         );
 
         mint_entry_vm(&mut world);
 
         assert!(
-            told.claim(world.non_send_resource::<UiScript>()),
+            told.claim(world.non_send::<UiScript>()),
             "the VM the in-game UI loads onto has never been told, so the feed tells it again — \
              no run condition, no ordering edge, and nothing the feed had to know about"
         );
@@ -2151,14 +2141,14 @@ mod tests {
         });
         let mut dying = UiScript::new().unwrap();
         dying.set_now(90.0);
-        world.insert_non_send_resource(dying);
+        world.insert_non_send(dying);
         // No in-game UI was loaded, so the shutdown tail and its file writes are skipped.
         world.init_resource::<PendingEntryUiLoad>();
 
         end_ui_session(&mut world);
 
         let vm = world
-            .get_non_send_resource::<UiScript>()
+            .get_non_send::<UiScript>()
             .expect("the session end installs a fresh glue VM");
         assert_eq!(
             vm.now(),
@@ -2272,12 +2262,12 @@ mod tests {
             };
             world.spawn((crate::net::SelfPlayer, crate::net::ObjectStore(fields)));
         }
-        world.insert_non_send_resource(crate::ui_script::sweep_test::spied_vm(&FRONT_EVENTS));
+        world.insert_non_send(crate::ui_script::sweep_test::spied_vm(&FRONT_EVENTS));
         (world, rx)
     }
 
     fn front_seen(world: &World) -> Vec<String> {
-        crate::ui_script::sweep_test::seen(world.non_send_resource::<UiScript>())
+        crate::ui_script::sweep_test::seen(world.non_send::<UiScript>())
     }
 
     /// `/reload` (`0x495664` → `0x490bd0`): the head with the object manager up drops the target
@@ -2321,7 +2311,7 @@ mod tests {
     #[test]
     fn a_reload_reports_its_strike_cancel_before_the_target_change() {
         let (mut world, _rx) = hosted_front_world(true, false);
-        world.insert_non_send_resource(crate::ui_script::sweep_test::spied_vm(&[
+        world.insert_non_send(crate::ui_script::sweep_test::spied_vm(&[
             "LOOT_CLOSED",
             "SPELLCAST_STOP",
             "PLAYER_TARGET_CHANGED",
@@ -2410,7 +2400,7 @@ mod tests {
         world.init_resource::<AddOnIdentity>();
         world.init_resource::<Messages<AppExit>>();
         world
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run(
                 "SEEN_LOGOUT = 0 local f = CreateFrame('Frame') f:RegisterEvent('PLAYER_LOGOUT') \
                  f:SetScript('OnEvent', function() SEEN_LOGOUT = SEEN_LOGOUT + 1 end)",
@@ -2421,7 +2411,7 @@ mod tests {
         assert_eq!(rx.try_iter().count(), 0);
         assert_eq!(
             world
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval::<i64>("return SEEN_LOGOUT")
                 .unwrap(),
             0
@@ -2465,7 +2455,7 @@ mod tests {
                  f:SetScript('OnEvent', function() SpellStopCasting() end)",
             )
             .unwrap();
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         crate::script_calls::run_cached(world, crate::ui_loot::tell_loot_closed)
             .expect("the loot close runs");
         assert_eq!(

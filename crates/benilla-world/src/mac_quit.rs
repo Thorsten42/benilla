@@ -1,6 +1,6 @@
 //! macOS `Cmd+Q`, re-pointed at the window close so quitting saves the session. winit's default
 //! menu wires Quit to AppKit's `terminate:`, which tears the app down with no `app.update()`, so no
-//! `AppExit` is read and the `Last` shutdown systems never run; bevy_winit 0.18 exposes no way to
+//! `AppExit` is read and the `Last` shutdown systems never run; bevy_winit 0.20 exposes no way to
 //! turn that menu off. Re-pointed at `performClose:`, Quit becomes the window close, which Bevy
 //! carries through `AppExit` to the shutdown systems. A no-op off macOS.
 

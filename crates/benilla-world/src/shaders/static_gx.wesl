@@ -1,14 +1,14 @@
-// The retained static-world pass: `wow_model.wgsl`'s shading for statics that never fade or
+// The retained static-world pass: `wow_model.wesl`'s shading for statics that never fade or
 // animate (ADT doodads, WMO groups, interior M2 props), with per-vertex flag words and a per-item
 // record in place of materials. `StaticGx::divert` admits opaque and alpha-tested batches with no
-// env map and no depth flags. The light prefix, helpers and lighting lanes copy `wow_model.wgsl`'s
+// env map and no depth flags. The light prefix, helpers and lighting lanes copy `wow_model.wesl`'s
 // and must stay in sync: naga_oil cannot import functions that use another module's bindings.
 
-#import bevy_render::view::View
+import bevy_render::view::View;
 
 @group(0) @binding(0) var<uniform> view: View;
 
-// Prefix of lighting::global_light's buffer; field order in sync with it and wow_model.wgsl.
+// Prefix of lighting::global_light's buffer; field order in sync with it and wow_model.wesl.
 struct WowLight {
     light_ambient: vec4<f32>,
     light_diffuse: vec4<f32>,
@@ -66,10 +66,10 @@ const WORD_HAS_VC: u32 = 134217728u;   // 1 << 27: the batch authors vertex colo
 // flags.z && !flags.x`: probe lighting, interior fog, no point lights.
 const WORD_MATTE: u32 = 268435456u;    // 1 << 28: ShadeSel::Matte, fixed intensity 1.0
 
-// The alpha-test cutout reference 224/255, as wow_model.wgsl's VANILLA_ALPHA_KEY.
+// The alpha-test cutout reference 224/255, as wow_model.wesl's VANILLA_ALPHA_KEY.
 const VANILLA_ALPHA_KEY: f32 = 0.8784314;
 
-// ---- mirrored law (wow_model.wgsl) ----
+// ---- mirrored law (wow_model.wesl) ----
 
 fn wow_normalize(v: vec3<f32>) -> vec3<f32> {
     let l2 = dot(v, v);
@@ -113,7 +113,7 @@ fn point_light_sum(P: vec3<f32>, N: vec3<f32>, anchor: vec3<f32>) -> vec4<f32> {
     return sum;
 }
 
-// The lit colour at one vertex, `wow_model.wgsl`'s `vertex_light` over the flag words: the
+// The lit colour at one vertex, `wow_model.wesl`'s `vertex_light` over the flag words: the
 // reference lights per vertex and interpolates the clamped colour, the vertex colour inside the
 // clamp as the lit material. Both faces light from the submitted normal (no
 // GL_LIGHT_MODEL_TWO_SIDE in the reference). `vc` is the vertex colour, white where the batch
@@ -126,7 +126,7 @@ fn vertex_light(normal: vec3<f32>, point_lit: vec4<f32>, vc: vec4<f32>, word: u3
     let sum_nl = wow_light.light_ambient.rgb + wow_light.light_diffuse.rgb * ndotl;
     let rec = recs[word & 0xffffu];
     if ((word & WORD_WMO) != 0u) {
-        // ---- WMO surfaces: wow_model.wgsl's is_wmo lane ----
+        // ---- WMO surfaces: wow_model.wesl's is_wmo lane ----
         // Interior batch classes: INT is unlit (the bake is the room's light), TRANS's lit pass
         // and EXT take the FFP sum. Exterior groups take it at sun scale 1, no terrain shade and
         // no SH lobe (prog 198/VS 151). WINDOW (MOMT 0x20), interior drawer only: GL_LIGHT0
@@ -160,7 +160,7 @@ fn vertex_light(normal: vec3<f32>, point_lit: vec4<f32>, vc: vec4<f32>, word: u3
     let x2y2 = n_lit.x * n_lit.x - n_lit.y * n_lit.y;
     var e: vec3<f32>;
     if ((word & WORD_INTERIOR) != 0u) {
-        // ---- interior M2 props: wow_model.wgsl's interior-prop lane ----
+        // ---- interior M2 props: wow_model.wesl's interior-prop lane ----
         // The spawn-folded SH probe (MODD ambient, fixed-axis diffuse, the group's MOLR lobes)
         // over the vertex normal; its soft wrap is the reference's, not a hard max(N·L, 0).
         let probe = 7u * ((rec.w >> 1u) & 0x1fffu);
@@ -179,7 +179,7 @@ fn vertex_light(normal: vec3<f32>, point_lit: vec4<f32>, vc: vec4<f32>, word: u3
     } else {
         // ---- exterior ADT doodads and exterior MODD props ----
         // Model2.bls order-2 SH sun lobe at intensity 0.5 Shaded (MCSH), 1.0 Matte, 2.5 Lit,
-        // baked unclamped as wow_model.wgsl's (`0x71c4e0`); only the per-vertex sum clamps.
+        // baked unclamped as wow_model.wesl's (`0x71c4e0`); only the per-vertex sum clamps.
         let shade_t = select(1.0, 0.0, (word & WORD_SHADE_LIT) != 0u);
         let intensity = select(mix(2.5, 0.5, shade_t), 1.0, (word & WORD_MATTE) != 0u);
         let sun_dc = wow_light.grade.yzw * intensity;
@@ -312,11 +312,10 @@ fn fragment(in: GxVsOut) -> @location(0) vec4<f32> {
             base = c_mixed;
         }
     }
-#ifdef GX_CUTOUT
+    @if(GX_CUTOUT)
     if (base.a < VANILLA_ALPHA_KEY) {
         discard;
     }
-#endif
     // A colour-less batch takes a constant 1.0, not interpolated white: interpolating a constant
     // attribute gives 1.0±ε, and base × 0.99999994 rounds about half the pixels one byte down.
     let has_vc = (in.word & WORD_HAS_VC) != 0u;

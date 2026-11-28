@@ -858,7 +858,7 @@ pub(crate) fn seed_reloaded_vm(world: &mut World, script: &mut UiScript) {
         return;
     }
     let mut reads = bevy::ecs::system::SystemState::<(TrainerReads, Res<TrainerOpen>)>::new(world);
-    let (reads, open) = reads.get(world);
+    let (reads, open) = reads.get(world).unwrap();
     let state = {
         let lua = script.lua();
         reads.snapshot(&open, benilla_ui::strings::Strings::Vm(lua))

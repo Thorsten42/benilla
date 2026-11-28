@@ -1419,16 +1419,14 @@ mod tests {
             .init_resource::<crate::ui_chat::ChatLog>()
             .init_resource::<crate::sound::MessageSounds>()
             .init_resource::<crate::ui_guild::GuildState>()
-            .insert_non_send_resource(s);
+            .insert_non_send(s);
         crate::ui_unit::add_token_seats(&mut app);
         app
     }
 
     /// The name on the stock `TargetFrame`, empty while it is hidden.
     fn target_frame_name(app: &App) -> String {
-        let s = app
-            .world()
-            .non_send_resource::<benilla_ui::script::UiScript>();
+        let s = app.world().non_send::<benilla_ui::script::UiScript>();
         assert!(s.errors().is_empty(), "script errors: {:?}", s.errors());
         s.eval("return TargetFrame:IsShown() and TargetFrame.name:GetText() or ''")
             .expect("the target frame's name")
@@ -1457,7 +1455,7 @@ mod tests {
     /// harness, once the frame's pushes seat the target.
     fn target_changed(app: &mut App) {
         app.world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>()
+            .non_send_mut::<benilla_ui::script::UiScript>()
             .fire_event("PLAYER_TARGET_CHANGED", vec![]);
     }
 
@@ -1669,7 +1667,7 @@ mod tests {
         );
         app.init_resource::<crate::ui_chat::ChatLog>()
             .init_resource::<crate::names::NameCache>()
-            .insert_non_send_resource(benilla_ui::script::UiScript::new().expect("VM"))
+            .insert_non_send(benilla_ui::script::UiScript::new().expect("VM"))
             .add_systems(Update, super::super::loot_frame);
         app.world_mut().resource_mut::<LootLatch>().0 = Some(CORPSE);
         respond(app.world_mut(), CORPSE, 1);
@@ -1701,7 +1699,7 @@ mod tests {
         app.insert_resource(super::super::AutoLootByte(true))
             .init_resource::<crate::ui_chat::ChatLog>()
             .init_resource::<crate::names::NameCache>()
-            .insert_non_send_resource(benilla_ui::script::UiScript::new().expect("VM"))
+            .insert_non_send(benilla_ui::script::UiScript::new().expect("VM"))
             .add_systems(Update, super::super::loot_frame);
 
         app.world_mut().resource_mut::<LootLatch>().0 = Some(CORPSE);
@@ -1750,10 +1748,10 @@ mod tests {
         app.insert_resource(super::super::AutoLootByte(true))
             .init_resource::<crate::ui_chat::ChatLog>()
             .init_resource::<crate::names::NameCache>()
-            .insert_non_send_resource(benilla_ui::script::UiScript::new().expect("VM"))
+            .insert_non_send(benilla_ui::script::UiScript::new().expect("VM"))
             .add_systems(Update, super::super::loot_frame);
         app.world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>()
+            .non_send_mut::<benilla_ui::script::UiScript>()
             .run(
                 "OPENS = 0 local f = CreateFrame('Frame') f:RegisterEvent('LOOT_OPENED') \
                  f:SetScript('OnEvent', function() OPENS = OPENS + 1 end)",
@@ -1800,7 +1798,7 @@ mod tests {
         assert!(sent.is_empty(), "{sent:?}");
         let opens = app
             .world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>()
+            .non_send_mut::<benilla_ui::script::UiScript>()
             .eval::<i64>("return OPENS")
             .unwrap();
         assert_eq!(opens, 1);
@@ -1836,7 +1834,7 @@ mod tests {
                     .chain(),
             );
             app.world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .run(
                     "LOOT_EVENTS = {} local f = CreateFrame('Frame') \
                      f:RegisterEvent('LOOT_OPENED') f:RegisterEvent('LOOT_CLOSED') \
@@ -1851,7 +1849,7 @@ mod tests {
             app.update();
             let (events, shown): (String, bool) = app
                 .world()
-                .non_send_resource::<UiScript>()
+                .non_send::<UiScript>()
                 .eval("return table.concat(LOOT_EVENTS, ','), LootFrame:IsShown() == 1")
                 .unwrap();
             for _ in 0..2 {

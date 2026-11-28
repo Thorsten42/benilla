@@ -579,7 +579,7 @@ pub(crate) fn open_panel(world: &mut World, npc: u64, view: QuestView) {
     };
     let mut macros = bevy::ecs::system::SystemState::<PanelMacros>::new(world);
     world.resource_scope(|world, mut giver: Mut<QuestGiver>| {
-        let m = macros.get(world);
+        let m = macros.get(world).unwrap();
         let subject = m.names.as_deref().and_then(|names| {
             crate::npc_text::player_identity(&m.self_q, names, m.unit_names.get())
         });
@@ -1114,7 +1114,7 @@ mod tests {
         let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
         app.init_resource::<TappedGiver>();
         crate::net::handlers::add_packet_end(&mut app, tap_giver);
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         hold_for_test(app.world_mut(), 0x42);
         let detail = |app: &mut App, choice| {
             open_panel(app.world_mut(), 0x42, detail(100, "", vec![triple(choice)]))
@@ -1158,7 +1158,7 @@ mod tests {
     #[test]
     fn a_panel_for_a_giver_not_held_opens_nothing() {
         let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         app.init_resource::<crate::sound::MessageSounds>();
         hold_for_test(app.world_mut(), 0x42);
         // A corpse (type mask 0x80) is held, but is no giver.
@@ -1212,7 +1212,7 @@ mod tests {
     #[test]
     fn a_reward_after_its_quests_progress_panel_plays_the_completion_chime() {
         let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         app.init_resource::<crate::sound::MessageSounds>();
         hold_for_test(app.world_mut(), 0x42);
         let cues = |app: &mut App| {

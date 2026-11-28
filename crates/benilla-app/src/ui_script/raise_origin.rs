@@ -5,7 +5,7 @@
 
 use benilla_ui::script::origin::{Allow, Failure};
 use bevy::app::MainScheduleOrder;
-use bevy::ecs::schedule::{ExecutorKind, ScheduleLabel};
+use bevy::ecs::schedule::{ScheduleLabel, SingleThreadedExecutor};
 use bevy::prelude::*;
 
 /// Each site, by the key its scope opens around the part that raises ([`Origin::Allowed`]), the
@@ -115,7 +115,7 @@ pub(crate) fn arm_each_frame(app: &mut App) {
     ] {
         let mut schedule = Schedule::new(label);
         // Run on the thread running the frame, which holds the VM.
-        schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        schedule.set_executor(SingleThreadedExecutor::new());
         schedule.add_systems(run);
         app.add_schedule(schedule);
     }
@@ -166,7 +166,7 @@ mod tests {
     fn app(system: fn(&mut World)) -> App {
         let mut app = App::new();
         super::arm_each_frame(&mut app);
-        app.insert_non_send_resource(UiScript::new().expect("a VM"))
+        app.insert_non_send(UiScript::new().expect("a VM"))
             .add_systems(Update, system);
         app
     }
@@ -181,13 +181,13 @@ mod tests {
     static RAISED_AT: AtomicU32 = AtomicU32::new(0);
 
     fn raises_at_frame_time(world: &mut World) {
-        let mut ui = world.non_send_resource_mut::<UiScript>();
+        let mut ui = world.non_send_mut::<UiScript>();
         RAISED_AT.store(line!() + 1, Ordering::Relaxed);
         ui.fire_event("PLAYER_MONEY", Vec::new());
     }
 
     fn raises_in_a_lane(world: &mut World) {
-        let mut ui = world.non_send_resource_mut::<UiScript>();
+        let mut ui = world.non_send_mut::<UiScript>();
         within(Origin::Lane, || ui.fire_event("PLAYER_MONEY", Vec::new()));
     }
 
@@ -218,7 +218,7 @@ mod tests {
         app.update();
         app.update();
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .fire_event("PLAYER_MONEY", Vec::new());
     }
 }

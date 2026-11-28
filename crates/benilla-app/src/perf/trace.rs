@@ -38,7 +38,7 @@ pub(super) fn trace_stream(
     mut trace: ResMut<StreamTrace>,
     mut activity: ResMut<benilla_world::terrain_stream::StreamActivity>,
     time: Res<Time<Real>>,
-    entities: Query<()>,
+    entities: Query<(), Without<bevy::ecs::resource::IsResource>>,
     mut adt_events: MessageReader<bevy::asset::AssetEvent<benilla_assets::AdtTile>>,
     mut mesh_events: MessageReader<bevy::asset::AssetEvent<Mesh>>,
     mut image_events: MessageReader<bevy::asset::AssetEvent<bevy::image::Image>>,

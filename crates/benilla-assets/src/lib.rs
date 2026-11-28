@@ -408,8 +408,6 @@ pub fn register_asset_loaders(app: &mut App) {
     app.register_asset_loader(WmoModelLoader);
     app.register_asset_loader(AdtLoader);
     app.register_asset_loader(WdtIndexLoader);
-    // The materials' WGSL, compiled in; it too needs `AssetPlugin` first.
-    materials::register_shaders(app);
 }
 
 #[cfg(test)]
@@ -781,7 +779,7 @@ mod tests {
         );
     }
 
-    /// The minimap streams its tiles with `load_with_settings(Sprite)`; the UI pass wants sRGB, and
+    /// The minimap streams its tiles with `with_settings(Sprite)`; the UI pass wants sRGB, and
     /// the `WorldArt` default would draw every tile about twice as bright.
     #[test]
     fn minimap_tile_settings_reach_the_async_loader() {
@@ -797,10 +795,12 @@ mod tests {
         // In isolation: a bare `load()` of the same path would share the handle and its settings.
         let tile = "mpq://textures/Minimap/ea283abc0bf9637c3fad5e840a65b38b.blp";
         let server = app.world().resource::<AssetServer>().clone();
-        let sprite_h: Handle<Image> =
-            server.load_with_settings(tile, |s: &mut BlpLoaderSettings| {
+        let sprite_h: Handle<Image> = server
+            .load_builder()
+            .with_settings(|s: &mut BlpLoaderSettings| {
                 s.variant = BlpVariant::Sprite;
-            });
+            })
+            .load(tile);
 
         let mut sprite_fmt = None;
         // A generous ceiling: a parallel gate run starves the IO pool.
@@ -816,7 +816,7 @@ mod tests {
         assert_eq!(
             sprite_fmt,
             Some(TextureFormat::Rgba8UnormSrgb),
-            "load_with_settings(Sprite) must produce an sRGB tile on the async mpq:// path"
+            "with_settings(Sprite) must produce an sRGB tile on the async mpq:// path"
         );
     }
 
@@ -910,7 +910,7 @@ mod tests {
         for g in &geometries {
             let mesh = submesh_to_static_mesh(g);
             assert!(mesh.count_vertices() > 0, "submesh has vertices");
-            assert!(mesh.compute_aabb().is_some(), "static form yields an Aabb");
+            assert!(mesh.get_aabb().is_some(), "static form yields an Aabb");
             let skinned = submesh_to_skinned_mesh(g);
             assert_eq!(
                 skinned.count_vertices(),
@@ -959,7 +959,7 @@ mod tests {
         for g in &geometries {
             let mesh = submesh_to_static_mesh(g);
             assert!(mesh.count_vertices() > 0, "group submesh has vertices");
-            assert!(mesh.compute_aabb().is_some(), "static form yields an Aabb");
+            assert!(mesh.get_aabb().is_some(), "static form yields an Aabb");
         }
     }
 
@@ -1028,7 +1028,7 @@ mod tests {
                 "an MCNK cell is 9×9 + 8×8 vertices"
             );
             assert!(
-                mesh.compute_aabb().is_some(),
+                mesh.get_aabb().is_some(),
                 "a cell mesh must yield the Aabb the exterior cull fails open without"
             );
         }

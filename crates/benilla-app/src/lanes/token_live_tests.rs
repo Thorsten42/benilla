@@ -197,7 +197,7 @@ fn raid_of(members: &[u64]) -> SessionEvent {
 /// `UNIT_HEALTH` of `"target"` notes what the chains name as it fires.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -234,7 +234,7 @@ fn client() -> Client {
             "#
         ))
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
@@ -308,7 +308,7 @@ fn client() -> Client {
         ..Default::default()
     };
     // The selection's token flag its store writes (`0x49372a`).
-    world.non_send_resource_mut::<UiScript>().unit_token_flags(
+    world.non_send_mut::<UiScript>().unit_token_flags(
         WOLF,
         benilla_ui::script::TokenChange::Add(benilla_ui::script::TOKEN_TARGET),
     );
@@ -595,7 +595,7 @@ fn map_spy(c: &mut Client, token: &str) {
     ));
     c.app
         .insert_resource(benilla_world::world_map::CurrentMap(0));
-    let script = &mut *c.app.world_mut().non_send_resource_mut::<UiScript>();
+    let script = &mut *c.app.world_mut().non_send_mut::<UiScript>();
     script.set_world_loc_projector(Box::new(|_, map, x, y| {
         (map == 0).then_some((x / 1000.0, y / 1000.0))
     }));

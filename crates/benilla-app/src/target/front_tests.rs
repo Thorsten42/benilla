@@ -302,7 +302,7 @@ fn a_charmed_player_is_refused_by_every_selector() {
             false,
             |f| {
                 let script = benilla_ui::script::UiScript::new().expect("a VM");
-                f.app.world_mut().insert_non_send_resource(script);
+                f.app.world_mut().insert_non_send(script);
                 crate::script_calls::with_hosted_vm(f.app.world_mut(), |s| {
                     s.expect("a VM").run("ClearTarget()")
                 })
@@ -444,7 +444,7 @@ fn a_tab_goes_on_past_a_unit_the_cursor_refused() {
     f.app.world_mut().insert_resource(spells);
     f.app
         .world_mut()
-        .insert_non_send_resource(benilla_ui::script::UiScript::new().expect("a VM"));
+        .insert_non_send(benilla_ui::script::UiScript::new().expect("a VM"));
     f.cursor_up();
 
     f.tab();
@@ -533,7 +533,7 @@ fn a_click_the_cursor_cannot_bind_deselects() {
         // The word's changes, signalled inside the click's call.
         crate::script_calls::insert_test_vm(world);
         world
-            .non_send_resource::<benilla_ui::script::UiScript>()
+            .non_send::<benilla_ui::script::UiScript>()
             .run(
                 r#"CHANGES = 0
                 local r = CreateFrame("Frame")
@@ -553,7 +553,7 @@ fn a_click_the_cursor_cannot_bind_deselects() {
         let signalled: usize = f
             .app
             .world()
-            .non_send_resource::<benilla_ui::script::UiScript>()
+            .non_send::<benilla_ui::script::UiScript>()
             .eval("return CHANGES")
             .unwrap();
         if deselects {
@@ -593,7 +593,7 @@ fn a_refused_binds_listener_sends_ahead_of_the_clicks_deselect() {
     world.resource_mut::<crate::ui_cast::CastReports>().clear();
     crate::script_calls::insert_test_vm(world);
     world
-        .non_send_resource::<benilla_ui::script::UiScript>()
+        .non_send::<benilla_ui::script::UiScript>()
         .run(
             r#"local r = CreateFrame("Frame")
             r:RegisterEvent("CURRENT_SPELL_CAST_CHANGED")
@@ -824,7 +824,7 @@ fn a_world_click_signals_its_target_change_before_the_re_swing() {
     let heard: i64 = f
         .app
         .world()
-        .non_send_resource::<benilla_ui::script::UiScript>()
+        .non_send::<benilla_ui::script::UiScript>()
         .eval("return HEARD")
         .unwrap();
     assert_eq!(heard, 1, "heard in the click alone");
@@ -847,7 +847,7 @@ fn a_world_click_deselects_reporting_its_strike_cancel_first() {
     world
         .resource_mut::<crate::spell::PendingCast>()
         .fill_record();
-    world.insert_non_send_resource(benilla_ui::script::UiScript::new().expect("a VM"));
+    world.insert_non_send(benilla_ui::script::UiScript::new().expect("a VM"));
     crate::script_calls::with_hosted_vm(world, |s| {
         s.expect("a VM").run(
             r#"ORDER = {}
@@ -864,7 +864,7 @@ fn a_world_click_deselects_reporting_its_strike_cancel_first() {
     let order: String = f
         .app
         .world()
-        .non_send_resource::<benilla_ui::script::UiScript>()
+        .non_send::<benilla_ui::script::UiScript>()
         .eval(r#"return table.concat(ORDER, ",")"#)
         .unwrap();
     assert_eq!(order, "SPELLCAST_STOP,PLAYER_TARGET_CHANGED");
@@ -887,7 +887,7 @@ fn wire_order(rx: &Receiver<ClientCommand>) -> Vec<String> {
 fn vm_in_the_world(f: &mut Fix) {
     f.app
         .world_mut()
-        .insert_non_send_resource(benilla_ui::script::UiScript::new().expect("a VM"));
+        .insert_non_send(benilla_ui::script::UiScript::new().expect("a VM"));
 }
 
 /// A VM in `f` whose `PLAYER_TARGET_CHANGED` listener rolls, so the wire shows where it ran.

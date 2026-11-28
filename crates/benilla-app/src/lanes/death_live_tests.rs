@@ -21,7 +21,7 @@ const PRIEST: u64 = 0x51;
 fn death_client() -> App {
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -190,7 +190,7 @@ fn the_ghost_bits_edges_ask_and_reset_the_corpse_at_their_packet() {
         .resource_mut::<crate::net::NetStatus>()
         .connected = true;
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")

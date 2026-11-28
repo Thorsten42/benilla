@@ -80,8 +80,10 @@ unsafe extern "system" fn debug_utils_messenger_callback(
     }
 
     let level = match message_severity {
-        vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => log::Level::Debug,
-        vk::DebugUtilsMessageSeverityFlagsEXT::INFO => log::Level::Info,
+        // We intentionally suppress info messages down to debug
+        // so that users are not innundated with info messages from the runtime.
+        vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE => log::Level::Trace,
+        vk::DebugUtilsMessageSeverityFlagsEXT::INFO => log::Level::Debug,
         vk::DebugUtilsMessageSeverityFlagsEXT::WARNING => log::Level::Warn,
         vk::DebugUtilsMessageSeverityFlagsEXT::ERROR => log::Level::Error,
         _ => log::Level::Warn,
@@ -167,48 +169,6 @@ impl super::DebugUtilsCreateInfo {
             .message_type(self.message_type)
             .user_data(user_data_ptr as *mut _)
             .pfn_user_callback(Some(debug_utils_messenger_callback))
-    }
-}
-
-impl super::Swapchain {
-    /// # Safety
-    ///
-    /// - The device must have been made idle before calling this function.
-    unsafe fn release_resources(mut self, device: &ash::Device) -> Self {
-        profiling::scope!("Swapchain::release_resources");
-        {
-            profiling::scope!("vkDeviceWaitIdle");
-            // We need to also wait until all presentation work is done. Because there is no way to portably wait until
-            // the presentation work is done, we are forced to wait until the device is idle.
-            let _ = unsafe {
-                device
-                    .device_wait_idle()
-                    .map_err(super::map_host_device_oom_and_lost_err)
-            };
-        };
-
-        unsafe { device.destroy_fence(self.fence, None) }
-
-        // We cannot take this by value, as the function returns `self`.
-        for semaphore in self.acquire_semaphores.drain(..) {
-            let arc_removed = Arc::into_inner(semaphore).expect(
-                "Trying to destroy a SurfaceAcquireSemaphores that is still in use by a SurfaceTexture",
-            );
-            let mutex_removed = arc_removed.into_inner();
-
-            unsafe { mutex_removed.destroy(device) };
-        }
-
-        for semaphore in self.present_semaphores.drain(..) {
-            let arc_removed = Arc::into_inner(semaphore).expect(
-                "Trying to destroy a SurfacePresentSemaphores that is still in use by a SurfaceTexture",
-            );
-            let mutex_removed = arc_removed.into_inner();
-
-            unsafe { mutex_removed.destroy(device) };
-        }
-
-        self
     }
 }
 
@@ -303,17 +263,12 @@ impl super::Instance {
             extensions.push(ext::metal_surface::NAME);
             extensions.push(khr::portability_enumeration::NAME);
         }
-        if cfg!(all(
-            unix,
-            not(target_vendor = "apple"),
-            not(target_family = "wasm")
-        )) {
+        if cfg!(drm) {
             // VK_EXT_acquire_drm_display -> VK_EXT_direct_mode_display -> VK_KHR_display
             extensions.push(ext::acquire_drm_display::NAME);
             extensions.push(ext::direct_mode_display::NAME);
             extensions.push(khr::display::NAME);
-            //  VK_EXT_physical_device_drm -> VK_KHR_get_physical_device_properties2
-            extensions.push(ext::physical_device_drm::NAME);
+            extensions.push(khr::get_physical_device_properties2::NAME);
             extensions.push(khr::get_display_properties2::NAME);
         }
 
@@ -339,7 +294,7 @@ impl super::Instance {
             {
                 true
             } else {
-                log::warn!("Unable to find extension: {}", ext.to_string_lossy());
+                log::debug!("Unable to find extension: {}", ext.to_string_lossy());
                 false
             }
         });
@@ -375,7 +330,7 @@ impl super::Instance {
 
         let debug_utils = if let Some(debug_utils_create_info) = debug_utils_create_info {
             if extensions.contains(&ext::debug_utils::NAME) {
-                log::info!("Enabling debug utils");
+                log::debug!("Enabling debug utils");
 
                 let extension = ext::debug_utils::Instance::new(&entry, &raw_instance);
                 let vk_info = debug_utils_create_info.to_vk_create_info();
@@ -452,7 +407,7 @@ impl super::Instance {
                 .expect("XlibSurface::create_xlib_surface() failed")
         };
 
-        Ok(self.create_surface_from_vk_surface_khr(surface))
+        Ok(self.create_surface_from_vk_surface_khr(surface, None))
     }
 
     fn create_surface_from_xcb(
@@ -477,7 +432,7 @@ impl super::Instance {
                 .expect("XcbSurface::create_xcb_surface() failed")
         };
 
-        Ok(self.create_surface_from_vk_surface_khr(surface))
+        Ok(self.create_surface_from_vk_surface_khr(surface, None))
     }
 
     fn create_surface_from_wayland(
@@ -502,7 +457,7 @@ impl super::Instance {
             unsafe { w_loader.create_wayland_surface(&info, None) }.expect("WaylandSurface failed")
         };
 
-        Ok(self.create_surface_from_vk_surface_khr(surface))
+        Ok(self.create_surface_from_vk_surface_khr(surface, None))
     }
 
     fn create_surface_android(
@@ -525,7 +480,7 @@ impl super::Instance {
             unsafe { a_loader.create_android_surface(&info, None) }.expect("AndroidSurface failed")
         };
 
-        Ok(self.create_surface_from_vk_surface_khr(surface))
+        Ok(self.create_surface_from_vk_surface_khr(surface, None))
     }
 
     fn create_surface_from_hwnd(
@@ -553,13 +508,21 @@ impl super::Instance {
             }
         };
 
-        Ok(self.create_surface_from_vk_surface_khr(surface))
+        // Wrap ash's `isize` `HWND` in `WindowHandle`; on Windows the
+        // `NativeSurface` builds its DXGI HDR source from it.
+        #[cfg(windows)]
+        let window_handle = Some(crate::vulkan::swapchain::WindowHandle(
+            windows::Win32::Foundation::HWND(hwnd as *mut c_void),
+        ));
+        #[cfg(not(windows))]
+        let window_handle: Option<crate::vulkan::swapchain::WindowHandle> = None;
+        Ok(self.create_surface_from_vk_surface_khr(surface, window_handle))
     }
 
-    #[cfg(metal)]
-    fn create_surface_from_view(
+    #[cfg(target_vendor = "apple")]
+    fn create_surface_from_layer(
         &self,
-        view: core::ptr::NonNull<c_void>,
+        layer: raw_window_metal::Layer,
     ) -> Result<super::Surface, crate::InstanceError> {
         if !self.shared.extensions.contains(&ext::metal_surface::NAME) {
             return Err(crate::InstanceError::new(String::from(
@@ -567,34 +530,32 @@ impl super::Instance {
             )));
         }
 
-        let layer = unsafe { crate::metal::Surface::get_metal_layer(view.cast()) };
         // NOTE: The layer is retained by Vulkan's `vkCreateMetalSurfaceEXT`,
         // so no need to retain it beyond the scope of this function.
-        let layer_ptr = (*layer).cast();
-
         let surface = {
             let metal_loader =
                 ext::metal_surface::Instance::new(&self.shared.entry, &self.shared.raw);
             let vk_info = vk::MetalSurfaceCreateInfoEXT::default()
                 .flags(vk::MetalSurfaceCreateFlagsEXT::empty())
-                .layer(layer_ptr);
+                .layer(layer.as_ptr().as_ptr());
 
             unsafe { metal_loader.create_metal_surface(&vk_info, None).unwrap() }
         };
 
-        Ok(self.create_surface_from_vk_surface_khr(surface))
+        Ok(self.create_surface_from_vk_surface_khr(surface, None))
     }
 
     pub(super) fn create_surface_from_vk_surface_khr(
         &self,
         surface: vk::SurfaceKHR,
+        hwnd: Option<crate::vulkan::swapchain::WindowHandle>,
     ) -> super::Surface {
-        let functor = khr::surface::Instance::new(&self.shared.entry, &self.shared.raw);
+        let native_surface =
+            crate::vulkan::swapchain::NativeSurface::from_vk_surface_khr(self, surface, hwnd);
+
         super::Surface {
-            raw: surface,
-            functor,
-            instance: Arc::clone(&self.shared),
             swapchain: RwLock::new(None),
+            inner: Box::new(native_surface),
         }
     }
 
@@ -607,14 +568,20 @@ impl super::Instance {
     /// - Callback must not remove features.
     /// - Callback must not change anything to what the instance does not support.
     pub unsafe fn init_with_callback(
-        desc: &crate::InstanceDescriptor,
+        desc: &crate::InstanceDescriptor<'_>,
         callback: Option<Box<super::CreateInstanceCallback>>,
     ) -> Result<Self, crate::InstanceError> {
         profiling::scope!("Init Vulkan Backend");
 
         let entry = unsafe {
             profiling::scope!("Load vk library");
-            ash::Entry::load()
+            // ohos support is already fixed on ash main, but it's unclear when
+            // a new release can happen.
+            #[cfg(target_env = "ohos")]
+            let loaded = ash::Entry::load_from("libvulkan.so");
+            #[cfg(not(target_env = "ohos"))]
+            let loaded = ash::Entry::load();
+            loaded
         }
         .map_err(|err| {
             crate::InstanceError::with_source(String::from("missing Vulkan entry points"), err)
@@ -749,7 +716,7 @@ impl super::Instance {
                         });
                 }
             } else {
-                log::warn!(
+                log::debug!(
                     "InstanceFlags::VALIDATION requested, but unable to find layer: {}",
                     validation_layer_name.to_string_lossy()
                 );
@@ -910,7 +877,7 @@ impl Drop for super::InstanceShared {
 impl crate::Instance for super::Instance {
     type A = super::Api;
 
-    unsafe fn init(desc: &crate::InstanceDescriptor) -> Result<Self, crate::InstanceError> {
+    unsafe fn init(desc: &crate::InstanceDescriptor<'_>) -> Result<Self, crate::InstanceError> {
         unsafe { Self::init_with_callback(desc, None) }
     }
 
@@ -935,6 +902,10 @@ impl crate::Instance for super::Instance {
                 let connection = display.connection.expect("Pointer to X-Server is not set.");
                 self.create_surface_from_xcb(connection.as_ptr(), handle.window.get())
             }
+            #[cfg(drm)]
+            (Rwh::Drm(handle), Rdh::Drm(display)) => {
+                self.create_surface_from_drm_plane(display.fd, handle.plane)
+            }
             (Rwh::AndroidNdk(handle), _) => {
                 self.create_surface_android(handle.a_native_window.as_ptr())
             }
@@ -946,17 +917,19 @@ impl crate::Instance for super::Instance {
                 })?;
                 self.create_surface_from_hwnd(hinstance.get(), handle.hwnd.get())
             }
-            #[cfg(all(target_os = "macos", feature = "metal"))]
+            #[cfg(target_vendor = "apple")]
             (Rwh::AppKit(handle), _)
                 if self.shared.extensions.contains(&ext::metal_surface::NAME) =>
             {
-                self.create_surface_from_view(handle.ns_view)
+                let layer = unsafe { raw_window_metal::Layer::from_ns_view(handle.ns_view) };
+                self.create_surface_from_layer(layer)
             }
-            #[cfg(all(any(target_os = "ios", target_os = "visionos"), feature = "metal"))]
+            #[cfg(target_vendor = "apple")]
             (Rwh::UiKit(handle), _)
                 if self.shared.extensions.contains(&ext::metal_surface::NAME) =>
             {
-                self.create_surface_from_view(handle.ui_view)
+                let layer = unsafe { raw_window_metal::Layer::from_ui_view(handle.ui_view) };
+                self.create_surface_from_layer(layer)
             }
             (_, _) => Err(crate::InstanceError::new(format!(
                 "window handle {window_handle:?} is not a Vulkan-compatible handle"
@@ -1006,7 +979,7 @@ impl crate::Instance for super::Instance {
                     }) {
                         if version < (21, 2) {
                             // See https://gitlab.freedesktop.org/mesa/mesa/-/issues/4688
-                            log::warn!(
+                            log::debug!(
                                 concat!(
                                     "Disabling presentation on '{}' (id {:?}) ",
                                     "due to NV Optimus and Intel Mesa < v21.2"
@@ -1025,22 +998,6 @@ impl crate::Instance for super::Instance {
     }
 }
 
-impl Drop for super::Surface {
-    fn drop(&mut self) {
-        unsafe { self.functor.destroy_surface(self.raw, None) };
-    }
-}
-
-// BENILLA: a presentation stall past the caller's timeout is waited out, up to this budget
-// (`third_party/wgpu-hal/BENILLA.md`).
-const STALL_BUDGET: core::time::Duration = core::time::Duration::from_secs(30);
-
-// BENILLA: whether a `VK_TIMEOUT` is retried: the caller asked to wait (a zero timeout is a poll,
-// which answers at once by design) and the stall is still inside the budget.
-fn retry_stall(stall_start: std::time::Instant, timeout_ns: u64) -> bool {
-    timeout_ns != 0 && stall_start.elapsed() < STALL_BUDGET
-}
-
 impl crate::Surface for super::Surface {
     type A = super::Api;
 
@@ -1051,21 +1008,22 @@ impl crate::Surface for super::Surface {
     ) -> Result<(), crate::SurfaceError> {
         // SAFETY: `configure`'s contract guarantees there are no resources derived from the swapchain in use.
         let mut swap_chain = self.swapchain.write();
-        let old = swap_chain
-            .take()
-            .map(|sc| unsafe { sc.release_resources(&device.shared.raw) });
 
-        let swapchain = unsafe { device.create_swapchain(self, config, old)? };
+        let mut old = swap_chain.take();
+        if let Some(ref mut old) = old {
+            unsafe { old.release_resources(device) };
+        }
+
+        let swapchain = unsafe { self.inner.create_swapchain(device, config, old)? };
         *swap_chain = Some(swapchain);
 
         Ok(())
     }
 
     unsafe fn unconfigure(&self, device: &super::Device) {
-        if let Some(sc) = self.swapchain.write().take() {
+        if let Some(mut sc) = self.swapchain.write().take() {
             // SAFETY: `unconfigure`'s contract guarantees there are no resources derived from the swapchain in use.
-            let swapchain = unsafe { sc.release_resources(&device.shared.raw) };
-            unsafe { swapchain.functor.destroy_swapchain(swapchain.raw, None) };
+            unsafe { sc.release_resources(device) };
         }
     }
 
@@ -1073,202 +1031,21 @@ impl crate::Surface for super::Surface {
         &self,
         timeout: Option<core::time::Duration>,
         fence: &super::Fence,
-    ) -> Result<Option<crate::AcquiredSurfaceTexture<super::Api>>, crate::SurfaceError> {
-        // BENILLA: when this acquire began, for the stall budget.
-        let stall_start = std::time::Instant::now();
-
+    ) -> Result<crate::AcquiredSurfaceTexture<super::Api>, crate::SurfaceError> {
         let mut swapchain = self.swapchain.write();
         let swapchain = swapchain.as_mut().unwrap();
 
-        let mut timeout_ns = match timeout {
-            Some(duration) => duration.as_nanos() as u64,
-            None => u64::MAX,
-        };
-
-        // AcquireNextImageKHR on Android (prior to Android 11) doesn't support timeouts
-        // and will also log verbose warnings if tying to use a timeout.
-        //
-        // Android 10 implementation for reference:
-        // https://android.googlesource.com/platform/frameworks/native/+/refs/tags/android-mainline-10.0.0_r13/vulkan/libvulkan/swapchain.cpp#1426
-        // Android 11 implementation for reference:
-        // https://android.googlesource.com/platform/frameworks/native/+/refs/tags/android-mainline-11.0.0_r45/vulkan/libvulkan/swapchain.cpp#1438
-        //
-        // Android 11 corresponds to an SDK_INT/ro.build.version.sdk of 30
-        if cfg!(target_os = "android") && self.instance.android_sdk_version < 30 {
-            timeout_ns = u64::MAX;
-        }
-
-        let acquire_semaphore_arc = swapchain.get_acquire_semaphore();
-        // Nothing should be using this, so we don't block, but panic if we fail to lock.
-        let acquire_semaphore_guard = acquire_semaphore_arc
-            .try_lock()
-            .expect("Failed to lock a SwapchainSemaphores.");
-
-        // Wait for all commands writing to the previously acquired image to
-        // complete.
-        //
-        // Almost all the steps in the usual acquire-draw-present flow are
-        // asynchronous: they get something started on the presentation engine
-        // or the GPU, but on the CPU, control returns immediately. Without some
-        // sort of intervention, the CPU could crank out frames much faster than
-        // the presentation engine can display them.
-        //
-        // This is the intervention: if any submissions drew on this image, and
-        // thus waited for `locked_swapchain_semaphores.acquire`, wait for all
-        // of them to finish, thus ensuring that it's okay to pass `acquire` to
-        // `vkAcquireNextImageKHR` again.
-        //
-        // BENILLA: `Ok(false)` is a timeout, which upstream drops and acquires with a semaphore
-        // the GPU may still hold. The wait is issued again inside the stall budget; past it the
-        // acquire goes on as upstream's does.
-        while !swapchain.device.wait_for_fence(
-            fence,
-            acquire_semaphore_guard.previously_used_submission_index,
-            timeout_ns,
-        )? {
-            if !retry_stall(stall_start, timeout_ns) {
-                break;
-            }
-            log::error!(
-                "waiting for the previous submission timed out after {:?} of a stalled GPU; \
-                 waiting again",
-                stall_start.elapsed()
-            );
-        }
-
-        // will block if no image is available
-        //
-        // BENILLA: a `VK_TIMEOUT` retries the acquire inside the stall budget. A call that did not
-        // acquire an image leaves the semaphore and fence unaffected (spec, vkAcquireNextImageKHR),
-        // so the same pair is legal to pass again.
-        let (index, suboptimal) = loop {
-            match unsafe {
-                profiling::scope!("vkAcquireNextImageKHR");
-                swapchain.functor.acquire_next_image(
-                    swapchain.raw,
-                    timeout_ns,
-                    acquire_semaphore_guard.acquire,
-                    swapchain.fence,
-                )
-            } {
-                // We treat `VK_SUBOPTIMAL_KHR` as `VK_SUCCESS` on Android.
-                // See the comment in `Queue::present`.
-                #[cfg(target_os = "android")]
-                Ok((index, _)) => break (index, false),
-                #[cfg(not(target_os = "android"))]
-                Ok(pair) => break pair,
-                Err(vk::Result::TIMEOUT) if retry_stall(stall_start, timeout_ns) => {
-                    log::error!(
-                        "vkAcquireNextImageKHR timed out after {:?} of a stalled presentation \
-                         engine; waiting again",
-                        stall_start.elapsed()
-                    );
-                }
-                Err(error) => {
-                    // BENILLA: the raw result, before it is mapped to a coarser error.
-                    if !matches!(
-                        error,
-                        vk::Result::NOT_READY
-                            | vk::Result::ERROR_OUT_OF_DATE_KHR
-                            | vk::Result::ERROR_SURFACE_LOST_KHR
-                    ) {
-                        log::error!("vkAcquireNextImageKHR returned {error:?}");
-                    }
-                    return match error {
-                        vk::Result::TIMEOUT => Ok(None),
-                        vk::Result::NOT_READY | vk::Result::ERROR_OUT_OF_DATE_KHR => {
-                            Err(crate::SurfaceError::Outdated)
-                        }
-                        vk::Result::ERROR_SURFACE_LOST_KHR => Err(crate::SurfaceError::Lost),
-                        // We don't use VK_EXT_full_screen_exclusive
-                        // VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT
-                        other => Err(super::map_host_device_oom_and_lost_err(other).into()),
-                    };
-                }
-            }
-        };
-
-        // Wait for the image was acquired to be fully ready to be rendered too.
-        //
-        // This wait is very important on Windows to avoid bad frame pacing on
-        // Windows where the Vulkan driver is using a DXGI swapchain. See
-        // https://github.com/gfx-rs/wgpu/issues/8310 and
-        // https://github.com/gfx-rs/wgpu/issues/8354 for more details.
-        //
-        // On other platforms, this wait may serve to slightly decrease frame
-        // latency, depending on how the platform implements waiting within
-        // acquire.
-        //
-        // BENILLA: the image is already acquired and this fence will signal, so a `VK_TIMEOUT`
-        // waits again inside the stall budget; upstream maps it to `DeviceError::Unexpected`, which
-        // wgpu-core treats as a lost device.
-        unsafe {
-            loop {
-                match swapchain
-                    .device
-                    .raw
-                    .wait_for_fences(&[swapchain.fence], false, timeout_ns)
-                {
-                    Ok(()) => break,
-                    Err(vk::Result::TIMEOUT) if retry_stall(stall_start, timeout_ns) => {
-                        log::error!(
-                            "vkWaitForFences on the acquired image timed out after {:?} of a \
-                             stalled presentation engine; waiting again",
-                            stall_start.elapsed()
-                        );
-                    }
-                    Err(error) => {
-                        // BENILLA: the raw result, before it becomes `DeviceError::Unexpected`.
-                        log::error!("vkWaitForFences on the acquired image returned {error:?}");
-                        return Err(super::map_host_device_oom_and_lost_err(error).into());
-                    }
-                }
-            }
-
-            swapchain
-                .device
-                .raw
-                .reset_fences(&[swapchain.fence])
-                .map_err(super::map_host_device_oom_and_lost_err)?;
-        }
-
-        drop(acquire_semaphore_guard);
-        // We only advance the surface semaphores if we successfully acquired an image, otherwise
-        // we should try to re-acquire using the same semaphores.
-        swapchain.advance_acquire_semaphore();
-
-        let present_semaphore_arc = swapchain.get_present_semaphores(index);
-
-        // special case for Intel Vulkan returning bizarre values (ugh)
-        if swapchain.device.vendor_id == crate::auxil::db::intel::VENDOR && index > 0x100 {
-            return Err(crate::SurfaceError::Outdated);
-        }
-
-        let identity = swapchain.device.texture_identity_factory.next();
-
-        let texture = super::SurfaceTexture {
-            index,
-            texture: super::Texture {
-                raw: swapchain.images[index as usize],
-                drop_guard: None,
-                block: None,
-                external_memory: None,
-                format: swapchain.config.format,
-                copy_size: crate::CopyExtent {
-                    width: swapchain.config.extent.width,
-                    height: swapchain.config.extent.height,
-                    depth: 1,
-                },
-                identity,
-            },
-            acquire_semaphores: acquire_semaphore_arc,
-            present_semaphores: present_semaphore_arc,
-        };
-        Ok(Some(crate::AcquiredSurfaceTexture {
-            texture,
-            suboptimal,
-        }))
+        unsafe { swapchain.acquire(timeout, fence) }
     }
 
-    unsafe fn discard_texture(&self, _texture: super::SurfaceTexture) {}
+    unsafe fn discard_texture(&self, texture: super::SurfaceTexture) {
+        unsafe {
+            self.swapchain
+                .write()
+                .as_mut()
+                .unwrap()
+                .discard_texture(texture)
+                .unwrap()
+        };
+    }
 }

@@ -1767,7 +1767,7 @@ mod clip_plumb_tests {
             .unwrap();
 
         let mut app = App::new();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.init_resource::<UiQuads>();
         app.init_resource::<crate::ui_script::UiPassState>();
         app.init_resource::<Assets<Image>>();
@@ -1859,7 +1859,7 @@ mod clip_plumb_tests {
             .unwrap();
 
         let mut app = App::new();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.init_resource::<UiQuads>();
         app.init_resource::<crate::ui_script::UiPassState>();
         app.init_resource::<Assets<Image>>();
@@ -2092,7 +2092,7 @@ mod extract_gate_tests {
     /// [`app_from_script`] over a VM of the caller's.
     fn app_over(script: UiScript) -> App {
         let mut app = App::new();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.init_resource::<UiQuads>();
         app.init_resource::<crate::ui_script::UiPassState>();
         app.init_resource::<Assets<Image>>();
@@ -2136,7 +2136,7 @@ mod extract_gate_tests {
         // A paint-only write, invisible to the layout gate: only the extracted-list compare can
         // reopen extraction.
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("marker:SetTexture(0, 0, 1)")
             .unwrap();
         app.update();
@@ -2159,7 +2159,7 @@ mod extract_gate_tests {
         app.world_mut().resource_mut::<UiQuads>().dirty = false;
 
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("getglobal('Plain'):SetPoint('TOPLEFT', 40, -40)")
             .unwrap();
         app.update();
@@ -2286,7 +2286,7 @@ mod extract_gate_tests {
         );
         app.update();
 
-        let script = app.world().non_send_resource::<UiScript>();
+        let script = app.world().non_send::<UiScript>();
         let handle = |name: &str| script.frame_handle(name).expect(name);
         let (doll, stray, bare) = (
             handle("CharacterModelFrame"),
@@ -2324,7 +2324,7 @@ mod extract_gate_tests {
     fn a_booth_bake_quad_is_flagged_premultiplied_and_a_plain_one_is_not() {
         let mut app = app_with_marker();
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("SetPortraitTexture(marker, 'target')")
             .unwrap();
         // The booth publishes a live bake for that unit; without an entry the region draws nothing.
@@ -2366,7 +2366,7 @@ mod extract_gate_tests {
         app.update();
         app.world_mut().resource_mut::<UiQuads>().dirty = false;
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("marker:SetTexture(0, 0, 1)")
             .unwrap();
         app.update();
@@ -2409,7 +2409,7 @@ mod extract_gate_tests {
         let before = app.world().resource::<UiQuads>().quads.len();
         app.world_mut().resource_mut::<UiQuads>().dirty = false;
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("marker:SetTexture(nil)")
             .unwrap();
         app.update();
@@ -2430,7 +2430,7 @@ mod extract_gate_tests {
         // The follow-up (0 → 1 quads) splices against the re-derived spans.
         app.world_mut().resource_mut::<UiQuads>().dirty = false;
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("marker:SetTexture(0, 1, 0)")
             .unwrap();
         app.update();
@@ -2488,7 +2488,7 @@ mod extract_gate_tests {
 
         // ── Insertion ────────────────────────────────────────────────────────────────────────
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("hidden:Show()")
             .unwrap();
         app.update();
@@ -2522,7 +2522,7 @@ mod extract_gate_tests {
         // Nothing converts, so `dropped` is what shows the splice ran.
         app.world_mut().resource_mut::<UiQuads>().dirty = false;
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("hidden:Hide()")
             .unwrap();
         app.update();
@@ -2565,7 +2565,7 @@ mod extract_gate_tests {
             .unwrap();
         app.world_mut().get_mut::<Window>(win).unwrap().resolution = UVec2::new(800, 600).into();
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .run("marker:SetTexture(0, 0, 1)")
             .unwrap();
         app.update();

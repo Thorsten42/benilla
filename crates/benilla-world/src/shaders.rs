@@ -1,22 +1,22 @@
-//! The engine's WGSL, embedded in the binary; the game's shaders are embedded by `benilla-app`.
+//! The engine's WESL, embedded in the binary; the game's shaders are embedded by `benilla-app`.
 //! These calls must stay in a file directly under `src/`: `embedded_asset!` derives the served
 //! path from `file!()` without normalizing it, so a call from a submodule would serve the shader
-//! under that module's directory instead of `embedded://benilla_world/shaders/<name>.wgsl`.
+//! under that module's directory instead of `embedded://benilla_world/shaders/<name>.wesl`.
 
 use bevy::prelude::*;
 
-/// Embed the engine's WGSL files under `embedded://benilla_world/shaders/`. The first member of
+/// Embed the engine's WESL files under `embedded://benilla_world/shaders/`. The first member of
 /// [`crate::world_plugins::WorldPlugins`]; it needs `DefaultPlugins`, which creates the asset
 /// registry, added first.
 pub(crate) fn plugin(app: &mut App) {
-    bevy::asset::embedded_asset!(app, "shaders/sky_vertex.wgsl");
-    bevy::asset::embedded_asset!(app, "shaders/sky.wgsl");
-    bevy::asset::embedded_asset!(app, "shaders/star.wgsl");
-    bevy::asset::embedded_asset!(app, "shaders/cloud.wgsl");
-    bevy::asset::embedded_asset!(app, "shaders/celestial.wgsl");
-    bevy::asset::embedded_asset!(app, "shaders/ffx_glow.wgsl");
-    bevy::asset::embedded_asset!(app, "shaders/wow_effect.wgsl");
-    bevy::asset::embedded_asset!(app, "shaders/static_gx.wgsl");
+    bevy::asset::embedded_asset!(app, "shaders/sky_vertex.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/sky.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/star.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/cloud.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/celestial.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/ffx_glow.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/wow_effect.wesl");
+    bevy::asset::embedded_asset!(app, "shaders/static_gx.wesl");
 }
 
 #[cfg(test)]
@@ -38,7 +38,7 @@ mod tests {
         let mut found = 0;
         for entry in std::fs::read_dir(dir).unwrap() {
             let name = entry.unwrap().file_name().to_string_lossy().into_owned();
-            if !name.ends_with(".wgsl") {
+            if !name.ends_with(".wesl") {
                 continue;
             }
             found += 1;
@@ -115,8 +115,8 @@ mod tests {
 
         let root = env!("CARGO_MANIFEST_DIR");
         for path in [
-            "/src/shaders/static_gx.wgsl",
-            "/../benilla-assets/src/shaders/terrain.wgsl",
+            "/src/shaders/static_gx.wesl",
+            "/../benilla-assets/src/shaders/terrain.wesl",
         ] {
             let src = std::fs::read_to_string(format!("{root}{path}")).expect(path);
             assert_eq!(

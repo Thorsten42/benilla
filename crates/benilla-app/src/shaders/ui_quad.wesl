@@ -1,6 +1,6 @@
 // The player-UI quad material. The reference draws the UI fixed-function into an 8-bit
 // backbuffer, so the fragment tints and premultiplies on gamma bytes and outputs raw gamma for the
-// `(One, OneMinusSrcAlpha)` blend; `ui_gamma.wgsl` decodes once. One pipeline for four modes, a
+// `(One, OneMinusSrcAlpha)` blend; `ui_gamma.wesl` decodes once. One pipeline for four modes, a
 // uniform per mode, and a second pipeline for MOD:
 //   DISABLE  (EGxBlend 0, no blend):                    out = (rgb, 1)     ⇒ rgb
 //   ALPHAKEY (EGxBlend 1, no blend, test a ≥ 224/255):  out = (rgb, 1)     ⇒ rgb, or discard
@@ -13,28 +13,25 @@
 // Deviation: bilinear filtering runs on the decoded texel, not on the gamma byte the reference
 // filters, because the booth bake stores linear bytes.
 
-#import bevy_sprite::mesh2d_functions as mesh_functions
+import bevy_sprite_render::mesh2d::functions as mesh_functions;
 
 // The mesh vertex at bevy's fixed Mesh2d locations (`Mesh2dPipeline::specialize`: POSITION 0, UV_0
 // 2, COLOR 4); `VERTEX_UVS`/`VERTEX_COLORS` are defined only for attributes the mesh carries.
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
     @location(0) position: vec3<f32>,
-#ifdef VERTEX_UVS
+    @if(VERTEX_UVS)
     @location(2) uv: vec2<f32>,
-#endif
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     @location(4) color: vec4<f32>,
-#endif
 }
 
 struct VertexOutput {
     // In the fragment, the physical pixel coordinate the screen mask uses.
     @builtin(position) position: vec4<f32>,
     @location(0) uv: vec2<f32>,
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     @location(1) color: vec4<f32>,
-#endif
     // The run's colour from the per-instance `MeshTag`, a byte per channel as the reference's
     // `CImVector`. Stored complemented, so no `MeshTag` (0) is opaque white.
     @location(2) @interpolate(flat) tint: vec4<f32>,
@@ -49,14 +46,12 @@ fn vertex(vertex: Vertex) -> VertexOutput {
         vec4<f32>(vertex.position, 1.0),
     );
     out.position = mesh_functions::mesh2d_position_world_to_clip(world_position);
-#ifdef VERTEX_UVS
+    @if(VERTEX_UVS)
     out.uv = vertex.uv;
-#else
+    @else
     out.uv = vec2<f32>(0.0);
-#endif
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     out.color = vertex.color;
-#endif
     // `unpack4x8unorm` reads byte 0 into `.x`: r, g, b, a from the low byte up.
     out.tint = unpack4x8unorm(~mesh_functions::get_tag(vertex.instance_index));
     return out;
@@ -129,11 +124,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let hi = max(uv_clamp.xy, uv_clamp.zw);
     let uv = select(in.uv, clamp(in.uv, lo, hi), uv_clamp.xy <= uv_clamp.zw);
     let t = textureSample(quad_texture, quad_sampler, uv);
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     let c = in.color * in.tint;
-#else
+    @else
     let c = in.tint;
-#endif
     // The tint is a client-space byte value (`<Color>`, `|cff…`), so `tint × texel` runs on bytes.
     let texel = select(linear_to_srgb(t.rgb), t.rgb, gamma_texel != 0u);
     var rgb = texel * c.rgb;

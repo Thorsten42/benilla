@@ -60,13 +60,13 @@ pub(crate) fn sync_zfill_twins(
         let Some(mat) = fm.zfill.as_ref() else {
             continue; // no-z-write, Mod or Mod2x batch: the reference's own twin gate
         };
-        let active = crate::mesh_tag::translucent(tag.0);
+        let active = crate::mesh_tag::translucent(tag.value);
         match twin {
             None if active => {
                 let mut twin = commands.spawn((
                     Mesh3d(mesh.0.clone()),
                     MeshMaterial3d(mat.clone()),
-                    MeshTag(tag.0),
+                    MeshTag::new(tag.value),
                     Transform::IDENTITY,
                     ZfillTwinOf(part),
                     ChildOf(part),
@@ -76,12 +76,12 @@ pub(crate) fn sync_zfill_twins(
                 }
                 let t = twin.id();
                 commands.entity(part).insert(ZfillTwin(t));
-                trace("arm", part, tag.0);
+                trace("arm", part, tag.value);
             }
             Some(t) if !active => {
                 commands.entity(t.0).despawn();
                 commands.entity(part).remove::<ZfillTwin>();
-                trace("release", part, tag.0);
+                trace("release", part, tag.value);
             }
             _ => {}
         }
@@ -91,8 +91,8 @@ pub(crate) fn sync_zfill_twins(
         let Ok((_, _, ptag, pmesh, _, _)) = parts.get(of.0) else {
             continue; // the part is going away; the child despawns with it
         };
-        if tag.0 != ptag.0 {
-            tag.0 = ptag.0;
+        if tag.value != ptag.value {
+            tag.value = ptag.value;
         }
         if mesh.0 != pmesh.0 {
             mesh.0 = pmesh.0.clone();

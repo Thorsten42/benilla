@@ -828,7 +828,9 @@ fn compute_pvs_traced<T: FloodTrace>(
     // the flood's per-group callback without the recursion). Both legs run it: the camera-outside
     // seed `0x6b3dd0` forks on the same bit. Every arm frustum-tests the MOGI AABB first
     // (`0x6b3d9d`, `0x6b3f2d`, `call 0x682f60`).
-    let base = Frustum::from_clip_from_world(clip_from_world);
+    let base = Frustum(bevy::shape::ViewFrustum::from_clip_from_world(
+        clip_from_world,
+    ));
     for (gi, g) in nav.iter().enumerate() {
         if flood.visible[gi] || g.flags & CALLBACK_PASS == 0 {
             continue;
@@ -982,6 +984,7 @@ fn intersect_rect(a: Rect, b: Rect) -> Option<Rect> {
 mod audit;
 
 #[cfg(test)]
+#[allow(deprecated)] // glam 0.33's `Mat4::*_rh`, kept so the test matrices stay bit-identical
 mod tests {
     use super::*;
 

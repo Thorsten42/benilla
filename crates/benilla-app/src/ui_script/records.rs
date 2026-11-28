@@ -333,6 +333,7 @@ mod tests {
             x: 0.0,
             y,
             window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
         })
     }
 
@@ -457,6 +458,7 @@ mod tests {
             x: 3.0,
             y: 0.0,
             window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
         });
         assert!(collect(&mut w, vec![sideways]).is_empty());
     }

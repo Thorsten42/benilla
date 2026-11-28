@@ -227,7 +227,7 @@ pub(crate) fn system_access<I: bevy::ecs::system::SystemInput + 'static, O: 'sta
     system: impl IntoSystem<I, O, M>,
 ) -> bevy::ecs::query::FilteredAccessSet {
     use bevy::ecs::system::System;
-    IntoSystem::into_system(system).initialize(world)
+    crate::resource_access::declared(IntoSystem::into_system(system).initialize(world))
 }
 
 /// One lane: its name, its head, its firing (a one-shot taking [`Until`], the `NetHandlers`
@@ -303,8 +303,9 @@ pub(crate) fn measure(world: &mut World) {
                 .unregister_system(lane.fire)
                 .expect("a registered lane firing")
                 .system();
-            let exclusive = system.is_exclusive();
-            let mut access = system.initialize(world);
+            let access = system.initialize(world);
+            let exclusive = access.is_exclusive();
+            let mut access = crate::resource_access::declared(access);
             if let (true, Some(reads)) = (exclusive, lane.reads) {
                 access = reads(world);
             }

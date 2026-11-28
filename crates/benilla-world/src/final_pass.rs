@@ -27,21 +27,23 @@ pub struct FinalPassTarget<'a> {
 }
 
 impl<'a> FinalPassTarget<'a> {
-    /// The format the final pass renders in, which its pipeline is specialised on.
-    pub fn format(output_mode: &CameraOutputMode, target: &ViewTarget) -> TextureFormat {
+    /// The format the final pass renders in, which its pipeline is specialised on; `None` for a
+    /// `Skip` view with no output this frame (Bevy keeps a `ViewTarget` without one only for a
+    /// camera that does not clear), which has no final pass.
+    pub fn format(output_mode: &CameraOutputMode, target: &ViewTarget) -> Option<TextureFormat> {
         match output_mode {
             CameraOutputMode::Skip => target.out_texture_view_format(),
-            CameraOutputMode::Write { .. } => target.main_texture_format(),
+            CameraOutputMode::Write { .. } => Some(target.main_texture_format()),
         }
     }
 
-    /// Resolve a view's final pass target. Call once per view per frame: the `Write` arm takes the
-    /// view's post-process write, which flips the main texture.
-    pub fn resolve(camera: &'a ExtractedCamera, target: &'a ViewTarget) -> Self {
-        match camera.output_mode {
+    /// Resolve a view's final pass target, `None` as for [`Self::format`]. Call once per view per
+    /// frame: the `Write` arm takes the view's post-process write, which flips the main texture.
+    pub fn resolve(camera: &'a ExtractedCamera, target: &'a ViewTarget) -> Option<Self> {
+        Some(match camera.output_mode {
             CameraOutputMode::Skip => Self {
                 source: target.main_texture_view(),
-                destination: target.out_texture_color_attachment(Some(LinearRgba::NONE)),
+                destination: target.out_texture_color_attachment(Some(LinearRgba::NONE))?,
                 scissor: camera.viewport.as_ref(),
             },
             CameraOutputMode::Write { .. } => {
@@ -57,7 +59,7 @@ impl<'a> FinalPassTarget<'a> {
                     scissor: None,
                 }
             }
-        }
+        })
     }
 
     /// The pass's scissor rect, `(x, y, width, height)` in physical pixels.

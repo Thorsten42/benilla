@@ -1003,7 +1003,7 @@ mod tests {
             "#,
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app
     }
 
@@ -1177,7 +1177,7 @@ mod tests {
     fn ask_kept_ammo(app: &mut App) {
         let entries = app
             .world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .take_ammo_record_asks();
         for entry in entries {
             ask_ammo_record(
@@ -1202,9 +1202,7 @@ mod tests {
         let (tx, rx) = crossbeam_channel::unbounded();
         app.insert_resource(NetCommands(tx));
         set_self(&mut app, &[(AMMO_ID, ARROW)]);
-        app.world_mut()
-            .non_send_resource_mut::<UiScript>()
-            .keep_calls();
+        app.world_mut().non_send_mut::<UiScript>().keep_calls();
         let ask = |app: &mut App| {
             let quality: Option<i64> = eval(app, r#"return GetInventoryItemQuality("player", 0)"#);
             ask_kept_ammo(app);
@@ -1250,17 +1248,13 @@ mod tests {
     fn a_bank_bag_reads_the_lock_on_its_own_guid() {
         let mut app = world_with_bank_bag(Some(BAG));
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .set_bank(Some(benilla_ui::script::BankState::default()));
         let locked = r#"return IsInventoryItemLocked(64) and true or false"#;
         assert!(!eval::<bool>(&mut app, locked));
-        app.world_mut()
-            .non_send_resource_mut::<UiScript>()
-            .lock_item(BAG);
+        app.world_mut().non_send_mut::<UiScript>().lock_item(BAG);
         assert!(eval::<bool>(&mut app, locked), "a send's lock on the bag");
-        app.world_mut()
-            .non_send_resource_mut::<UiScript>()
-            .unlock_item(BAG);
+        app.world_mut().non_send_mut::<UiScript>().unlock_item(BAG);
         assert!(!eval::<bool>(&mut app, locked), "the server's answer");
         let seen: Vec<String> = eval(&mut app, "return SEEN");
         assert!(seen.is_empty(), "a lock is no inventory change: {seen:?}");
@@ -1272,7 +1266,7 @@ mod tests {
     fn a_bank_bag_reads_its_object_at_the_call() {
         let mut app = world_with_bank_bag(Some(BAG));
         app.world_mut()
-            .non_send_resource_mut::<UiScript>()
+            .non_send_mut::<UiScript>()
             .set_bank(Some(benilla_ui::script::BankState::default()));
         let link = r#"return GetInventoryItemLink("player", 64)"#;
         assert!(eval::<String>(&mut app, link).contains("[Traveler's Backpack]"));

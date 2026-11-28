@@ -1007,7 +1007,7 @@ mod tests {
     #[test]
     fn a_try_on_refuses_and_lands_inside_its_call() {
         let mut app = crate::game_plugins::schedule_tests::headless_client();
-        app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+        app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
             bevy::ecs::error::ignore,
         ));
         let (tx, _rx) = crossbeam_channel::unbounded();
@@ -1020,7 +1020,7 @@ mod tests {
         }
         let mut s = UiScript::new().expect("a VM");
         s.set_screen_size(800.0, 600.0);
-        app.insert_non_send_resource(s);
+        app.insert_non_send(s);
         let seen: Option<String> = crate::script_calls::with_hosted_vm(app.world_mut(), |s| {
             let s = s.expect("a VM");
             s.run(

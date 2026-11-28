@@ -5,6 +5,7 @@
 //! flash (`0x62abac`), the level watcher (`0x60ce5b`), the raid board's icons (`0x608a90`) and
 //! the gate `InvalidateNameDesc` runs (`0x60706a`), which a name answer's release (`0x6046c1`)
 //! hands a new bind. So a listener a later packet of the frame fires reads its packet's plate.
+#![allow(deprecated)] // glam 0.33's `Mat4::*_rh`, kept so the test matrices stay bit-identical
 
 use benilla_protocol::field::{
     FIELD_UNIT_BYTES_1, FIELD_UNIT_FLAGS, FIELD_UNIT_HEALTH, FIELD_UNIT_LEVEL, FIELD_UNIT_MAXHEALTH,
@@ -48,7 +49,7 @@ fn plated_client(look: &str) -> App {
         .resource_mut::<crate::vplates::PlateSpots>()
         .0
         .insert(BOAR);
-    let mut script = world.non_send_resource_mut::<UiScript>();
+    let mut script = world.non_send_mut::<UiScript>();
     crate::vplates::plates_for_test(&mut script, &[BOAR]);
     helpers(&script, look);
     app
@@ -481,7 +482,7 @@ fn framed_client(look: &str) -> App {
         ))
         .id();
     world.get_mut::<ViewVisibility>(part).unwrap().set_visible();
-    let mut script = world.non_send_resource_mut::<UiScript>();
+    let mut script = world.non_send_mut::<UiScript>();
     script.set_screen_size(1024.0, 768.0);
     script
         .run(r#"WorldFrame = CreateFrame("WorldFrame", "WorldFrame") WorldFrame:SetAllPoints()"#)
@@ -628,7 +629,7 @@ fn the_party_seat_and_clear_recolour_the_members_plate() {
         .resource_mut::<crate::vplates::PlateSpots>()
         .0
         .insert(MATE);
-    let mut script = world.non_send_resource_mut::<UiScript>();
+    let mut script = world.non_send_mut::<UiScript>();
     crate::vplates::plates_for_test(&mut script, &[MATE]);
     helpers(
         &script,
@@ -724,7 +725,7 @@ fn a_party_turned_raid_links_a_members_pets_watchers_behind_its_plate() {
         .resource_mut::<crate::vplates::PlateSpots>()
         .0
         .insert(PET);
-    let mut script = world.non_send_resource_mut::<UiScript>();
+    let mut script = world.non_send_mut::<UiScript>();
     // The tokens as the frame's push leaves them for the bind, which runs with no host lent here.
     script.set_unit_guids(&benilla_ui::script::UnitGuids {
         player: ME,
@@ -768,7 +769,7 @@ fn a_charm_cast_again_links_the_pets_watchers_behind_its_plate() {
     };
     let _ = frame(&mut app, vec![charm(BOAR)]);
     {
-        let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut script = app.world_mut().non_send_mut::<UiScript>();
         // The tokens as the frame's push leaves them for the bind, which runs with no host lent
         // here.
         script.set_unit_guids(&benilla_ui::script::UnitGuids {

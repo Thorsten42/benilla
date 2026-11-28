@@ -825,7 +825,7 @@ mod tests {
     /// A VM that records the windows' closes, in the world.
     fn spy_closes(c: &mut Client) {
         let vm = crate::ui_script::sweep_test::spied_vm(&["MERCHANT_CLOSED", "TRADE_CLOSED"]);
-        c.world().insert_non_send_resource(vm);
+        c.world().insert_non_send(vm);
     }
 
     /// Our own death releases the latch with the goodbye (`0x4931c0(0xb4e2d0, 0)` at `0x5e9a51`;

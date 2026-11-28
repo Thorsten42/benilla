@@ -496,7 +496,7 @@ mod tests {
     fn the_defense_rows_hold_through_a_rename_until_a_confirm_or_a_free() {
         let mut app = crate::game_plugins::schedule_tests::headless_client_unrun();
         let world = app.world_mut();
-        world.insert_non_send_resource(benilla_ui::script::UiScript::new().expect("a VM"));
+        world.insert_non_send(benilla_ui::script::UiScript::new().expect("a VM"));
         let mut states = WorldStates::default();
         states.init_scope(0, 139);
         world.insert_resource(states);
@@ -562,7 +562,7 @@ mod tests {
                  f:SetScript('OnEvent', function() heard = heard .. event .. ' ' end)",
             )
             .expect("a listener");
-        app.world_mut().insert_non_send_resource(script);
+        app.world_mut().insert_non_send(script);
         let heard = |app: &mut App| -> String {
             app.world_mut().flush();
             crate::lanes::fire_in_order(app.world_mut());

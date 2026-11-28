@@ -104,7 +104,7 @@ fn client() -> App {
             "#,
         )
         .unwrap();
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     app
 }
 
@@ -113,7 +113,7 @@ fn frame(app: &mut App, packets: impl IntoIterator<Item = Vec<SessionEvent>>) ->
     let world = app.world_mut();
     crate::net::handlers::dispatch(world, packets.into_iter().flatten().collect());
     crate::lanes::fire_in_order(world);
-    let s = world.non_send_resource_mut::<UiScript>();
+    let s = world.non_send_mut::<UiScript>();
     let out = s.eval::<Vec<String>>("return Heard").unwrap();
     s.run("Heard = {}").unwrap();
     out
@@ -146,7 +146,7 @@ fn a_listener_reads_the_newly_explored_zone_through_the_getters() {
     let mut app = client();
     assert_eq!(
         app.world()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<i64>("return GetNumMapOverlays()")
             .unwrap(),
         0,
@@ -217,7 +217,7 @@ fn landmark_client() -> App {
     world.insert_resource(crate::area::AreaTableRes(
         benilla_formats::AreaTableCatalog::from_rows(Vec::new()),
     ));
-    let mut script = world.non_send_resource_mut::<UiScript>();
+    let mut script = world.non_send_mut::<UiScript>();
     script.set_world_loc_projector(Box::new(|_, _, x, y| Some((x, y))));
     script.tick(0.01);
     script
@@ -266,7 +266,7 @@ fn frame_with_minimap(
         .run_system_cached(crate::poi_marker::expire_marker)
         .unwrap();
     crate::lanes::fire_in_order(world);
-    let s = world.non_send_resource_mut::<UiScript>();
+    let s = world.non_send_mut::<UiScript>();
     let out = s.eval::<Vec<String>>("return Heard").unwrap();
     s.run("Heard = {}").unwrap();
     out

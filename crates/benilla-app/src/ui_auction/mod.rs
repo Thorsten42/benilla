@@ -1318,7 +1318,7 @@ mod tests {
             "#,
             )
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.world_mut().spawn((SelfPlayer, crate::net::Guid(ME)));
         // The row's item template is cached: an uncached row answers the miss shape, whose
         // eleventh value is nil whatever the bidder.
@@ -1330,7 +1330,7 @@ mod tests {
             // The lanes' drain.
             net::fire_house_lane(app.world_mut());
             let seen = {
-                let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+                let mut s = app.world_mut().non_send_mut::<UiScript>();
                 s.resolve();
                 let seen = s.eval::<Vec<String>>("return SEEN").unwrap();
                 s.run("SEEN = {}").unwrap();
@@ -1390,7 +1390,7 @@ mod tests {
         app.world_mut()
             .resource_mut::<Items>()
             .insert_template(2589, Some(crate::items::test_template("Linen Cloth")));
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         app.world_mut().spawn((SelfPlayer, crate::net::Guid(ME)));
         land_owned(&mut app);
         let read = |app: &mut App| {
@@ -1424,12 +1424,9 @@ mod tests {
             open.set_list(OWNER, vec![entry(ME, BIDDER_GUID)], 1);
             open.lists[OWNER].arrived_ms = Some(0);
         }
-        let mut script = app
-            .world_mut()
-            .remove_non_send_resource::<UiScript>()
-            .unwrap();
+        let mut script = app.world_mut().remove_non_send::<UiScript>().unwrap();
         seed_vm(app.world_mut(), &mut script);
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
     }
 
     /// The house lane and the sweep's auction leg, the lane's other inputs at rest.
@@ -1461,7 +1458,7 @@ mod tests {
     fn a_reload_closes_the_auction_house_and_the_new_vm_shows_nothing() {
         use crate::ui_script::sweep_test::{reload_in_place, seen, seen_in, spied_vm};
         let mut app = sweep_auction_app();
-        app.insert_non_send_resource(spied_vm(&EVENTS));
+        app.insert_non_send(spied_vm(&EVENTS));
         open_auction(app.world_mut(), AUCTIONEER, 1);
         app.update();
         net::fire_house_lane(app.world_mut());
@@ -1490,7 +1487,7 @@ mod tests {
     fn a_worldport_closes_the_auction_house_once() {
         use crate::ui_script::sweep_test::{seen_in, spied_vm, sweep_in_place};
         let mut app = sweep_auction_app();
-        app.insert_non_send_resource(spied_vm(&EVENTS));
+        app.insert_non_send(spied_vm(&EVENTS));
         open_auction(app.world_mut(), AUCTIONEER, 1);
         app.update();
         net::fire_house_lane(app.world_mut());

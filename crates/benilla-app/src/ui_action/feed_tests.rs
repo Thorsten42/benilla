@@ -25,7 +25,7 @@ fn app_with_an_empty_bar() -> (App, crossbeam_channel::Receiver<ClientCommand>) 
         .init_resource::<crate::ui_chat::ChatLog>()
         .init_resource::<crate::sound::MessageSounds>()
         .insert_resource(NetCommands(tx));
-    app.insert_non_send_resource(UiScript::new().unwrap());
+    app.insert_non_send(UiScript::new().unwrap());
     // The ui-error lane fired alone after the feed, as the drain fires it after every feed.
     app.add_systems(Update, (feed_actions, super::fire_ui_error_lane).chain());
     (app, rx)
@@ -82,7 +82,7 @@ fn pre_resolved_lines_land_on_the_errors_frame_in_the_arms_colour() {
     benilla_formats::wow_data_or_skip!();
     let (mut app, _rx) = app_with_an_empty_bar();
     {
-        let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut script = app.world_mut().non_send_mut::<UiScript>();
         script.set_screen_size(1024.0, 768.0);
         // Stock files, read from the install.
         for file in [
@@ -104,7 +104,7 @@ fn pre_resolved_lines_land_on_the_errors_frame_in_the_arms_colour() {
         "the lane drains the queue"
     );
 
-    let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+    let mut script = app.world_mut().non_send_mut::<UiScript>();
     assert!(
         script.errors().is_empty(),
         "VM errors: {:?}",
@@ -149,7 +149,7 @@ fn a_notice_under_the_loading_cover_fires_at_the_reveal() {
     let (mut app, _rx) = app_with_an_empty_bar();
     app.insert_resource(crate::loading_screen::LoadingScreen::test_covering());
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             BENILLA_TEST_ERRORS = {}
@@ -161,7 +161,7 @@ fn a_notice_under_the_loading_cover_fires_at_the_reveal() {
         .unwrap();
     let fired = |app: &mut App| {
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<Vec<String>>("return BENILLA_TEST_ERRORS")
             .unwrap()
     };
@@ -208,7 +208,7 @@ fn report_feed(spells: crate::ui_action::Spells, reports: crate::ui_cast::CastRe
         .init_resource::<crate::creature_anim::UnitEdits>()
         .add_message::<crate::player::StandStateRequest>()
         .insert_resource(NetCommands(tx));
-    app.insert_non_send_resource(UiScript::new().unwrap());
+    app.insert_non_send(UiScript::new().unwrap());
     app.add_systems(Update, crate::ui_cast::signal_reports);
     app
 }
@@ -230,7 +230,7 @@ fn a_validator_line_shows_as_its_message_does() {
     });
     let mut app = report_feed(Spells::empty_for_tests(), reports);
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"ERR_SPELL_ALREADY_KNOWN_S = "You already know %s.";
                ERR_TAME_FAILED = "%s.";
@@ -244,7 +244,7 @@ fn a_validator_line_shows_as_its_message_does() {
     app.update();
     let seen = app
         .world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<Vec<String>>("return SEEN")
         .unwrap();
     assert_eq!(
@@ -286,7 +286,7 @@ fn a_pets_refused_cast_writes_no_combat_log_line() {
     // Only what the log line needs, its template and its reason; the red line's text has its own
     // tests.
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"SPELLFAILCASTSELF = "You fail to cast %s: %s."
                SPELL_FAILED_ROOTED = "You are unable to move";"#,
@@ -328,7 +328,7 @@ fn a_refused_spell_flagged_not_to_log_writes_no_combat_log_line() {
             reports,
         );
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run(
                 r#"SPELLFAILCASTSELF = "You fail to cast %s: %s."
                    SPELL_FAILED_ROOTED = "You are unable to move";"#,
@@ -369,7 +369,7 @@ fn an_empty_default_format_shows_nothing_and_still_logs() {
             reports,
         );
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run(&format!(
                 r#"SPELLFAILCASTSELF = "You fail to cast %s: %s."
                 SPELL_FAILED_ROOTED = "You are unable to move"
@@ -383,7 +383,7 @@ fn an_empty_default_format_shows_nothing_and_still_logs() {
         app.update();
         let seen = app
             .world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<Vec<String>>("return SEEN")
             .unwrap();
         let logged = app
@@ -407,7 +407,7 @@ fn an_empty_default_format_shows_nothing_and_still_logs() {
 fn a_tame_failure_composes_the_reason_string_into_err_tame_failed() {
     let (mut app, _rx) = app_with_an_empty_bar();
     {
-        let script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let script = app.world_mut().non_send_mut::<UiScript>();
         // The strings verbatim from 1.12's `GlobalStrings.lua`, and a recorder for the event.
         script
             .run(
@@ -427,7 +427,7 @@ fn a_tame_failure_composes_the_reason_string_into_err_tame_failed() {
     }
     let line = |app: &mut App, i: usize| {
         app.world_mut()
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .eval::<Option<String>>(&format!("return BENILLA_TEST_LINES[{i}]"))
             .unwrap()
     };
@@ -483,7 +483,7 @@ fn a_refusal_of_the_armed_craft_disarms_the_batch() {
         crate::ui_cast::CastReports::default(),
     );
     {
-        let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut script = app.world_mut().non_send_mut::<UiScript>();
         script.set_trade_skill(Some(benilla_ui::script::TradeSkillState {
             line: 197,
             line_name: "Tailoring".into(),
@@ -511,11 +511,7 @@ fn a_refusal_of_the_armed_craft_disarms_the_batch() {
         script.keep_calls();
         script.run("DoTradeSkill(2, 3)").unwrap();
     }
-    let repeat = |app: &App| {
-        app.world()
-            .non_send_resource::<UiScript>()
-            .trade_skill_repeat()
-    };
+    let repeat = |app: &App| app.world().non_send::<UiScript>().trade_skill_repeat();
     app.world_mut()
         .resource_mut::<crate::ui_cast::CastReports>()
         .refused(CastFail::local(133, 0x0c));

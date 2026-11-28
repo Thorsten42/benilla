@@ -61,7 +61,7 @@ fn bag_link(pairs: &[(u16, u32)], template_flags: u32) -> String {
     ));
     let mut script = UiScript::new().unwrap();
     script.set_now(1000.0);
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     crate::ui_items::bags::eval_with_bags(app.world_mut(), "return GetContainerItemLink(0, 1)")
 }
 

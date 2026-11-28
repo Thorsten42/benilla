@@ -22,7 +22,7 @@ fn logout_client() -> (App, crossbeam_channel::Receiver<crate::net::ClientComman
         .resource_mut::<crate::ui_logout::LogoutState>()
         .seat_world_handle_for_test();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -89,7 +89,7 @@ fn logout_cancel_fires_at_the_acks_packet() {
 fn a_campings_cancel_leaves_the_later_ack_silent() {
     let (mut app, rx) = logout_client();
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"local g = CreateFrame("Frame")
             g:RegisterEvent("PLAYER_CAMPING")

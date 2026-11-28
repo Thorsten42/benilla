@@ -29,7 +29,7 @@ fn sent(rx: &Receiver<ClientCommand>) -> Vec<String> {
 }
 
 fn vm(app: &mut App) -> Mut<'_, UiScript> {
-    app.world_mut().non_send_resource_mut::<UiScript>()
+    app.world_mut().non_send_mut::<UiScript>()
 }
 
 /// The active player's guid, which the ammo and cooldown lookups pass as their owner id.

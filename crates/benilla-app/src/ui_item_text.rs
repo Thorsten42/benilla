@@ -1378,7 +1378,7 @@ mod tests {
                     profanity,
                     ..Default::default()
                 });
-            app.insert_non_send_resource(UiScript::new().unwrap());
+            app.insert_non_send(UiScript::new().unwrap());
             app.world_mut()
                 .resource_mut::<Items>()
                 .insert_template(5_000, Some(crate::items::test_template("Letter")));
@@ -1420,7 +1420,7 @@ mod tests {
             .insert_resource(darn_filter())
             .init_resource::<crate::text_filter::TextFilterSwitches>();
         net::register(&mut app);
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         let mut data = [0i32; 24];
         data[7] = 358;
         app.world_mut()
@@ -1499,7 +1499,7 @@ mod tests {
                     end)"#,
                 )
                 .unwrap();
-            app.insert_non_send_resource(script);
+            app.insert_non_send(script);
             let world = app.world_mut();
             let mut template = crate::items::test_template("Gnarled Book");
             template.page_text = 358;
@@ -1536,7 +1536,7 @@ mod tests {
             );
             let seen = |app: &mut App| -> String {
                 app.world()
-                    .non_send_resource::<UiScript>()
+                    .non_send::<UiScript>()
                     .eval::<String>("local s = table.concat(SEEN, ',') SEEN = {} return s")
                     .expect("runs")
             };
@@ -1643,7 +1643,7 @@ mod tests {
             .init_resource::<crate::net::GuidIndex>()
             .init_resource::<crate::world_state::WorldStates>();
         net::register(&mut app);
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         let mut data = [0i32; 24];
         data[7] = 358;
         data[9] = 2;
@@ -1779,7 +1779,7 @@ mod tests {
             .resource_mut::<crate::net::GuidIndex>()
             .0
             .insert(READER, player);
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         (app, rx)
     }
 

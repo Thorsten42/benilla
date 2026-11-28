@@ -87,6 +87,9 @@ impl WowPortraitProjection {
 }
 
 impl CameraProjection for WowPortraitProjection {
+    // glam 0.33's `Mat4::perspective_infinite_reverse_rh`, kept for its `1 / tan` focal term:
+    // `bevy::math::proj` derives it from `sin / cos`, which moves the matrix by an ulp.
+    #[allow(deprecated)]
     fn get_clip_from_view(&self) -> Mat4 {
         // The client's matrix with Bevy's reverse-z infinite depth; the record's far (27.8 on
         // HumanMale) never clips a model-local portrait.

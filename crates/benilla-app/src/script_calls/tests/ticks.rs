@@ -225,7 +225,7 @@ fn hover_a_unit(app: &mut App) {
     let mut hovered = world.resource_mut::<crate::target::Hovered>();
     hovered.target = Some(unit);
     hovered.guid = Some(0x77);
-    let mut script = world.non_send_resource_mut::<benilla_ui::script::UiScript>();
+    let mut script = world.non_send_mut::<benilla_ui::script::UiScript>();
     script.publish_world_mouseover(Some(0x77));
     script.seat_world_mouseover_unit(0x77, 0);
     script.set_unit(
@@ -351,7 +351,7 @@ fn is_mouselooking_reads_the_bit_a_key_moved_in_the_same_frame() {
 fn hover_a_button(app: &mut App) {
     let mut script = app
         .world_mut()
-        .non_send_resource_mut::<benilla_ui::script::UiScript>();
+        .non_send_mut::<benilla_ui::script::UiScript>();
     script.set_screen_size(1024.0, 768.0);
     script
         .run(
@@ -394,7 +394,7 @@ fn freelook_entry_moves_the_mouse_focus_to_the_world_frame_inside_the_call() {
     let focus: String = eval(&mut app, "MouselookStop() return GetMouseFocus():GetName()");
     assert_eq!(focus, "WorldFrame", "the re-pick waits for the update");
     app.world_mut()
-        .non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .non_send_mut::<benilla_ui::script::UiScript>()
         .tick(0.0);
     let (focus, log): (String, String) = eval(
         &mut app,
@@ -415,7 +415,7 @@ fn freelook_entry_releases_a_held_frame_once_at_the_origin() {
     hover_a_button(&mut app);
     let click = |app: &mut App, down: bool| {
         app.world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>()
+            .non_send_mut::<benilla_ui::script::UiScript>()
             .mouse_button(200.0, 300.0, "LeftButton", down);
     };
     click(&mut app, true);
@@ -443,7 +443,7 @@ fn freelook_turns_the_plates_mouse_off_and_back_inside_the_call() {
     {
         let mut script = app
             .world_mut()
-            .non_send_resource_mut::<benilla_ui::script::UiScript>();
+            .non_send_mut::<benilla_ui::script::UiScript>();
         script.set_screen_size(1024.0, 768.0);
         script
             .run(

@@ -786,7 +786,7 @@ mod shown_tests {
         let mut script = UiScript::new().expect("VM");
 
         {
-            let mut sink = state.get_mut(&mut world);
+            let mut sink = state.get_mut(&mut world).unwrap();
             super::show_messages(
                 &mut script,
                 &mut sink,
@@ -1262,7 +1262,7 @@ mod message_input_tests {
             (InputEvents::NONE, false),
         ] {
             let mut state = bevy::ecs::system::SystemState::<MessageSink>::new(&mut world);
-            let mut sink = state.get_mut(&mut world);
+            let mut sink = state.get_mut(&mut world).unwrap();
             show_messages(
                 &mut script,
                 &mut sink,
@@ -1309,7 +1309,12 @@ mod message_input_tests {
         world.init_resource::<ChatLog>();
         world.init_resource::<MessageSounds>();
         let mut state = bevy::ecs::system::SystemState::<MessageSink>::new(&mut world);
-        show_messages(&mut script, &mut state.get_mut(&mut world), "test", lines);
+        show_messages(
+            &mut script,
+            &mut state.get_mut(&mut world).unwrap(),
+            "test",
+            lines,
+        );
 
         let sounded: Vec<&str> = world
             .resource::<MessageSounds>()

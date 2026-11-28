@@ -91,7 +91,7 @@ impl House {
                 "#,
             )
             .unwrap();
-        self.app.insert_non_send_resource(script);
+        self.app.insert_non_send(script);
     }
 
     /// The item's record answered, with what its answer's handler runs for the house: each
@@ -183,7 +183,7 @@ impl House {
     }
 
     fn script(&mut self) -> Mut<'_, UiScript> {
-        self.app.world_mut().non_send_resource_mut::<UiScript>()
+        self.app.world_mut().non_send_mut::<UiScript>()
     }
 
     /// A chunk of Lua with the auction verbs' host lent, then two frames: whatever the chunk
@@ -323,7 +323,7 @@ pub(super) fn hosted_eval<T: benilla_ui::mlua::FromLuaMulti>(world: &mut World, 
         ParamSet<'static, 'static, AuctionHalves>,
     )>::new(world);
     let out = {
-        let (mut script, mut halves) = state.get_mut(world);
+        let (mut script, mut halves) = state.get_mut(world).unwrap();
         script
             .hosted(&mut AuctionHost(&mut halves), |s| s.eval::<T>(chunk))
             .unwrap_or_else(|e| panic!("{chunk}: {e}"))
@@ -466,7 +466,7 @@ fn a_sellers_name_signals_the_list_without_sorting_it() {
             "#,
         )
         .unwrap();
-    h.app.insert_non_send_resource(script);
+    h.app.insert_non_send(script);
     h.item(1, "Cloth", 10, 1);
     h.name(BOB, "Bob");
     h.open(AUCTIONEER);
@@ -851,7 +851,7 @@ fn a_rows_names_are_asked_by_its_read_not_by_its_page() {
             f:SetScript("OnEvent", function() UPDATES = UPDATES + 1 end)"#,
         )
         .unwrap();
-    h.app.insert_non_send_resource(script);
+    h.app.insert_non_send(script);
     h.item(1, "Cloth", 10, 1);
     h.open(AUCTIONEER);
     let seller = |auction_id, guid| AuctionListEntry {

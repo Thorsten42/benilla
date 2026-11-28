@@ -109,7 +109,7 @@
 ## Modules (top-level, per crate)
 
 - **benilla-adt** (lib.rs): combined_alpha 
-- **benilla-app** (lib.rs): account_data addon_harness area area_poi area_trigger asset_churn aura_visual bindings blob_shadow bowstring camera_shake capture chat_bubble chr_classes cinematic client_state combat_log combat_text console crash creature_anim creature_type cursor cvars death debug_panel dev devtools doodad_events entities field_callbacks field_watch fishing_line footprints game_plugins game_tip glue_session go_anim go_templates hover_log item_lane item_names item_watch items lanes loading_screen local_state minimap nameplates names net no_install npc_text opaque2d perf pipe_warm player player_commands poi_marker portrait preflight probe_shield query_cache quest_markers raid_marks ranged_flex realmlist run_mode screen_fade screenshot script_calls shaders shutdown smart_rect sound spell swing_refusal target test_support text_filter textinput transport tutorial ui_action ui_auction ui_aura ui_bank ui_battlefield ui_battlefield_positions ui_battlefield_score ui_billing ui_bind_confirm ui_binder ui_cast ui_char ui_chat ui_craft ui_dialog_verbs ui_dressup ui_duel ui_gamma ui_gm_ticket ui_gossip ui_guild ui_honor ui_inspect ui_instance ui_item_text ui_items ui_layout ui_logout ui_loot ui_loot_roll ui_macro ui_mail ui_memory ui_merchant ui_mirror ui_models ui_net ui_panes ui_party ui_pass ui_pet ui_pet_book ui_pet_stats ui_petition ui_quest ui_quest_log ui_quest_share ui_reputation ui_saved ui_script ui_session ui_shapeshift ui_social ui_spellbook ui_stable ui_summon ui_tabard ui_talent ui_talent_wipe ui_taxi ui_text ui_tooltip ui_trade ui_tradeskill ui_trainer ui_unit ui_world_enter ui_world_map video vm_pass vplates wdb weapon_trail world_backdrop world_console world_state world_state_ui 
+- **benilla-app** (lib.rs): account_data addon_harness area area_poi area_trigger asset_churn aura_visual bindings blob_shadow bowstring camera_shake capture chat_bubble chr_classes cinematic client_state combat_log combat_text console crash creature_anim creature_type cursor cvars death debug_panel dev devtools doodad_events entities field_callbacks field_watch fishing_line footprints game_plugins game_tip glue_session go_anim go_templates hover_log item_lane item_names item_watch items lanes loading_screen local_state minimap nameplates names net no_install npc_text opaque2d perf pipe_warm player player_commands poi_marker portrait preflight probe_shield query_cache quest_markers raid_marks ranged_flex realmlist resource_access run_mode screen_fade screenshot script_calls shaders shutdown smart_rect sound spell swing_refusal target test_support text_filter textinput transport tutorial ui_action ui_auction ui_aura ui_bank ui_battlefield ui_battlefield_positions ui_battlefield_score ui_billing ui_bind_confirm ui_binder ui_cast ui_char ui_chat ui_craft ui_dialog_verbs ui_dressup ui_duel ui_gamma ui_gm_ticket ui_gossip ui_guild ui_honor ui_inspect ui_instance ui_item_text ui_items ui_layout ui_logout ui_loot ui_loot_roll ui_macro ui_mail ui_memory ui_merchant ui_mirror ui_models ui_net ui_panes ui_party ui_pass ui_pet ui_pet_book ui_pet_stats ui_petition ui_quest ui_quest_log ui_quest_share ui_reputation ui_saved ui_script ui_session ui_shapeshift ui_social ui_spellbook ui_stable ui_summon ui_tabard ui_talent ui_talent_wipe ui_taxi ui_text ui_tooltip ui_trade ui_tradeskill ui_trainer ui_unit ui_world_enter ui_world_map video vm_pass vplates wdb weapon_trail world_backdrop world_console world_state world_state_ui 
 - **benilla-assets** (lib.rs): adt anim_rng blp column_grid coords gpu_blp m2 materials minimap_grid model spatial_cache terrain tex_filter tga_chain trace wdt wmo world_assets 
 - **benilla-formats** (lib.rs): anim_data area_poi area_sound area_table area_trigger auction_house bank_bag_slot_prices camera_shakes cfg_categories cfg_configs chain characters chat_channels chr_classes chr_races cinematics creature_families creature_sound creature_spell_data creature_types creatures dbc death_thud durability elevators emit_timing emote_text emotes environmental_damage exhaustion factions footsteps game_tips gameobjects garble gm_survey gm_ticket_category ground_effects install item_random_properties item_sounds item_visuals itembagfamily itemclass items itemsets itemsubclass languages lfg_dungeons light liquid loading_route loading_screen locale locale_routing lock lock_type loose macro_icons mail_template maps material minimap_translate models npc_greeting packages page_text_material particles pet_stats quest_headers quest_info race_creature_type race_pvp_team race_sound resistances ribbons server_messages sheathe skill_lines skill_tiers sound_entries sound_provider sound_water spell_focus spell_mechanic spell_visual spells stable_slot_prices stationery talents taxi taxi_nodes taxi_path terrain text_filter_lists tga transports unit_blood value_track vocal_ui_sounds wdl weapon_impact weapon_swing wmo_area world_map_area world_map_continent world_map_overlay world_state_ui wow_ini zone_map 
 - **benilla-lua** (lib.rs): api cfmt compile heap ld12 lex lib_base lib_math lib_string lib_table number parse pools proto reload strtod table value vm 
@@ -131,25 +131,24 @@
 - `blpx` (in benilla-blp)
 - `mpqx` (in benilla-formats)
 
-## WGSL shaders (`crates/*/src/shaders/`, embedded)
+## WESL shaders (`crates/*/src/shaders/`, embedded)
 
-- `embedded://benilla_app/shaders/ui_add.wgsl`
-- `embedded://benilla_app/shaders/ui_gamma.wgsl`
-- `embedded://benilla_app/shaders/ui_node_gamma.wgsl`
-- `embedded://benilla_app/shaders/ui_quad.wgsl`
-- `embedded://benilla_app/shaders/ui_slice_gamma.wgsl`
-- `embedded://benilla_assets/shaders/liquid.wgsl`
-- `embedded://benilla_assets/shaders/terrain.wgsl`
-- `embedded://benilla_assets/shaders/wdl.wgsl`
-- `embedded://benilla_assets/shaders/wow_model.wgsl`
-- `embedded://benilla_world/shaders/celestial.wgsl`
-- `embedded://benilla_world/shaders/cloud.wgsl`
-- `embedded://benilla_world/shaders/ffx_glow.wgsl`
-- `embedded://benilla_world/shaders/sky_vertex.wgsl`
-- `embedded://benilla_world/shaders/sky.wgsl`
-- `embedded://benilla_world/shaders/star.wgsl`
-- `embedded://benilla_world/shaders/static_gx.wgsl`
-- `embedded://benilla_world/shaders/wow_effect.wgsl`
+- `embedded://benilla_app/shaders/ui_gamma.wesl`
+- `embedded://benilla_app/shaders/ui_node_gamma.wesl`
+- `embedded://benilla_app/shaders/ui_quad.wesl`
+- `embedded://benilla_app/shaders/ui_slice_gamma.wesl`
+- `embedded://benilla_assets/shaders/liquid.wesl`
+- `embedded://benilla_assets/shaders/terrain.wesl`
+- `embedded://benilla_assets/shaders/wdl.wesl`
+- `embedded://benilla_assets/shaders/wow_model.wesl`
+- `embedded://benilla_world/shaders/celestial.wesl`
+- `embedded://benilla_world/shaders/cloud.wesl`
+- `embedded://benilla_world/shaders/ffx_glow.wesl`
+- `embedded://benilla_world/shaders/sky_vertex.wesl`
+- `embedded://benilla_world/shaders/sky.wesl`
+- `embedded://benilla_world/shaders/star.wesl`
+- `embedded://benilla_world/shaders/static_gx.wesl`
+- `embedded://benilla_world/shaders/wow_effect.wesl`
 
 ## Instruments — `$WOW_*` switches (env-var read sites)
 
@@ -307,8 +306,8 @@
 - `WOW_MATANIM_PROBE` — benilla-world/src/doodad_anim/mat_anim.rs
 - `WOW_MERGE_CENSUS` — benilla-world/src/static_merge.rs
 - `WOW_MERGE_FADERS` — benilla-world/src/terrain_stream/merge.rs
-- `WOW_MERGED_FADE` — benilla-assets/src/materials.rs
-- `WOW_MERGED_SLOT` — benilla-assets/src/materials.rs
+- `WOW_MERGED_FADE` — benilla-app/src/shaders.rs, benilla-assets/src/materials.rs
+- `WOW_MERGED_SLOT` — benilla-app/src/shaders.rs, benilla-assets/src/materials.rs
 - `WOW_MESH_EVENTS` — benilla-app/src/perf/mod.rs
 - `WOW_MESH_HOLDERS` — benilla-app/src/perf/mod.rs
 - `WOW_MESH_TOUCH` — benilla-app/src/perf/mod.rs
@@ -358,7 +357,7 @@
 - `WOW_PARTICLE_CENSUS` — benilla-app/src/capture/probes/particle_census.rs, benilla-app/src/dev.rs, benilla-world/src/bgwin.rs
 - `WOW_PARTICLE_DEPTHDUMP` — benilla-world/src/particles/depthdump.rs
 - `WOW_PARTICLE_DEPTHDUMP_BONES` — benilla-world/src/particles/depthdump.rs
-- `WOW_PARTICLE_FLAT` — benilla-world/src/particles/render.rs
+- `WOW_PARTICLE_FLAT` — benilla-app/src/shaders.rs, benilla-world/src/particles/render.rs
 - `WOW_PARTICLE_NODEPTH` — benilla-world/src/particles/render.rs
 - `WOW_PASS` — benilla-app/src/glue_session/login.rs, benilla-app/src/net.rs, benilla-app/src/run_mode.rs, benilla-protocol/examples/login_refusal_probe.rs, benilla-protocol/examples/park_probe.rs
 - `WOW_PERF_HUD` — benilla-app/src/perf/hud.rs
@@ -447,13 +446,13 @@
 - `WOW_RIG` — benilla-app/src/capture/probe_rig.rs, benilla-app/src/dev.rs, benilla-app/src/glue_session/login.rs, benilla-app/src/glue_session/realm_smoke.rs, benilla-app/src/glue_session/roster.rs, benilla-app/src/local_state.rs, benilla-app/src/net.rs, benilla-app/src/probe_shield.rs, benilla-app/src/run_mode.rs, benilla-world/src/bgwin.rs
 - `WOW_RIG_CENSUS` — benilla-world/src/rig_palette.rs
 - `WOW_RIG_COST` — benilla-world/src/rig_palette.rs
-- `WOW_RIG_SKIN` — benilla-assets/src/materials.rs
+- `WOW_RIG_SKIN` — benilla-app/src/shaders.rs, benilla-assets/src/materials.rs
 - `WOW_ROW_BLOAT` — benilla-app/src/perf/census.rs, benilla-app/src/perf/mod.rs
 - `WOW_SCHED_CENSUS` — benilla-app/src/dev.rs, benilla-world/src/bgwin.rs
 - `WOW_SHADE_CENSUS` — benilla-world/src/entity_shade.rs
 - `WOW_SHOT_REQUIRE` — benilla-app/src/capture/live_shot.rs
 - `WOW_SHOT_REQUIRE_DIST` — benilla-app/src/capture/live_shot.rs
-- `WOW_SKY_DEPTH` — benilla-assets/src/materials.rs
+- `WOW_SKY_DEPTH` — benilla-app/src/shaders.rs, benilla-assets/src/materials.rs
 - `WOW_SOUND_PROBE` — benilla-app/src/sound/probe.rs
 - `WOW_STALL` — benilla-app/src/capture/probes/stall.rs, benilla-app/src/dev.rs
 - `WOW_STALL_INJECT` — benilla-app/src/perf/stall.rs
@@ -500,7 +499,7 @@
 - `WOW_VISTA_PITCH` — benilla-app/src/capture/mod.rs
 - `WOW_VPLATE_TRACE` — benilla-app/src/vplates.rs
 - `WOW_WARM_SLICE` — benilla-app/src/pipe_warm/mod.rs
-- `WOW_WATER_CLIP` — benilla-assets/src/materials.rs
+- `WOW_WATER_CLIP` — benilla-app/src/shaders.rs, benilla-assets/src/materials.rs
 - `WOW_WAVE_DUMP` — benilla-world/src/ffx_glow.rs
 - `WOW_WEATHER` — benilla-world/src/weather/mod.rs
 - `WOW_WEATHER_DUMP` — benilla-world/src/weather/mod.rs

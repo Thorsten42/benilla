@@ -90,7 +90,7 @@ fn client(unit_flags: u32, stormwind: u8, list: ReputationState) -> (App, Receiv
     world.resource_mut::<Reputations>().set_slots(&slots);
     let mut script = UiScript::new().expect("a VM");
     script.set_reputation(list);
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     (app, rx)
 }
 
@@ -100,7 +100,7 @@ fn run(app: &mut App, lua: &str) {
 
 fn eval<T: benilla_ui::mlua::FromLuaMulti>(app: &mut App, lua: &str) -> T {
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .eval::<T>(lua)
         .expect("the chunk evaluates")
 }
@@ -271,7 +271,7 @@ fn the_reaction_after_a_toggle_reads_the_bit_the_toggle_wrote() {
         .resource_mut::<crate::target::Selection>()
         .guid = Some(GUARD);
     {
-        let mut script = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut script = app.world_mut().non_send_mut::<UiScript>();
         for (token, guid) in [("player", ME), ("target", GUARD)] {
             script.set_unit(
                 token,

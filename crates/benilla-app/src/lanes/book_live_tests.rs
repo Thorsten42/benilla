@@ -209,7 +209,7 @@ fn client() -> Client {
 /// what the arrival fired.
 fn arrived(known: &[u32]) -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -237,7 +237,7 @@ fn arrived(known: &[u32]) -> Client {
             "#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     let world = app.world_mut();
@@ -573,7 +573,7 @@ fn the_respec_question_needs_its_trainer_in_range() {
 fn hear_learn_lines(c: &mut Client) {
     c.app
         .world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             ERR_LEARN_SPELL_S = "You have learned a new spell: %s."

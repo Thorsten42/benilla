@@ -41,10 +41,10 @@ fn grouped() -> Fix {
 fn run(f: &mut Fix, lua: &str) {
     let world = f.app.world_mut();
     if world
-        .get_non_send_resource::<benilla_ui::script::UiScript>()
+        .get_non_send::<benilla_ui::script::UiScript>()
         .is_none()
     {
-        world.insert_non_send_resource(benilla_ui::script::UiScript::new().expect("a VM"));
+        world.insert_non_send(benilla_ui::script::UiScript::new().expect("a VM"));
     }
     crate::script_calls::with_hosted_vm(world, |s| s.expect("a VM").run(lua))
         .expect("the script runs");
@@ -188,7 +188,7 @@ fn a_selection_with_no_object_takes_no_token_flag() {
     let flags = |f: &Fix| {
         f.app
             .world()
-            .non_send_resource::<benilla_ui::script::UiScript>()
+            .non_send::<benilla_ui::script::UiScript>()
             .token_flags_of(MEMBER)
     };
     run(&mut f, r#"TargetUnit("party1")"#);
@@ -226,7 +226,7 @@ fn the_chunk_that_selects_a_party_member_out_of_range_reads_them() {
         ..Default::default()
     };
     script.set_unit("target", Some(unit(OLD, "Old", true)));
-    f.app.world_mut().insert_non_send_resource(script);
+    f.app.world_mut().insert_non_send(script);
     run(&mut f, r#"TargetUnit("party1") SEEN = UnitName("target")"#);
     let seen = crate::script_calls::with_hosted_vm(f.app.world_mut(), |s| {
         s.expect("a VM").eval::<Option<String>>("return SEEN")
@@ -741,7 +741,7 @@ fn a_far_send_leaves_targeting_up() {
     let up = f
         .app
         .world_mut()
-        .non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .non_send_mut::<benilla_ui::script::UiScript>()
         .eval::<Option<i64>>("return UP")
         .expect("the global reads");
     assert_eq!(up, Some(1));
@@ -753,7 +753,7 @@ fn a_far_send_leaves_targeting_up() {
     let seen = f
         .app
         .world_mut()
-        .non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .non_send_mut::<benilla_ui::script::UiScript>()
         .eval::<String>("return SEEN")
         .expect("the global reads");
     assert!(!seen.contains("SPELL_FAILED_SPELL_IN_PROGRESS"), "{seen}");

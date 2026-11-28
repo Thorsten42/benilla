@@ -100,7 +100,7 @@ fn a_click_on_a_unit_its_frames_packet_removes_selects_it_first() {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
     let order = in_frame_order(&mut app);
     assert_eq!(order, [Step::Click, Step::Net]);
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();

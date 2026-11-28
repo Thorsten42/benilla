@@ -1,6 +1,7 @@
 //! The pin probe: one reported spot replayed offline through the real flood, with the same
 //! [`TraceLog`](super::super::probe) recorder as the in-client dump button; and the site
 //! regressions pinned at such spots.
+#![allow(deprecated)] // glam 0.33's `Mat4::*_rh`, kept so the test matrices stay bit-identical
 
 use benilla_assets::coords::{bevy_to_wow, wow_to_bevy};
 use bevy::math::{Mat4, Vec3};

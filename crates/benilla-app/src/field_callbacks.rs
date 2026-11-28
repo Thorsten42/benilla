@@ -85,7 +85,7 @@ fn on_update_end(
         return;
     };
     let (edges, calls) = {
-        let (mut edges, mut calls) = readers.get_mut(world);
+        let (mut edges, mut calls) = readers.get_mut(world).unwrap();
         let edges: Vec<FieldChanged> = edges.read().copied().collect();
         let calls: Vec<AuraFieldsChanged> = calls.read().copied().collect();
         (edges, calls)

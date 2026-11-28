@@ -147,7 +147,7 @@ fn quoted(names: &[&str]) -> String {
 /// targeting us.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -155,7 +155,7 @@ fn client() -> Client {
     let (inbound, rx) = crossbeam_channel::unbounded();
     app.insert_resource(crate::net::NetEvents::for_test(rx));
     app.update();
-    app.insert_non_send_resource(UiScript::new().expect("a VM"));
+    app.insert_non_send(UiScript::new().expect("a VM"));
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);

@@ -96,7 +96,7 @@ const SPY: &str = r#"
 /// whose line for each event carries its name and first argument.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -106,7 +106,7 @@ fn client() -> Client {
     app.update();
     let script = UiScript::new().expect("a VM");
     script.run(SPY).unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
@@ -280,8 +280,7 @@ fn tutorials_enabled_reads_the_bank_at_the_call() {
         c.eval::<bool>(false, "return TutorialsEnabled() == nil"),
         "no copy pushed to the VM"
     );
-    c.app
-        .insert_non_send_resource(UiScript::new().expect("a fresh VM"));
+    c.app.insert_non_send(UiScript::new().expect("a fresh VM"));
     assert_eq!(c.eval::<i64>(true, "return TutorialsEnabled()"), 1);
     assert!(c.eval::<bool>(true, "ClearTutorials() return TutorialsEnabled() == nil"));
 }

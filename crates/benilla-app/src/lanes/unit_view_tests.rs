@@ -205,7 +205,7 @@ pub(super) fn client() -> App {
             "#,
         )
         .unwrap();
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     let mob = |hp: u32| [(FIELD_UNIT_HEALTH, hp), (FIELD_UNIT_MAXHEALTH, 100)];
     frame(
         &mut app,
@@ -238,7 +238,7 @@ pub(super) fn client() -> App {
         ..Default::default()
     };
     // The store's token flag on the wolf, as `SetSelection` reports it (`0x49372a`).
-    world.non_send_resource_mut::<UiScript>().unit_token_flags(
+    world.non_send_mut::<UiScript>().unit_token_flags(
         WOLF,
         benilla_ui::script::TokenChange::Add(benilla_ui::script::TOKEN_TARGET),
     );
@@ -250,7 +250,7 @@ pub(super) fn client() -> App {
 /// The resolver's seat: us, the wolf as `"target"`, and the wolf's target `tot`.
 pub(super) fn seat(app: &mut App, tot: u64) {
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_unit_guids(&UnitGuids {
             player: ME,
             target: WOLF,
@@ -317,7 +317,7 @@ fn run_frame(app: &mut App, events: Vec<SessionEvent>) -> Vec<String> {
     let world = app.world_mut();
     crate::net::handlers::dispatch(world, events);
     crate::lanes::fire_in_order(world);
-    let s = world.non_send_resource_mut::<UiScript>();
+    let s = world.non_send_mut::<UiScript>();
     let out = s.eval::<Vec<String>>("return Seen").unwrap();
     s.run("Seen = {}").unwrap();
     let errors = s.errors();
@@ -346,7 +346,7 @@ fn each_unit_health_listener_reads_its_own_packets_target_health() {
 fn a_unit_tooltips_bar_follows_its_units_health_at_each_packet() {
     let mut app = client();
     let world = app.world_mut();
-    crate::ui_script::test_ui::load_tooltip_template(world.non_send_resource::<UiScript>());
+    crate::ui_script::test_ui::load_tooltip_template(world.non_send::<UiScript>());
     crate::script_calls::with_hosted_vm(world, |s| {
         s.expect("a VM").run(
             r#"
@@ -414,7 +414,7 @@ fn the_replay_ends_on_the_live_stores() {
     frame(&mut app, vec![values(WOLF, &targets(BOAR))]);
     seat(&mut app, BOAR);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"function Look(event, unit) return UnitHealth("targettarget") end"#)
         .unwrap();
     lane_checks(&mut app);
@@ -466,7 +466,7 @@ fn the_replay_ends_on_the_live_stores() {
 fn two_packets_with_no_event_between_are_one_gap() {
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"function Look(event, unit) return UnitHealth("targettarget") end"#)
         .unwrap();
     lane_checks(&mut app);
@@ -585,7 +585,7 @@ fn player_dead_reads_its_packets_health_after_an_earlier_packets_line() {
         .resource_mut::<crate::net::NetStatus>()
         .connected = true;
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"local d = CreateFrame("Frame") d:RegisterEvent("PLAYER_DEAD")
             d:SetScript("OnEvent", function()
@@ -611,7 +611,7 @@ fn our_deaths_list_signals_before_its_line_and_player_dead_after() {
         .resource_mut::<crate::net::NetStatus>()
         .connected = true;
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"UNITDIESSELF = "You die." UNITDIESOTHER = "%s dies."
             local d = CreateFrame("Frame")
@@ -630,7 +630,7 @@ fn our_deaths_list_signals_before_its_line_and_player_dead_after() {
     crate::net::handlers::dispatch(world, wire([values(ME, &health(0))]));
     crate::lanes::fire_in_order(world);
     let seen = world
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<Vec<String>>("return Seen")
         .unwrap();
     let ours: Vec<&str> = seen
@@ -655,7 +655,7 @@ fn a_death_lines_listener_sends_ahead_of_the_next_packets_handler() {
         .resource_mut::<crate::net::NetStatus>()
         .connected = true;
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"UNITDIESOTHER = "%s dies."
             local d = CreateFrame("Frame")
@@ -694,7 +694,7 @@ fn spy_level_up(app: &mut App) {
         .lock()
         .apply_flags(&[0u8; 32]);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -799,7 +799,7 @@ fn a_says_listener_sends_ahead_of_the_next_packets_query() {
         .resource_mut::<crate::names::NameCache>()
         .insert_player(SPEAKER, "Ann".into(), None);
     world
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"local d = CreateFrame("Frame")
             d:RegisterEvent("CHAT_MSG_SAY")
@@ -847,7 +847,7 @@ fn each_flush_rewinds_to_its_own_spans_start() {
     let mut app = client();
     let ann = one_friend(&mut app);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(r#"function Look(event, unit) return UnitHealth(unit) .. "/" .. GetNumFriends() end"#)
         .unwrap();
     lane_checks(&mut app);
@@ -871,7 +871,7 @@ fn a_held_line_ages_by_frames_not_by_flushes() {
     let mut app = client();
     let ann = one_friend(&mut app);
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"function Look(event, unit) return GetNumFriends() end
             local s = CreateFrame("Frame")
@@ -920,7 +920,7 @@ fn flush_cost() {
     const PACKETS: u32 = 200;
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run("function Look() return 0 end")
         .unwrap();
     let kinds: [(&str, u64, u16); 3] = [
@@ -948,10 +948,7 @@ fn flush_cost() {
                 times.push(at.elapsed().as_secs_f64() * 1e9 / f64::from(PACKETS));
                 let (f1, k1) = crate::lanes::tally();
                 counts = (f1 - f0, k1 - k0);
-                world
-                    .non_send_resource_mut::<UiScript>()
-                    .run("Seen = {}")
-                    .unwrap();
+                world.non_send_mut::<UiScript>().run("Seen = {}").unwrap();
             }
             times.sort_by(f64::total_cmp);
             eprintln!(

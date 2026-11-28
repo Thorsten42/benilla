@@ -105,12 +105,12 @@ fn minimap_day_tint(ambient: [f32; 3], diffuse: [f32; 3]) -> [f32; 3] {
 /// alpha-test arm decodes itself.
 fn load_tile(asset_server: &AssetServer) -> impl Fn(&str) -> Handle<Image> + '_ {
     move |hash: &str| {
-        asset_server.load_with_settings(
-            format!("mpq://textures/Minimap/{hash}"),
-            |s: &mut benilla_assets::BlpLoaderSettings| {
+        asset_server
+            .load_builder()
+            .with_settings(|s: &mut benilla_assets::BlpLoaderSettings| {
                 s.variant = benilla_assets::BlpVariant::MapTile;
-            },
-        )
+            })
+            .load(format!("mpq://textures/Minimap/{hash}"))
     }
 }
 
@@ -1128,7 +1128,7 @@ mod followed_facing_tests {
         };
         let mut world = world();
         world
-            .non_send_resource::<UiScript>()
+            .non_send::<UiScript>()
             .run(r#"m = CreateFrame("Minimap", "TestMinimap")"#)
             .expect("the frame");
 
@@ -1146,7 +1146,7 @@ mod followed_facing_tests {
     fn a_followed_object_lost_still_centres_the_arrow() {
         let mut world = world();
         {
-            let mut script = world.non_send_resource_mut::<UiScript>();
+            let mut script = world.non_send_mut::<UiScript>();
             script
                 .run(
                     r#"m = CreateFrame("Minimap", "TestMinimap")
@@ -1199,15 +1199,12 @@ mod art_tests {
         script
             .run(r#"m = CreateFrame("Minimap", "Minimap")"#)
             .unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app
     }
 
     fn run(app: &mut App, chunk: &str) {
-        let _ = app
-            .world_mut()
-            .non_send_resource_mut::<UiScript>()
-            .run(chunk);
+        let _ = app.world_mut().non_send_mut::<UiScript>().run(chunk);
         app.update();
     }
 
@@ -1231,7 +1228,7 @@ mod art_tests {
             "no texture, no map"
         );
 
-        app.insert_non_send_resource(UiScript::new().unwrap());
+        app.insert_non_send(UiScript::new().unwrap());
         app.update();
         assert_eq!(
             drawn(&app, MinimapArtSlot::Mask),

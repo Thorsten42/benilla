@@ -432,7 +432,7 @@ pub(crate) mod schedule_tests {
             &mut self,
             _: &mut World,
             _: &mut bevy::ecs::schedule::ScheduleGraph,
-            flat: &mut bevy::ecs::schedule::graph::Dag<SystemKey>,
+            flat: bevy::ecs::schedule::FlattenedDependencies<'_>,
         ) -> Result<(), bevy::ecs::schedule::ScheduleBuildError> {
             *self
                 .0
@@ -471,7 +471,7 @@ pub(crate) mod schedule_tests {
             schedule.graph_mut().systems.initialize(world);
             let vm = world
                 .components()
-                .get_resource_id(TypeId::of::<benilla_ui::script::UiScript>());
+                .get_id(TypeId::of::<benilla_ui::script::UiScript>());
             let host = {
                 use bevy::ecs::system::{IntoSystem, System};
                 let mut host = IntoSystem::into_system(|_: crate::script_calls::ScriptCallHost| {});
@@ -497,13 +497,15 @@ pub(crate) mod schedule_tests {
             let mut hosted = HashSet::new();
             for (key, system, conds) in graph.systems.iter() {
                 if let (Some(vm), Some(with_access)) = (vm, graph.systems.get(key)) {
-                    let access = with_access.access.combined_access();
-                    if access.has_resource_read(vm) || access.has_resource_write(vm) {
+                    let declared = with_access.access();
+                    // A write is a read as well.
+                    if crate::resource_access::resource_access(world, declared).has_read(vm) {
                         holds_vm.insert(key);
                     }
-                    let mut with_host = with_access.access.clone();
-                    with_host.extend(host.clone());
-                    if with_host.combined_access() == access {
+                    let declared = crate::resource_access::declared_set(declared);
+                    let mut with_host = declared.clone().into_owned();
+                    with_host.extend(host.to_filtered_access_set().into_owned());
+                    if with_host.combined_access() == declared.combined_access() {
                         hosted.insert(key);
                     }
                 }
@@ -669,16 +671,15 @@ pub(crate) mod schedule_tests {
         app.world_mut()
             .schedule_scope(label.intern(), |world, schedule| {
                 schedule.graph_mut().systems.initialize(world);
-                let Some(id) = world.components().get_resource_id(TypeId::of::<T>()) else {
+                let Some(id) = world.components().get_id(TypeId::of::<T>()) else {
                     return Vec::new();
                 };
                 let graph = schedule.graph();
                 let mut out = Vec::new();
                 for (key, system, conds) in graph.systems.iter() {
-                    let writes = graph
-                        .systems
-                        .get(key)
-                        .is_some_and(|s| s.access.combined_access().has_resource_write(id));
+                    let writes = graph.systems.get(key).is_some_and(|s| {
+                        crate::resource_access::resource_access(world, s.access()).has_write(id)
+                    });
                     if !writes {
                         continue;
                     }
@@ -719,7 +720,7 @@ pub(crate) mod schedule_tests {
     #[test]
     fn a_test_client_opens_no_audio_device() {
         let app = headless_client_unrun();
-        let output = app.world().non_send_resource::<crate::sound::SoundOutput>();
+        let output = app.world().non_send::<crate::sound::SoundOutput>();
         assert!(output.mixer.is_none());
     }
 
@@ -823,18 +824,18 @@ pub(crate) mod schedule_tests {
             let resolve = |rows: &[ClassRow]| -> HashSet<ComponentId> {
                 rows.iter()
                     .map(|(name, type_id)| {
-                        comps.get_resource_id(type_id()).unwrap_or_else(|| {
+                        comps.get_id(type_id()).unwrap_or_else(|| {
                             panic!("`{name}` is in the class table but is not a resource of this world")
                         })
                     })
                     .collect()
             };
             Self {
-                vm: comps.get_resource_id(TypeId::of::<benilla_ui::script::UiScript>()),
+                vm: comps.get_id(TypeId::of::<benilla_ui::script::UiScript>()),
                 non_send: comps
                     .iter_registered()
-                    .filter(|info| !info.is_send_and_sync())
-                    .map(|info| info.id())
+                    .filter(|(_, info)| !info.is_send_and_sync())
+                    .map(|(id, _)| id)
                     .collect(),
                 caches: resolve(Self::CACHES),
                 sinks: resolve(Self::SINKS),
@@ -916,8 +917,14 @@ pub(crate) mod schedule_tests {
     }
 
     /// `PostUpdate`'s undeclared-order pairs on the declared graph; `GlobalTransform` and the
-    /// particle `EffectQuads` are most of it.
-    const POST_UPDATE_CEILING: usize = 370;
+    /// particle `EffectQuads` are most of it. Known pairs accepted with a reason:
+    /// - Bevy's readers of `GlobalTransform` for skinned-mesh bounds
+    ///   (`update_skinned_mesh_bounds` and its two gizmo draws) and for point and spot light
+    ///   bounding spheres, against the client's direct `GlobalTransform` writers: no entity
+    ///   carries a `SkinnedMesh` or a Bevy light, so the populations never meet;
+    /// - `update_text2d_layout`, which reads the window's scale factor, against
+    ///   `loading_screen::hold::hand_back_the_pointer`, which writes its cursor position alone.
+    const POST_UPDATE_CEILING: usize = 448;
     const POST_UPDATE_SLACK: usize = 20;
     /// The actionable pairs in `Update`: conflicting access, no declared order, and nothing
     /// [`Classes`] explains, so the executor orders them however the graph falls. The count may
@@ -1027,30 +1034,17 @@ pub(crate) mod schedule_tests {
             actionable.len(),
         );
         if std::env::var_os("WOW_AMBIGUITY_DUMP").is_some() {
-            let mut rows: Vec<String> = actionable
-                .iter()
-                .map(|(a, b, what)| {
-                    // Canonical order within the pair, so two dumps diff by text.
-                    let (x, y) = if update.name(*a) <= update.name(*b) {
-                        (*a, *b)
-                    } else {
-                        (*b, *a)
-                    };
-                    format!(
-                        "  {}  <->  {}\n      on {}",
-                        update.name(x),
-                        update.name(y),
-                        what.iter()
-                            .map(|id| update.component(*id))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    )
-                })
-                .collect();
-            rows.sort();
-            for r in rows {
-                eprintln!("{r}");
-            }
+            dump_pairs(
+                &update,
+                actionable.iter().map(|(a, b, what)| (*a, *b, &what[..])),
+            );
+            eprintln!("PostUpdate:");
+            dump_pairs(
+                &post,
+                post.conflicts
+                    .iter()
+                    .map(|(a, b, what)| (*a, *b, &what[..])),
+            );
         }
         ratchet(
             "Update (actionable)",
@@ -1064,6 +1058,35 @@ pub(crate) mod schedule_tests {
             POST_UPDATE_CEILING,
             POST_UPDATE_SLACK,
         );
+    }
+
+    /// Prints each pair, canonically ordered so two dumps diff by text, with what it meets on.
+    fn dump_pairs<'a>(
+        census: &Census,
+        pairs: impl Iterator<Item = (SystemKey, SystemKey, &'a [ComponentId])>,
+    ) {
+        let mut rows: Vec<String> = pairs
+            .map(|(a, b, what)| {
+                let (x, y) = if census.name(a) <= census.name(b) {
+                    (a, b)
+                } else {
+                    (b, a)
+                };
+                format!(
+                    "  {}  <->  {}\n      on {}",
+                    census.name(x),
+                    census.name(y),
+                    what.iter()
+                        .map(|id| census.component(*id))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+            .collect();
+        rows.sort();
+        for r in rows {
+            eprintln!("{r}");
+        }
     }
 
     /// The `ApplyDeferred` the build inserts between a system with commands and its dependents.

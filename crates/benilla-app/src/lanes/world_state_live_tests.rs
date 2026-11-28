@@ -46,7 +46,7 @@ impl Client {
 /// listeners note the rows they read on `UPDATE_WORLD_STATES` and on each channel notice.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, _sent) = crossbeam_channel::unbounded();
@@ -69,7 +69,7 @@ fn client() -> Client {
             "#,
         )
         .expect("the spy");
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     let row = |ui_type| benilla_formats::WorldStateUiRow {

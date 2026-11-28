@@ -221,7 +221,7 @@ mod tests {
             }),
         );
         script.set_player_control(false);
-        world.insert_non_send_resource(script);
+        world.insert_non_send(script);
         let me = world
             .spawn((
                 crate::net::SelfPlayer,

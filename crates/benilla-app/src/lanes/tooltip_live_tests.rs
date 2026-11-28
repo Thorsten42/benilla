@@ -74,7 +74,7 @@ fn client() -> App {
     let script = UiScript::new().expect("a VM");
     crate::ui_script::test_ui::load_tooltip_template(&script);
     script.run(LISTENER).unwrap();
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     crate::net::handlers::dispatch(
         world,
         vec![
@@ -130,7 +130,7 @@ fn a_listeners_set_spell_reads_the_modifier_its_packet_stored() {
         ..Default::default()
     };
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_spell_tooltip(FROSTBOLT, before);
     let modifier = SessionEvent::SpellModifier {
         flat: true,
@@ -215,7 +215,7 @@ fn a_reagents_answer_rebuilds_the_shown_spell_tooltip() {
         .resource_mut::<crate::items::Items>()
         .insert_template(POWDER, Some(crate::items::test_template("Arcane Powder")));
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_item_template(
             POWDER,
             benilla_ui::script::ItemTemplateView {

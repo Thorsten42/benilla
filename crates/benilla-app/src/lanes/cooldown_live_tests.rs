@@ -109,7 +109,7 @@ fn spells_with(more: &[u32]) -> crate::ui_action::Spells {
 /// `GetSpellCooldown` for both spells, and the potion's `GetContainerItemCooldown`.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -138,7 +138,7 @@ fn client() -> Client {
             "#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     let world = app.world_mut();
@@ -338,7 +338,7 @@ fn a_pet_spell_list_binds_its_macros_between_its_sort_and_its_pet() {
     let world = c.app.world_mut();
     world.insert_resource(spells_with(&[SEDUCTION]));
     {
-        let mut script = world.non_send_resource_mut::<UiScript>();
+        let mut script = world.non_send_mut::<UiScript>();
         script.run(r#"SLASH_CAST1 = "/cast""#).unwrap();
         script.set_macros(benilla_ui::script::MacroState::from_scopes(
             vec![benilla_ui::script::MacroView {
@@ -555,7 +555,7 @@ fn the_pet_book_and_a_pet_bound_slot_read_the_pets_list_inside_their_packet() {
     c.frame(vec![]);
     c.frame(vec![]);
     crate::ui_macro::bind_for_test(
-        &mut c.app.world_mut().non_send_resource_mut::<UiScript>(),
+        &mut c.app.world_mut().non_send_mut::<UiScript>(),
         &[(
             1,
             crate::ui_macro::Bound {

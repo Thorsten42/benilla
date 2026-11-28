@@ -459,7 +459,7 @@ mod tests {
         let mut reads = bevy::ecs::system::SystemState::<BoardReads>::new(app.world_mut());
         let world = app.world_mut();
         let rebuilt = world.resource_scope(|world, mut board: Mut<BattlefieldScoreboard>| {
-            board.set_filter(1, &reads.get(world))
+            board.set_filter(1, &reads.get(world).unwrap())
         });
         assert!(!rebuilt, "the count stands");
         assert_eq!(
@@ -541,7 +541,7 @@ mod tests {
         let mut reads = bevy::ecs::system::SystemState::<BoardReads>::new(app.world_mut());
         let world = app.world_mut();
         let rebuilt = world.resource_scope(|world, mut board: Mut<BattlefieldScoreboard>| {
-            board.set_filter(1, &reads.get(world))
+            board.set_filter(1, &reads.get(world).unwrap())
         });
         assert!(rebuilt);
         assert_eq!(
@@ -727,7 +727,7 @@ mod tests {
         let mut filter = |app: &mut App, f: i8| {
             let world = app.world_mut();
             world.resource_scope(|world, mut board: Mut<BattlefieldScoreboard>| {
-                board.set_filter(f, &reads.get(world))
+                board.set_filter(f, &reads.get(world).unwrap())
             })
         };
         assert!(filter(&mut app, 1));

@@ -96,7 +96,7 @@ fn open_stream(
 pub(super) fn plugin(app: &mut App) {
     app.add_message::<MovieAudioRequest>()
         .init_resource::<MovieAudioReports>()
-        .insert_non_send_resource(MovieStreams::default())
+        .insert_non_send(MovieStreams::default())
         .add_systems(
             Update,
             // After the feed's asks and the tick, its reports reaching the next frame's feed;

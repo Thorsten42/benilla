@@ -2347,7 +2347,7 @@ fn seat_glue(
 /// `CharacterSelect_OnShow` asks for its list only on a link `IsConnectedToServer` reports, and
 /// names the realm `GetServerName` does).
 pub(crate) fn seat_glue_build(world: &mut World, script: &mut UiScript) {
-    let Some(shared) = world.get_non_send_resource::<SharedGlueMgr>().cloned() else {
+    let Some(shared) = world.get_non_send::<SharedGlueMgr>().cloned() else {
         return;
     };
     script.set_glue_create_catalog(std::rc::Rc::new(super::glue_create::world_catalog(world)));

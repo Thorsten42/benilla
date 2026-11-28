@@ -102,7 +102,7 @@ impl Wielded {
 /// it, not on sheath (`0x5fd360`); `0x6e3480` reads its reach. Its hooks mirror it into the
 /// queue, which answers it for the VM pass ([`UnitEdits::attack_target`]).
 #[derive(Component)]
-#[component(on_insert = edits::engaged_inserted, on_replace = edits::engaged_replaced)]
+#[component(on_insert = edits::engaged_inserted, on_discard = edits::engaged_replaced)]
 pub(crate) struct Engaged(pub(crate) u64);
 
 /// The stop in flight, the reference's `[+0xc54]`, kept for the one unit that sets it: only

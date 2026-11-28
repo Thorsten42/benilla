@@ -5,7 +5,7 @@
 // count source texels from texel-centre UVs, with no half-texel shift. The math runs on gamma
 // bytes, and every scene read clamps to 1.0 because the float target does not saturate.
 
-#import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput
+import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
 @group(0) @binding(0) var in_tex: texture_2d<f32>;
 @group(0) @binding(1) var in_samp: sampler;
@@ -80,12 +80,11 @@ fn combine_out(outg: vec3<f32>, alpha: f32, frag_coord: vec2<f32>) -> vec4<f32> 
         vec3<f32>(0.0),
         vec3<f32>(1.0),
     );
-#ifdef GAMMA_OUT
-    // The UI camera's ground pass stores premultiplied bytes like `ui_quad.wgsl`; the lane decodes.
+    // The UI camera's ground pass stores premultiplied bytes like `ui_quad.wesl`; the lane decodes.
+    @if(GAMMA_OUT)
     return vec4<f32>(dithered * alpha, alpha);
-#else
+    @else
     return vec4<f32>(srgb_to_linear(dithered), alpha);
-#endif
 }
 
 // Both combines, at the plain or the warped UV; `frag_coord` stays unwarped for the dither.

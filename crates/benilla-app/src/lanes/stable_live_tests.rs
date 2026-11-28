@@ -46,7 +46,7 @@ fn client() -> (App, Receiver<ClientCommand>) {
             "#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     (app, rx)
 }
 

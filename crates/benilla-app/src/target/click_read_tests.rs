@@ -106,7 +106,7 @@ fn client() -> (
             f:SetScript("OnEvent", function() tinsert(SEEN, event) end)"#,
         )
         .expect("the recorder installs");
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     (app, plaque, mailbox, rx)
 }
 
@@ -133,7 +133,7 @@ fn read(app: &App) -> (Option<u64>, Vec<String>) {
         .resource::<crate::ui_item_text::ItemTextOpen>()
         .object();
     let seen = world
-        .non_send_resource::<benilla_ui::script::UiScript>()
+        .non_send::<benilla_ui::script::UiScript>()
         .eval::<Vec<String>>("return SEEN")
         .expect("runs");
     (object, seen)
@@ -200,7 +200,7 @@ fn a_mailbox_opens_inside_the_click() {
     );
     let world = app.world_mut();
     world
-        .non_send_resource_mut::<benilla_ui::script::UiScript>()
+        .non_send_mut::<benilla_ui::script::UiScript>()
         .run("SEEN = {}")
         .expect("runs");
     over(world, mailbox, MAILBOX);

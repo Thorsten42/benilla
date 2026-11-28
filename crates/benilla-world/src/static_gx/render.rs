@@ -4,7 +4,6 @@
 //! a region draws once every member's `GpuImage` is resident.
 
 use bevy::camera::primitives::Aabb;
-use bevy::ecs::query::QueryItem;
 use bevy::image::Image;
 use bevy::mesh::VertexBufferLayout;
 use bevy::platform::collections::HashMap;
@@ -15,24 +14,22 @@ use bevy::render::extract_resource::{ExtractResource, ExtractResourcePlugin};
 use bevy::render::mesh::allocator::MeshAllocator;
 use bevy::render::mesh::RenderMesh;
 use bevy::render::render_asset::RenderAssets;
-use bevy::render::render_graph::{
-    NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
-};
 use bevy::render::render_resource::binding_types::{
     sampler, storage_buffer_read_only_sized, texture_2d_array, uniform_buffer, uniform_buffer_sized,
 };
 use bevy::render::render_resource::*;
-use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue};
+use bevy::render::renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery};
 use bevy::render::texture::GpuImage;
 use bevy::render::view::{
-    ExtractedView, Msaa, ViewDepthTexture, ViewTarget, ViewUniform, ViewUniformOffset, ViewUniforms,
+    ExtractedView, Msaa, ViewDepthStencilTexture, ViewTarget, ViewUniform, ViewUniformOffset,
+    ViewUniforms,
 };
 use bevy::render::{Render, RenderSystems};
 use bevy::shader::ShaderDefVal;
 use std::ops::Range;
 
-use bevy::core_pipeline::core_3d::graph::{Core3d, Node3d};
-use bevy::core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT;
+use bevy::core_pipeline::core_3d::{main_opaque_pass_3d, CORE_3D_DEPTH_FORMAT};
+use bevy::core_pipeline::{Core3d, Core3dSystems};
 
 /// One baked item's draw facts, in bake order: the vertex word's low bits index its record.
 #[derive(Clone)]
@@ -75,6 +72,7 @@ pub(crate) struct GxCellDraw {
 /// Marks the world camera, the one view the pass draws into, so no portrait-booth view gets
 /// world cells.
 #[derive(Component, Clone, Copy, Default, ExtractComponent)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct StaticGxView;
 
 /// Mark the world camera, again whenever it respawns.
@@ -108,6 +106,7 @@ pub(crate) struct GxSel {
 /// The published half the render world clones each frame. Regions sit behind `Arc`, so the clones
 /// are refcount bumps and the kill scan, the one writer, copies a region on write.
 #[derive(Clone, Default, Resource, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub(crate) struct GxWorld {
     pub cells: HashMap<(i32, i32), std::sync::Arc<GxCellDraw>>,
     /// This frame's doodad-phase draw list, near-first across cells and prop regions.
@@ -121,7 +120,7 @@ pub(crate) struct GxWorld {
 
 use super::pool::GxTexturePool;
 
-/// Record column w, bit 14: the item's interior fog lane, read by `static_gx.wgsl`. Bit 0 is the
+/// Record column w, bit 14: the item's interior fog lane, read by `static_gx.wesl`. Bit 0 is the
 /// kill bit and bits 1..=13 the probe slot.
 const RECORD_FOG_BIT: u32 = 1 << 14;
 
@@ -237,7 +236,7 @@ type GxViewKey = (
 
 /// The bake's interleaved vertex layout, in the attribute-id order Bevy interleaves by: position,
 /// normal, uv, colour, then the word and anchor (988_101, 988_102). Keep in sync with `bake_cell`
-/// and `static_gx.wgsl`.
+/// and `static_gx.wesl`.
 fn vertex_layout() -> VertexBufferLayout {
     VertexBufferLayout {
         array_stride: 64,
@@ -294,15 +293,11 @@ fn prepare_static_gx(
     let Some((view, msaa, _, _)) = views.iter().next() else {
         return;
     };
-    let format = if view.hdr {
-        ViewTarget::TEXTURE_FORMAT_HDR
-    } else {
-        TextureFormat::bevy_default()
-    };
+    let format = view.target_format;
     let key = (msaa.samples(), format);
     if pipes.specialized_for != Some(key) {
         let shader: Handle<Shader> =
-            asset_server.load("embedded://benilla_world/shaders/static_gx.wgsl");
+            asset_server.load("embedded://benilla_world/shaders/static_gx.wesl");
         pipes.pipelines.clear();
         for cutout in [false, true] {
             for two_sided in [false, true] {
@@ -320,6 +315,7 @@ fn prepare_static_gx(
                         shader_defs: defs.clone(),
                         entry_point: Some("vertex".into()),
                         buffers: vec![vertex_layout()],
+                        constants: Vec::new(),
                     },
                     fragment: Some(FragmentState {
                         shader: shader.clone(),
@@ -330,6 +326,7 @@ fn prepare_static_gx(
                             blend: None,
                             write_mask: ColorWrites::ALL,
                         })],
+                        constants: Vec::new(),
                     }),
                     primitive: PrimitiveState {
                         cull_mode: (!two_sided).then_some(Face::Back),
@@ -337,8 +334,8 @@ fn prepare_static_gx(
                     },
                     depth_stencil: Some(DepthStencilState {
                         format: CORE_3D_DEPTH_FORMAT,
-                        depth_write_enabled: true,
-                        depth_compare: CompareFunction::GreaterEqual,
+                        depth_write_enabled: Some(true),
+                        depth_compare: Some(CompareFunction::GreaterEqual),
                         stencil: StencilState::default(),
                         bias: DepthBiasState::default(),
                     }),
@@ -644,37 +641,29 @@ fn prepare_view_bind(
     )));
 }
 
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-struct StaticGxLabel;
-
-#[derive(Default)]
-struct StaticGxNode;
-
-impl ViewNode for StaticGxNode {
-    type ViewQuery = (
-        &'static ViewTarget,
-        &'static ViewDepthTexture,
-        &'static ViewUniformOffset,
-        &'static StaticGxView,
-    );
-
-    fn run<'w>(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        (target, depth, view_offset, _marker): QueryItem<'w, '_, Self::ViewQuery>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
+/// The retained draw, before Bevy's opaque pass.
+fn static_gx_pass(
+    world: &World,
+    view: ViewQuery<(
+        &ViewTarget,
+        &ViewDepthStencilTexture,
+        &ViewUniformOffset,
+        &StaticGxView,
+    )>,
+    mut render_context: RenderContext,
+) {
+    let (target, depth, view_offset, _marker) = view.into_inner();
+    {
         let _t = super::gx_perf_guard(4);
         let gx = world.resource::<GxWorld>();
         if gx.visible.is_empty() && gx.visible_wmos.is_empty() {
-            return Ok(());
+            return;
         }
         let cache = world.resource::<GxGpuCache>();
         let pipes = world.resource::<GxPipelines>();
         let pipeline_cache = world.resource::<PipelineCache>();
         let Some(view_bind) = world.get_resource::<GxViewBind>() else {
-            return Ok(());
+            return;
         };
         let meshes = world.resource::<RenderAssets<RenderMesh>>();
         let allocator = world.resource::<MeshAllocator>();
@@ -702,7 +691,7 @@ impl ViewNode for StaticGxNode {
             }
         }
         if resolved.is_empty() {
-            return Ok(());
+            return;
         }
         // All four pipelines or none: a region drawing only its opaque half would flash its
         // cutout content off for a frame.
@@ -712,19 +701,21 @@ impl ViewNode for StaticGxNode {
                 Some(p) => {
                     ready.insert(*k, p);
                 }
-                None => return Ok(()),
+                None => return,
             }
         }
         let depth_attachment = depth.get_attachment(StoreOp::Store);
         let color_attachment = target.get_color_attachment();
         // `render/static_gx/elapsed_gpu` on Vulkan and DX12: the perf journal's `gpu_static`.
         let diagnostics = render_context.diagnostic_recorder();
+        let diagnostics = diagnostics.as_deref();
         let mut pass = render_context.begin_tracked_render_pass(RenderPassDescriptor {
             label: Some("static_gx"),
             color_attachments: &[Some(color_attachment)],
             depth_stencil_attachment: Some(depth_attachment),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         let span = diagnostics.pass_span(&mut pass, "static_gx");
         pass.set_bind_group(0, &view_bind.0, &[view_offset.offset]);
@@ -764,7 +755,6 @@ impl ViewNode for StaticGxNode {
             }
         }
         span.end(&mut pass);
-        Ok(())
     }
 }
 
@@ -792,13 +782,14 @@ pub(super) fn build(app: &mut App) {
                 prepare_view_bind.in_set(RenderSystems::PrepareBindGroups),
             ),
         )
-        .add_render_graph_node::<ViewNodeRunner<StaticGxNode>>(Core3d, StaticGxLabel)
         // Before bevy's opaque pass, as early-z occluders for terrain. This pass takes the depth
         // and colour clear (attachments clear on first use); with nothing visible it returns
         // untouched and the opaque pass clears.
-        .add_render_graph_edges(
+        .add_systems(
             Core3d,
-            (Node3d::StartMainPass, StaticGxLabel, Node3d::MainOpaquePass),
+            static_gx_pass
+                .in_set(Core3dSystems::MainPass)
+                .before(main_opaque_pass_3d),
         );
 }
 

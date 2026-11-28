@@ -33,7 +33,7 @@ fn client() -> Guild {
     app.insert_resource(NetCommands(tx));
     let script = UiScript::new().expect("a VM");
     script.run(COUNT_UPDATES).expect("the counter installs");
-    app.world_mut().insert_non_send_resource(script);
+    app.world_mut().insert_non_send(script);
     // Fields 191 and 192: `PLAYER_GUILDID` and `PLAYER_GUILDRANK`.
     app.world_mut().spawn((
         crate::net::SelfPlayer,
@@ -275,7 +275,7 @@ fn new_vm(g: &mut Guild, reload: bool) {
     super::fold_dying_vm_guild(world);
     let mut script = UiScript::new().expect("a VM");
     super::seed_vm_guild(world, &mut script, reload);
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
 }
 
 /// A world entry runs `InitGuildRoster` from `InitializeGame` (`0x48f5ea` → `0x4d0a00`), which

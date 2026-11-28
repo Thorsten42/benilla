@@ -29,7 +29,7 @@ A setting boots at the reference's default unless it is listed here (`docs/METHO
 
 Each entry is the first sentence of a `Deviation:` comment, linking to where it lives.
 
-- [benilla-app](#benilla-app): 258
+- [benilla-app](#benilla-app): 257
 - [benilla-assets](#benilla-assets): 5
 - [benilla-blp](#benilla-blp): 1
 - [benilla-formats](#benilla-formats): 26
@@ -114,9 +114,9 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 #### creature_anim
 
 - A new puff inside the last one's clip is declined instead of replacing it (`0x6208e0`), because one-shot effects carry no reap key; either way two never overlap. ([`src/creature_anim/breath.rs:17`](../crates/benilla-app/src/creature_anim/breath.rs#L17))
-- A mounted draw is refused at the setter, because our rider track never replays the reference's per-play force-stow (`0x5fdf80`); the result is the same. ([`src/creature_anim/driver.rs:792`](../crates/benilla-app/src/creature_anim/driver.rs#L792))
-- The reference writes bone 0's rate blindly; we scope it to the swing's own node, because a moving attacker's gait would otherwise slow too. The id is re-checked, as `Mode::Swing` also holds non-swing one-shots. ([`src/creature_anim/driver.rs:1111`](../crates/benilla-app/src/creature_anim/driver.rs#L1111))
-- A time-based rate, because the reference's per-frame step changes with the frame rate. ([`src/creature_anim/select.rs:137`](../crates/benilla-app/src/creature_anim/select.rs#L137))
+- A mounted draw is refused at the setter, because our rider track never replays the reference's per-play force-stow (`0x5fdf80`); the result is the same. ([`src/creature_anim/driver.rs:808`](../crates/benilla-app/src/creature_anim/driver.rs#L808))
+- The reference writes bone 0's rate blindly; we scope it to the swing's own node, because a moving attacker's gait would otherwise slow too. The id is re-checked, as `Mode::Swing` also holds non-swing one-shots. ([`src/creature_anim/driver.rs:1127`](../crates/benilla-app/src/creature_anim/driver.rs#L1127))
+- A time-based rate, because the reference's per-frame step changes with the frame rate. ([`src/creature_anim/select.rs:140`](../crates/benilla-app/src/creature_anim/select.rs#L140))
 - A spell's state kit and body procs are reaped only once no slot holds the spell because the reference's removal of one slot (`0x612320` → `0x5ff290`) stops every effect of that spell on the unit (`0x614150(spell, 1)` at `0x5ff2d2`, and its procs through `0x60d150` and `0x5ff320`), even while another slot holds the same spell, which drops a visual the server says still holds. ([`src/creature_anim/spell_visual.rs:1376`](../crates/benilla-app/src/creature_anim/spell_visual.rs#L1376))
 
 #### cvars
@@ -188,7 +188,6 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - The reference's guard at `0x537e85` sends 0 whenever the write index is 0, one ping in sixteen; we send 0 only before the first pong, because the rest is an artefact of its index arithmetic that only the server stores. ([`src/net/io.rs:1360`](../crates/benilla-app/src/net/io.rs#L1360))
 - The reference places collision and culling by the raw facing, ours follow the display facing, because a capsule and a sphere barely change under rotation. ([`src/net/motion/facing.rs:10`](../crates/benilla-app/src/net/motion/facing.rs#L10))
 - The reference paces a self move through the same replay chain as a remote's; benilla hands it over at arrival because pacing it would only delay a correction to our own pose. ([`src/net/motion/remote.rs:110`](../crates/benilla-app/src/net/motion/remote.rs#L110))
-- Its rate-limited hover climb (`0x636fa1`, 7 yd/s) is not reproduced, because the cache gate needs a pure function; it converges to this answer. ([`src/net/motion/spline.rs:794`](../crates/benilla-app/src/net/motion/spline.rs#L794))
 - A first-pass values block the clear header byte left unwritten re-fires, for a live object, its last write's edges against the watch copy (`0x465570`, `0x466686`); benilla compares against this packet's copies, which hold none for it, because that way a stale edge never fires twice. ([`src/net/objects/update.rs:1154`](../crates/benilla-app/src/net/objects/update.rs#L1154))
 - The create notify uses its lookup's result untested (`0x465c97`, `0x465d79`). For a first-pass create the clear header byte left unwritten, an object not live crashes the reference, and a live one runs the all-fields watch (`0x465d8e`) against its stale watch copy, re-firing its last write's edges as the values block above does; benilla's `notify` fires nothing for either, because the faults the reference's passes have on malformed packets are recorded, not copied. ([`src/net/objects/update.rs:1166`](../crates/benilla-app/src/net/objects/update.rs#L1166))
 - On benilla's unattended reconnect, which the reference lacks, the world's VM survives the loss; because of that the clear signals its `PLAYER_TARGET_CHANGED` and usable refresh as a release's teardown does (`0x493a69`, `0x493a73`), still sending nothing, and the surviving target frame lets the lost unit go. ([`src/net/session.rs:319`](../crates/benilla-app/src/net/session.rs#L319))
@@ -225,7 +224,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - Only the four party slots hand over, capped at `Self::CAP`, instead of every portrait until `ClientDestroyGame` (`0x401ee0`), because a general cache would pay a texture per unit ever seen. ([`src/portrait/mod.rs:265`](../crates/benilla-app/src/portrait/mod.rs#L265))
 - This reads the window's aspect, not `gxResolution`'s, because the window here takes any shape a drag gives it, where the reference's keeps `gxResolution`'s (`0x5989d7`). In fullscreen the window is the screen in logical pixels and `gxResolution` the screen in device pixels, so their aspects agree and their sizes need not. ([`src/portrait/mod.rs:694`](../crates/benilla-app/src/portrait/mod.rs#L694))
 - `boothHalfRate` is benilla's own CVar, because the reference draws its doll in the main pass and has no second view; a full-rate pass costs up to 7.6 ms a frame at 4K. ([`src/portrait/mod.rs:733`](../crates/benilla-app/src/portrait/mod.rs#L733))
-- The reference widget draws only its model; a body pane clears to near-black, the chosen look where nothing sits behind the pane. ([`src/portrait/mod.rs:999`](../crates/benilla-app/src/portrait/mod.rs#L999))
+- The reference widget draws only its model; a body pane clears to near-black, the chosen look where nothing sits behind the pane. ([`src/portrait/mod.rs:1002`](../crates/benilla-app/src/portrait/mod.rs#L1002))
 
 #### quest_markers
 
@@ -251,11 +250,11 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### shaders
 
-- Bilinear filtering runs on the decoded texel, not on the gamma byte the reference filters, because the booth bake stores linear bytes. ([`src/shaders/ui_quad.wgsl:13`](../crates/benilla-app/src/shaders/ui_quad.wgsl#L13))
+- Bilinear filtering runs on the decoded texel, not on the gamma byte the reference filters, because the booth bake stores linear bytes. ([`src/shaders/ui_quad.wesl:13`](../crates/benilla-app/src/shaders/ui_quad.wesl#L13))
 
 #### shutdown
 
-- The reference leaves it to the OS. Its key arm (`0x42d261`-`0x42d276`) hands Alt+F4 to `DefWindowProc`, whose `SC_CLOSE` becomes the kind-5 event (`0x42d287`, as `WM_CLOSE` posts at `0x42d292`) and closes at once: the running client's callback `0x63c9a0` (installed from `0x402840`, asked at `0x423a21`) answers 0 and tears the context down (`0x41f9b0`), with no logout timer, at the login screen and in game alike. benilla reads the chord itself and asks for the same close, which the shutdown tail above already serves, because a tiling window manager (i3, sway, Hyprland) binds nothing to Alt+F4. Not on macOS: `Cmd+Q` is `benilla_world::mac_quit`. ([`src/shutdown.rs:50`](../crates/benilla-app/src/shutdown.rs#L50))
+- The reference leaves it to the OS. Its key arm (`0x42d261`-`0x42d276`) hands Alt+F4 to `DefWindowProc`, whose `SC_CLOSE` becomes the kind-5 event (`0x42d287`, as `WM_CLOSE` posts at `0x42d292`) and closes at once: the running client's callback `0x63c9a0` (installed from `0x402840`, asked at `0x423a21`) answers 0 and tears the context down (`0x41f9b0`), with no logout timer, at the login screen and in game alike. benilla reads the chord itself and asks for the same close, which the shutdown tail above already serves, because a tiling window manager (i3, sway, Hyprland) binds nothing to Alt+F4. Not on macOS: `Cmd+Q` is `benilla_world::mac_quit`. ([`src/shutdown.rs:55`](../crates/benilla-app/src/shutdown.rs#L55))
 
 #### smart_rect
 
@@ -266,8 +265,8 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - `damage > 0` without a parry or block stands in for `0x2`, because vmangos clears that bit only for immune and a zero-damage miss or absorb (`Unit.cpp:1366`/`1587`), so it would grunt on every parry. ([`src/sound/combat.rs:587`](../crates/benilla-app/src/sound/combat.rs#L587))
 - The water column is chosen on liquid above the feet (`depth > 0`, the footstep splash's test), because the reference's test, the flag saying liquid was found at the unit's sampled position (`[node+0x90] & 0x20`, `0x670630`), has no depth and splashes a body on a lake's shore. ([`src/sound/death_thud.rs:28`](../crates/benilla-app/src/sound/death_thud.rs#L28))
 - A flag keeps an unresolvable kit in place without the churn, because the reference marks it by negating the id (`[+0xE00] = -id`), so the owner's next `$DSL` re-registers into a fresh entry every cycle. Both are silent. ([`src/sound/emitter_pool.rs:54`](../crates/benilla-app/src/sound/emitter_pool.rs#L54))
-- The reference leaves those kits uncapped; here they are capped because sample-aligned copies of one file sum coherently (five are one sound +14 dB), so a mass buff distorts. ([`src/sound/kit.rs:240`](../crates/benilla-app/src/sound/kit.rs#L240))
-- The reference never steals. Every WoW voice is an `FSOUND_Stream` at priority 256 (`fmod.dll 0x1002be47`) and FMOD's steal scan skips `>= 256` (`0x100268e9`), so its 13th sound is dropped. FMOD's own allocator rule (`0x100268e6`) runs here instead, because dropping the newest sound silences a near one in favour of distant ones. ([`src/sound/kit.rs:284`](../crates/benilla-app/src/sound/kit.rs#L284))
+- The reference leaves those kits uncapped; here they are capped because sample-aligned copies of one file sum coherently (five are one sound +14 dB), so a mass buff distorts. ([`src/sound/kit.rs:242`](../crates/benilla-app/src/sound/kit.rs#L242))
+- The reference never steals. Every WoW voice is an `FSOUND_Stream` at priority 256 (`fmod.dll 0x1002be47`) and FMOD's steal scan skips `>= 256` (`0x100268e9`), so its 13th sound is dropped. FMOD's own allocator rule (`0x100268e6`) runs here instead, because dropping the newest sound silences a near one in favour of distant ones. ([`src/sound/kit.rs:286`](../crates/benilla-app/src/sound/kit.rs#L286))
 - The reference sums at full scale and clips (a close 1.0 kit reaches `FSOUND_SetVolume(255)` through `0x7a5dc0`, FMOD's MMX mixers saturate with `paddsw`, and no gain depends on the live voice count); this limits, because every WoW SFX is mastered to full scale, so overlapping kits clip into broadband distortion, as when a mass buff lands five sample-aligned copies of one 0 dBFS file. `SoundOutputLimiter 0` turns it off. The reference's voice and bus caps bound the count, not the level, and its SFX auto-duck (`0x457960`) is armed only by server-pushed voice lines. ([`src/sound/limiter.rs:3`](../crates/benilla-app/src/sound/limiter.rs#L3))
 - The mantissa-bit volume curve (`0x7a5d70`, `(v·255+512.5).bits >> 14 & 0xff`) and the `__ftol` truncations are dropped, because they only quantized to FMOD's integer levels and our backend takes float amplitudes. ([`src/sound/math.rs:4`](../crates/benilla-app/src/sound/math.rs#L4))
 - The reference also refuses to open a new non-music stream while inactive (`0x7a52bf`); benilla starts everything and gates the output, because a refusal at kit start would make an unattended capture record silence. ([`src/sound/mod.rs:97`](../crates/benilla-app/src/sound/mod.rs#L97))
@@ -341,8 +340,8 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### ui_gamma
 
-- The same curve applies in the compositor, where the slider can move pixels, because the reference skips that upload when windowed (`byte[dev+0x20b]` is `gxWindow`) and every benilla mode is windowed: `UiGammaNode` raises the gamma byte the RAMDAC would have read to `gamma` before its decode, the continuous form of the 256-entry ramp. ([`src/ui_gamma.rs:56`](../crates/benilla-app/src/ui_gamma.rs#L56))
-- The reference never clamps (`SetGamma` `0x4891f0` writes `-4.000000` for 5), but here the consumers clamp because its ramp is a fullscreen OS call and ours is the image, where an extreme exponent blacks out the panel that would undo it. The range spans the stock slider's `[0.5, 1.5]` four times over; the CVar keeps the value written and only its consumers clamp. ([`src/ui_gamma.rs:66`](../crates/benilla-app/src/ui_gamma.rs#L66))
+- The same curve applies in the compositor, where the slider can move pixels, because the reference skips that upload when windowed (`byte[dev+0x20b]` is `gxWindow`) and every benilla mode is windowed: `ui_gamma_pass` raises the gamma byte the RAMDAC would have read to `gamma` before its decode, the continuous form of the 256-entry ramp. ([`src/ui_gamma.rs:52`](../crates/benilla-app/src/ui_gamma.rs#L52))
+- The reference never clamps (`SetGamma` `0x4891f0` writes `-4.000000` for 5), but here the consumers clamp because its ramp is a fullscreen OS call and ours is the image, where an extreme exponent blacks out the panel that would undo it. The range spans the stock slider's `[0.5, 1.5]` four times over; the CVar keeps the value written and only its consumers clamp. ([`src/ui_gamma.rs:62`](../crates/benilla-app/src/ui_gamma.rs#L62))
 
 #### ui_gm_ticket
 
@@ -517,8 +516,8 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 #### wdb
 
 - The files are `benilla-config/cache/<realm>/<store>.bin` through `crate::local_state`, not `WDB/` in the install, which is read-only; they are per realm, because another server may hold another template under the same key; and a store is written ten seconds after an answer lands as well as at exit, so a crash costs only re-asking. ([`src/wdb.rs:38`](../crates/benilla-app/src/wdb.rs#L38))
-- The reference frees the waits below too, leaving an item locked, a swap unsent, a friend's row blank, a chat line unshown, a unit's name stale, a model held or a roll in its slot when a `/reload` falls between an ask and its answer; benilla runs them or ends them, because each strands more than a word to the interface. ([`src/wdb.rs:351`](../crates/benilla-app/src/wdb.rs#L351))
-- The reference keeps a saved store's ask "pending" for the rest of the process (`0x555740` clears only the stores built with persistence off), so a query a lost link dropped is never sent again until restart; benilla's reconnect asks it again because the name or text it was for would otherwise stay blank until restart. ([`src/wdb.rs:419`](../crates/benilla-app/src/wdb.rs#L419))
+- The reference frees the waits below too, leaving an item locked, a swap unsent, a friend's row blank, a chat line unshown, a unit's name stale, a model held or a roll in its slot when a `/reload` falls between an ask and its answer; benilla runs them or ends them, because each strands more than a word to the interface. ([`src/wdb.rs:353`](../crates/benilla-app/src/wdb.rs#L353))
+- The reference keeps a saved store's ask "pending" for the rest of the process (`0x555740` clears only the stores built with persistence off), so a query a lost link dropped is never sent again until restart; benilla's reconnect asks it again because the name or text it was for would otherwise stay blank until restart. ([`src/wdb.rs:424`](../crates/benilla-app/src/wdb.rs#L424))
 
 #### world_console
 
@@ -535,7 +534,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### shaders
 
-- This is the `specular`/`pixelShaders` = 1 leg the reference install runs; both CVars (`0x6886a0`/`0x688712`) default to 0, where water has no program, no specular, a plain ADD combine and no blend. An active ARB program bypasses the texture environment. ([`src/shaders/liquid.wgsl:18`](../crates/benilla-assets/src/shaders/liquid.wgsl#L18))
+- The `specular`/`pixelShaders` = 1 leg, because it is the one the reference install runs; both CVars (`0x6886a0`/`0x688712`) default to 0, where water has no program, no specular, a plain ADD combine and no blend. An active ARB program bypasses the texture environment. ([`src/shaders/liquid.wesl:18`](../crates/benilla-assets/src/shaders/liquid.wesl#L18))
 
 #### wmo
 
@@ -896,7 +895,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### ffx_glow
 
-- Kept a float where every reference pack (`0x6cb0e2`/`0x6cb557`/`0x6cb9e1`) floors it to a byte (`x·255 + 512`, bits >> 14; `0x7ffe58`, `0x8029cc`), because the two differ by at most 0.002 (0.30 packs to 76, 0.2980). ([`src/ffx_glow.rs:176`](../crates/benilla-world/src/ffx_glow.rs#L176))
+- Kept a float where every reference pack (`0x6cb0e2`/`0x6cb557`/`0x6cb9e1`) floors it to a byte (`x·255 + 512`, bits >> 14; `0x7ffe58`, `0x8029cc`), because the two differ by at most 0.002 (0.30 packs to 76, 0.2980). ([`src/ffx_glow.rs:179`](../crates/benilla-world/src/ffx_glow.rs#L179))
 
 #### ground_fx
 
@@ -948,7 +947,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 #### view
 
 - The reference refuses a value outside them, echoing "NearClip must be in range 0.01 - 0.33" (`0x869abc`); ours clamps, because every CVar consumer here clamps at its own edge. ([`src/view.rs:84`](../crates/benilla-world/src/view.rs#L84))
-- The reference projects the detailed world to `farclip` and the horizon to `horizonfarclip` (default 2112, floored at `farclip + 528`); ours has one far plane well beyond `farclip`, because the WDL ring draws in the same projection, and the detailed world ends at `farclip` by the wall. ([`src/view.rs:242`](../crates/benilla-world/src/view.rs#L242))
+- The reference projects the detailed world to `farclip` and the horizon to `horizonfarclip` (default 2112, floored at `farclip + 528`); ours has one far plane well beyond `farclip`, because the WDL ring draws in the same projection, and the detailed world ends at `farclip` by the wall. ([`src/view.rs:241`](../crates/benilla-world/src/view.rs#L241))
 
 #### water_fx
 

@@ -618,7 +618,7 @@ fn dress_batch(
         let mat_anim = benilla_world::doodad_anim::MatAnim::driving_tag(anim.clone(), 0.0, None)
             .following_host(host);
         child.insert((
-            bevy::mesh::MeshTag(benilla_world::mesh_tag::spawn_tag(
+            bevy::mesh::MeshTag::new(benilla_world::mesh_tag::spawn_tag(
                 tag_slot,
                 mat_anim.current * instance.alpha,
             )),
@@ -626,10 +626,9 @@ fn dress_batch(
             BoothMatAlpha,
         ));
     } else if use_rig || instance.feathering() {
-        child.insert(bevy::mesh::MeshTag(benilla_world::mesh_tag::spawn_tag(
-            tag_slot,
-            instance.alpha,
-        )));
+        child.insert(bevy::mesh::MeshTag::new(
+            benilla_world::mesh_tag::spawn_tag(tag_slot, instance.alpha),
+        ));
     }
     // While translucent, `benilla_world::zfill` keeps a colour-masked z-writing child on it, so
     // overlapping limbs blend as one layer (the reference's `M2UseZFill`).
@@ -664,10 +663,9 @@ fn hang_attachments(
         // An attached model composes onto its parent's colour and alpha (`0x714000`). Untagged
         // means opaque and slot 0, so the tag goes up only for a translucent instance or a slot.
         if instance.feathering() || rig_slot != 0 {
-            child.insert(bevy::mesh::MeshTag(benilla_world::mesh_tag::spawn_tag(
-                rig_slot,
-                instance.alpha,
-            )));
+            child.insert(bevy::mesh::MeshTag::new(
+                benilla_world::mesh_tag::spawn_tag(rig_slot, instance.alpha),
+            ));
         }
         if let Some(fm) = instance.fade_materials(&r.material, &r.twins) {
             child.insert(fm);
@@ -688,10 +686,9 @@ fn hang_attachments(
         ));
         mark_mat_anim(&mut card, bb.mat_anim);
         if instance.feathering() || rig_slot != 0 {
-            card.insert(bevy::mesh::MeshTag(benilla_world::mesh_tag::spawn_tag(
-                rig_slot,
-                instance.alpha,
-            )));
+            card.insert(bevy::mesh::MeshTag::new(
+                benilla_world::mesh_tag::spawn_tag(rig_slot, instance.alpha),
+            ));
         }
         if let Some(fm) = instance.fade_materials(&bb.material, &bb.twins) {
             card.insert(fm);
@@ -860,9 +857,9 @@ pub(super) fn push_booth_mat_alpha(
         if *vis != want {
             *vis = want;
         }
-        let bits = benilla_world::mesh_tag::with_alpha(tag.0, anim.current);
-        if tag.0 != bits {
-            tag.0 = bits;
+        let bits = benilla_world::mesh_tag::with_alpha(tag.value, anim.current);
+        if tag.value != bits {
+            tag.value = bits;
         }
     }
 }
@@ -899,7 +896,7 @@ mod tests {
         let part = app
             .world_mut()
             .spawn((
-                bevy::mesh::MeshTag(benilla_world::mesh_tag::spawn_tag(rig_slot, 1.0)),
+                bevy::mesh::MeshTag::new(benilla_world::mesh_tag::spawn_tag(rig_slot, 1.0)),
                 anim,
                 BoothMatAlpha,
                 // A real booth part's `Mesh3d` requires `Visibility`, which the writer takes.
@@ -914,11 +911,11 @@ mod tests {
             .get::<bevy::mesh::MeshTag>()
             .unwrap();
         assert_eq!(
-            benilla_world::mesh_tag::rig_of(tag.0),
+            benilla_world::mesh_tag::rig_of(tag.value),
             rig_slot,
             "the palette slot must survive an alpha write"
         );
-        let alpha = benilla_world::mesh_tag::alpha_of(tag.0);
+        let alpha = benilla_world::mesh_tag::alpha_of(tag.value);
         assert!(
             (alpha - 0.55).abs() <= 1.0 / 63.0,
             "authored 0.55 reached the tag (got {alpha})"
@@ -933,7 +930,7 @@ mod tests {
         let spawn = |app: &mut App, v: f32| {
             app.world_mut()
                 .spawn((
-                    bevy::mesh::MeshTag(benilla_world::mesh_tag::spawn_tag(0, 1.0)),
+                    bevy::mesh::MeshTag::new(benilla_world::mesh_tag::spawn_tag(0, 1.0)),
                     MatAnim::driving_tag(constant_alpha(v), 0.0, None),
                     BoothMatAlpha,
                     Visibility::Inherited,
@@ -1379,7 +1376,7 @@ mod tests {
         let part = app
             .world_mut()
             .spawn((
-                bevy::mesh::MeshTag(benilla_world::mesh_tag::spawn_tag(0, 1.0)),
+                bevy::mesh::MeshTag::new(benilla_world::mesh_tag::spawn_tag(0, 1.0)),
                 MatAnim::driving_tag(constant_alpha(0.1), 0.0, None),
             ))
             .id();
@@ -1390,7 +1387,7 @@ mod tests {
                     .entity(part)
                     .get::<bevy::mesh::MeshTag>()
                     .unwrap()
-                    .0
+                    .value
             ),
             1.0,
             "no BoothMatAlpha marker ⇒ untouched"

@@ -540,23 +540,23 @@ fn reads(world: &mut World) -> FilteredAccessSet {
     for id in [
         world
             .components()
-            .get_resource_id(std::any::TypeId::of::<crate::ui_action::PlayerActions>()),
+            .get_id(std::any::TypeId::of::<crate::ui_action::PlayerActions>()),
         world
             .components()
-            .get_resource_id(std::any::TypeId::of::<crate::ui_action::Spells>()),
+            .get_id(std::any::TypeId::of::<crate::ui_action::Spells>()),
     ]
     .into_iter()
     .flatten()
     {
-        set.add_unfiltered_resource_read(id);
+        set.add_resource_read(id);
     }
     // The macro files the renumbering takes its moves from, holding the world; it writes the bar
     // through the host.
     if let Some(id) = world
         .components()
-        .get_resource_id(std::any::TypeId::of::<crate::ui_macro::MacroFiles>())
+        .get_id(std::any::TypeId::of::<crate::ui_macro::MacroFiles>())
     {
-        set.add_unfiltered_resource_write(id);
+        set.add_resource_write(id);
     }
     set
 }

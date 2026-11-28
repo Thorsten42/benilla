@@ -264,7 +264,7 @@ fn enqueue_new_part(mut world: DeferredWorld, ctx: HookContext) {
 /// Queues a part whose `RenderFade` leaves. The re-author is normally a no-op, kept as the
 /// backstop against a part left on a freed probe slot, which renders black.
 fn enqueue_on_fade_latch(
-    fade_end: On<Remove, RenderFade>,
+    fade_end: On<Remove<RenderFade>>,
     parts: Query<(), With<InteriorLit>>,
     mut queue: ResMut<InteriorReauthor>,
 ) {
@@ -650,10 +650,10 @@ fn write_part_law(
         material.0 = want;
     }
     let payload = match law {
-        AppliedLaw::Bake(slot) => crate::mesh_tag::with_interior_probe(tag.0, slot),
-        AppliedLaw::Matte | AppliedLaw::Exterior => crate::mesh_tag::with_exterior_reset(tag.0),
+        AppliedLaw::Bake(slot) => crate::mesh_tag::with_interior_probe(tag.value, slot),
+        AppliedLaw::Matte | AppliedLaw::Exterior => crate::mesh_tag::with_exterior_reset(tag.value),
     };
-    tag.0 = crate::mesh_tag::with_interior_fog(payload, fog);
+    tag.value = crate::mesh_tag::with_interior_fog(payload, fog);
     true
 }
 
@@ -835,7 +835,7 @@ fn seat_probe_slot(commands: &mut Commands, anchor: Entity, new: u16) {
     commands.queue(
         move |world: &mut World| match world.get_entity_mut(anchor) {
             Ok(mut e) => {
-                // One insert: the slot's `on_replace` hook frees the outgoing slot.
+                // One insert: the slot's `on_discard` hook frees the outgoing slot.
                 e.insert(PropProbeSlot(new));
             }
             Err(_) => world.resource_mut::<PropProbes>().release(new),
@@ -910,7 +910,7 @@ mod tests {
                 lit,
                 ClassifiedBy(anchor),
                 MeshMaterial3d::<WowModelMaterial>(Handle::default()),
-                MeshTag(crate::mesh_tag::probe_bits(stale)),
+                MeshTag::new(crate::mesh_tag::probe_bits(stale)),
             ))
             .id();
 
@@ -922,7 +922,7 @@ mod tests {
             "the part's law re-anchors on the anchor's standing slot"
         );
         assert_eq!(
-            world.get::<MeshTag>(part).unwrap().0,
+            world.get::<MeshTag>(part).unwrap().value,
             crate::mesh_tag::probe_bits(live),
             "the tag reads the anchor's live slot, not the freed (black) one"
         );
@@ -1007,7 +1007,7 @@ mod tests {
                 InteriorLit::new(InteriorKind::Matte, Handle::default()),
                 ClassifiedBy(anchor),
                 MeshMaterial3d::<WowModelMaterial>(Handle::default()),
-                MeshTag(0),
+                MeshTag::new(0),
             ))
             .id();
 
@@ -1016,7 +1016,7 @@ mod tests {
         let lit = world.get::<InteriorLit>(part).unwrap();
         assert_eq!(lit.applied, Some(AppliedLaw::Matte));
         assert_ne!(
-            world.get::<MeshTag>(part).unwrap().0 & crate::mesh_tag::INTERIOR_FOG_BIT,
+            world.get::<MeshTag>(part).unwrap().value & crate::mesh_tag::INTERIOR_FOG_BIT,
             0,
             "the day/night law in a room whose gate is on carries the room's fog bit"
         );
@@ -1049,12 +1049,12 @@ mod tests {
                 InteriorLit::new(InteriorKind::Matte, Handle::default()),
                 ClassifiedBy(anchor),
                 MeshMaterial3d::<WowModelMaterial>(Handle::default()),
-                MeshTag(0),
+                MeshTag::new(0),
             ))
             .id();
         world.run_system_once(classify_entity_interior).unwrap();
         let fog_of = |world: &World, part| {
-            world.get::<MeshTag>(part).unwrap().0 & crate::mesh_tag::INTERIOR_FOG_BIT != 0
+            world.get::<MeshTag>(part).unwrap().value & crate::mesh_tag::INTERIOR_FOG_BIT != 0
         };
         assert!(fog_of(&world, part), "gate on ⇒ the room's fog");
 
@@ -1118,7 +1118,7 @@ mod tests {
             .spawn((
                 lit_for(anchor),
                 MeshMaterial3d::<WowModelMaterial>(Handle::default()),
-                MeshTag(0),
+                MeshTag::new(0),
             ))
             .id();
         world.entity_mut(anchor).add_child(mesh);
@@ -1126,7 +1126,7 @@ mod tests {
             .spawn((
                 lit_for(anchor),
                 MeshMaterial3d::<WowModelMaterial>(Handle::default()),
-                MeshTag(crate::mesh_tag::alpha_bits(1.0)),
+                MeshTag::new(crate::mesh_tag::alpha_bits(1.0)),
             ))
             .id();
 
@@ -1143,7 +1143,7 @@ mod tests {
             "a model never splits across the two light laws at the billboard seam"
         );
         assert_eq!(
-            world.get::<MeshTag>(card).unwrap().0,
+            world.get::<MeshTag>(card).unwrap().value,
             crate::mesh_tag::with_interior_probe(crate::mesh_tag::alpha_bits(1.0), slot),
             "the law composes into the tag — the probe slot lands, the card's alpha survives"
         );
@@ -1184,7 +1184,7 @@ mod tests {
             ),
             ClassifiedBy(anchor),
             MeshMaterial3d::<WowModelMaterial>(Handle::default()),
-            MeshTag(0),
+            MeshTag::new(0),
         ));
 
         world.run_system_once(classify_entity_interior).unwrap();
@@ -1208,7 +1208,7 @@ mod tests {
                 InteriorLit::new(InteriorKind::Matte, Handle::default()),
                 ClassifiedBy(anchor),
                 MeshMaterial3d::<WowModelMaterial>(Handle::default()),
-                MeshTag(crate::mesh_tag::alpha_bits(0.125)),
+                MeshTag::new(crate::mesh_tag::alpha_bits(0.125)),
                 crate::model_fade::RenderFade {
                     started: 0.0,
                     duration: 2.0,
@@ -1276,7 +1276,7 @@ mod tests {
                 ClassifiedBy(anchor),
                 // Spawned on the exterior blend twin, as a streamed part is before it classifies.
                 MeshMaterial3d::<WowModelMaterial>(exterior_blend.clone()),
-                MeshTag(mid_ramp),
+                MeshTag::new(mid_ramp),
                 crate::model_fade::FadeMaterials {
                     cutout: Handle::default(),
                     blend: exterior_blend.clone(),
@@ -1295,7 +1295,7 @@ mod tests {
 
         world.run_system_once(classify_entity_interior).unwrap();
 
-        let tag = world.get::<MeshTag>(part).unwrap().0;
+        let tag = world.get::<MeshTag>(part).unwrap().value;
         assert!(
             world.get::<InteriorLit>(part).unwrap().is_bake(),
             "the ramping part takes the room's bake law"

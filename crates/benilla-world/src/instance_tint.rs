@@ -6,7 +6,7 @@
 //! [`crate::mesh_tag::HIGHLIGHT_BIT`] here. The animate kernel `0x714260` multiplies it by
 //! `inputColorA`, and the batcher clamps it to [0,1] and sets it as the GL ambient and diffuse
 //! material colour (`0x70c3a9`–`0x70c4d3`, `0x70c8ad`): it scales the light sum inside the clamp,
-//! not emission, where `wow_model.wgsl` applies a WMO batch's MOCV. An unlit batch adds the tinted
+//! not emission, where `wow_model.wesl` applies a WMO batch's MOCV. An unlit batch adds the tinted
 //! M2Color and the highlight inside one clamp.
 //!
 //! The table is indexed by the `MeshTag` rig slot ([`crate::rig_palette`]), so it takes no tag
@@ -32,7 +32,7 @@ const SLOT_BYTES: u64 = 4;
 pub const IDENTITY: u32 = 0;
 
 /// Byte offset of the tint region in a `wow_light`-layout buffer, after the rig slot table and
-/// before the runtime-sized palette rows; it must match `wow_model.wgsl`'s struct order.
+/// before the runtime-sized palette rows; it must match `wow_model.wesl`'s struct order.
 pub(crate) fn region_offset() -> u64 {
     crate::rig_palette::rig_table_region_offset() + MAX_RIG_SLOTS as u64 * SLOT_BYTES
 }
@@ -55,6 +55,7 @@ pub fn pack(rgb: [u8; 3]) -> u32 {
 /// rig slot. The glue scene is on it: its character is the instance the reference tints
 /// (`0x472939` into `0x710cf0`, the char-select ghost) and has a slot of its own.
 #[derive(Resource, Clone, Default, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct InstanceTintMirrors(
     pub std::collections::HashMap<&'static str, bevy::render::render_resource::Buffer>,
 );
@@ -62,6 +63,7 @@ pub struct InstanceTintMirrors(
 /// The per-slot tint table, indexed by the `MeshTag` rig slot; `Arc`-shared for a cheap extract
 /// and generation-stamped so an untinted world uploads nothing.
 #[derive(Resource, Clone, ExtractResource)]
+#[extract_app(bevy::render::RenderApp)]
 pub struct InstanceTints {
     slots: Arc<Vec<u32>>,
     generation: u64,

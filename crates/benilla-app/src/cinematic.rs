@@ -1005,7 +1005,7 @@ mod ack_ledger {
                 abandon_cinematic_on_leave_world,
             )
             .add_systems(Update, feed_ui);
-        app.insert_non_send_resource(spied_vm(&EVENTS));
+        app.insert_non_send(spied_vm(&EVENTS));
         app.update();
         assert_eq!(seen_in(&app), ["CINEMATIC_START"]);
 

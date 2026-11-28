@@ -15,22 +15,22 @@
 // (`glColorMaterial`); secondary is the sun sheen.
 // The ADT water alpha is the swatch's own: the `0xc7fbc0` LUT texture binds only behind
 // `[0xc800ec]` (`0x685244`-`0x685257`), which never holds one (its one store, `0x68c7f8`, is 0).
-// Deviation: this is the `specular`/`pixelShaders` = 1 leg the reference install runs; both CVars
-// (`0x6886a0`/`0x688712`) default to 0, where water has no program, no specular, a plain ADD
-// combine and no blend. An active ARB program bypasses the texture environment.
+// Deviation: the `specular`/`pixelShaders` = 1 leg, because it is the one the reference install
+// runs; both CVars (`0x6886a0`/`0x688712`) default to 0, where water has no program, no specular, a
+// plain ADD combine and no blend. An active ARB program bypasses the texture environment.
 //
 // Culling is off for every kind: all four reference liquid passes disable GL_CULL_FACE. Water
 // blends with depth write off; magma and slime are opaque and write depth. Output is raw gamma.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     mesh_functions,
     forward_io::Vertex,
     view_transformations::position_world_to_clip,
     mesh_view_bindings::{view, globals},
-}
+};
 
-@group(#{MATERIAL_BIND_GROUP}) @binding(100) var frames: texture_2d_array<f32>;
-@group(#{MATERIAL_BIND_GROUP}) @binding(101) var frames_samp: sampler;
+@group(constants::MATERIAL_BIND_GROUP) @binding(100) var frames: texture_2d_array<f32>;
+@group(constants::MATERIAL_BIND_GROUP) @binding(101) var frames_samp: sampler;
 
 struct LiquidParams {
     // x = fullbright (magma/slime); y = ocean swatch; z = interior fog; w = sun-sheen shininess.
@@ -41,7 +41,7 @@ struct LiquidParams {
     // enable (0 on a deterministic run).
     anim: vec4<f32>,
 };
-@group(#{MATERIAL_BIND_GROUP}) @binding(102) var<uniform> w: LiquidParams;
+@group(constants::MATERIAL_BIND_GROUP) @binding(102) var<uniform> w: LiquidParams;
 
 // The prefix of the shared global light (`lighting::global_light`); it must match row for row.
 struct WowLight {
@@ -59,7 +59,7 @@ struct WowLight {
     wmo_fog_color: vec4<f32>,      // 18 rgb = interior fog (block 2); w = enable
     wmo_fog_params: vec4<f32>,     // 19 x = start yd; y = end yd
 };
-@group(#{MATERIAL_BIND_GROUP}) @binding(90) var<storage, read> wow_light: WowLight;
+@group(constants::MATERIAL_BIND_GROUP) @binding(90) var<storage, read> wow_light: WowLight;
 
 struct LiquidVsOut {
     @builtin(position) clip_position: vec4<f32>,
@@ -107,7 +107,7 @@ fn apply_scroll(uv: vec2<f32>) -> vec2<f32> {
     return vec2<f32>(uv.x, uv.y + w.anim.z * fract(anim_time() / 10.0));
 }
 
-// Planar eye-Z GL_LINEAR fog in gamma space, as terrain.wgsl; GL_FOG defaults on (`0x593bf0`) and
+// Planar eye-Z GL_LINEAR fog in gamma space, as terrain.wesl; GL_FOG defaults on (`0x593bf0`) and
 // no liquid pass turns it off. Block 1 (`+0x70/74/78`) is the scene fog (`0x66ff20`); block 2
 // (`+0x80/84/88`) is the interior haze, eased toward the MFOG or zone target over about 4 s
 // (`0x6cf054`). Only the WMO geometry pass (`0x6b51d9`/`0x6b51ea`) and the WMO liquid pass
@@ -138,11 +138,10 @@ fn vertex(in: Vertex) -> LiquidVsOut {
     out.clip_position = position_world_to_clip(out.world_position.xyz);
     out.world_normal = mesh_functions::mesh_normal_local_to_world(in.normal, in.instance_index);
     out.uv = in.uv;
-#ifdef VERTEX_COLORS
+    @if(VERTEX_COLORS)
     out.vcolor = in.color;
-#else
+    @else
     out.vcolor = vec4<f32>(1.0);
-#endif
     // Depth coordinate V (0..1) in UV1.x: the swatch row on ADT water, the alpha ramp on WMO.
     out.depth = in.uv_b.x;
     out.secondary_vtx = sun_sheen(out.world_normal, out.world_position.xyz);

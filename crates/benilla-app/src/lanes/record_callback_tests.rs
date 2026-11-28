@@ -53,7 +53,7 @@ fn holding_client() -> (App, Receiver<ClientCommand>) {
         ],
     );
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .set_player_control(true);
     (app, rx)
 }
@@ -123,7 +123,7 @@ fn an_equip_replays_signals_fire_at_its_packets_place() {
     let (mut app, _sent) = holding_client();
     hosted(&mut app, "PickupContainerItem(0, 1) AutoEquipCursorItem()");
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -191,7 +191,7 @@ fn a_quest_log_update_off_an_item_answer_fires_between_its_neighbours() {
     const PELT: u32 = 900;
     let mut app = client();
     {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         let mut pelts = quest(50, "Pelts", 1);
         pelts.record.objectives[0] = benilla_ui::script::QuestObjectiveView {
             item_id: PELT,
@@ -263,9 +263,9 @@ fn a_spell_tooltip_rebuilds_at_its_reagents_answer() {
         .resource_mut::<crate::ui_action::PlayerActions>()
         .spells
         .insert(FROSTBOLT);
-    crate::ui_script::test_ui::load_tooltip_template(app.world().non_send_resource::<UiScript>());
+    crate::ui_script::test_ui::load_tooltip_template(app.world().non_send::<UiScript>());
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             SPELL_REAGENTS = "Reagents: "
@@ -409,7 +409,7 @@ fn a_bind_on_equip_replay_asks_at_its_answers_place() {
     let (mut app, sent) = holding_client();
     hosted(&mut app, "PickupContainerItem(0, 1) AutoEquipCursorItem()");
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")
@@ -440,7 +440,7 @@ fn a_try_on_refused_at_its_records_answer_shows_at_the_answers_place() {
     const BOX: u32 = 5_555;
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             ERR_NOT_EQUIPPABLE = "Not equippable"
@@ -476,7 +476,7 @@ fn a_combat_lines_callback_runs_at_its_place_in_the_answers_list() {
     const PELT: u32 = 900;
     let mut app = client();
     {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         let mut pelts = quest(50, "Pelts", 1);
         pelts.record.objectives[0] = benilla_ui::script::QuestObjectiveView {
             item_id: PELT,
@@ -533,7 +533,7 @@ fn a_combat_line_waits_for_an_answer_later_in_its_span() {
     const PELT: u32 = 900;
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             TRADESKILL_LOG_FIRSTPERSON = "You create %s."
@@ -558,7 +558,7 @@ fn a_combat_line_waits_for_an_answer_later_in_its_span() {
     crate::net::handlers::dispatch(world, vec![craft, fall(5), answer, fall(6)]);
     world.insert_resource(State::new(ClientState::InWorld));
     crate::lanes::fire_in_order(world);
-    let script = world.non_send_resource::<UiScript>();
+    let script = world.non_send::<UiScript>();
     assert_eq!(
         script.eval::<Vec<String>>("return Seen").unwrap(),
         [
@@ -583,7 +583,7 @@ fn two_waiting_lines_of_one_item_are_written_newest_first_one_per_callback() {
     const WOLF: u64 = 0xF130_0000_0044_0001;
     let mut app = client();
     {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         let mut pelts = quest(50, "Pelts", 1);
         pelts.record.objectives[0] = benilla_ui::script::QuestObjectiveView {
             item_id: PELT,
@@ -646,7 +646,7 @@ fn a_reconnect_clears_the_combat_logs_wait_list() {
     const WOLF: u64 = 0xF130_0000_0044_0001;
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             TRADESKILL_LOG_FIRSTPERSON = "You create %s."
@@ -710,7 +710,7 @@ fn a_waiting_line_outlasts_its_frames_and_a_refusal_frees_it_unwritten() {
     const GONE: u32 = 99_999;
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             TRADESKILL_LOG_FIRSTPERSON = "You create %s."
@@ -758,7 +758,7 @@ fn a_waiting_tradeskill_line_names_its_caster_at_the_answer() {
     const CRAFTER: u64 = 0x0000_0000_0000_0042;
     let mut app = client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"
             TRADESKILL_LOG_THIRDPERSON = "%s creates %s."
@@ -827,7 +827,7 @@ fn park_swap_on(app: &mut App, entry: u32) {
 /// A listener of `event` that sends a roll, and the wire's rolls and swaps from here on.
 fn rolling_on(app: &mut App, sent: &Receiver<ClientCommand>, event: &str) {
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(&format!(
             r#"local f = CreateFrame("Frame") f:RegisterEvent("{event}")
             f:SetScript("OnEvent", function() RandomRoll(1, 2) end)"#
@@ -869,7 +869,7 @@ fn a_try_on_refusals_listener_runs_ahead_of_the_entrys_next_callback() {
     const BOX: u32 = 5_555;
     let (mut app, sent) = holding_client();
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .run(
             r#"ERR_NOT_EQUIPPABLE = "Not equippable"
             local pane = CreateFrame("Frame", "DressUpFrame", UIParent)
@@ -902,7 +902,7 @@ fn a_quest_log_updates_listener_runs_ahead_of_the_entrys_next_callback() {
     const PELT: u32 = 900;
     let (mut app, sent) = holding_client();
     {
-        let mut s = app.world_mut().non_send_resource_mut::<UiScript>();
+        let mut s = app.world_mut().non_send_mut::<UiScript>();
         let mut pelts = quest(50, "Pelts", 1);
         pelts.record.objectives[0] = benilla_ui::script::QuestObjectiveView {
             item_id: PELT,
@@ -980,7 +980,7 @@ fn pending_records_answered_after_a_reload_raise_nothing() {
             ],
         );
         crate::lanes::fire_in_order(world);
-        let script = world.non_send_resource::<UiScript>();
+        let script = world.non_send::<UiScript>();
         let mut heard = script.eval::<Vec<String>>("return Heard").unwrap();
         script.run("Heard = {}").unwrap();
         heard.sort();
@@ -991,7 +991,7 @@ fn pending_records_answered_after_a_reload_raise_nothing() {
     let world = app.world_mut();
     // The battleground's lane reads it, and this client's `Startup` never ran.
     world.init_resource::<crate::player::Player>();
-    world.non_send_resource::<UiScript>().run(SPY).unwrap();
+    world.non_send::<UiScript>().run(SPY).unwrap();
     wait(world, 4_301, 0x22, 8);
     assert_eq!(
         answer(world, 4_301, 0x22, 8),
@@ -1008,7 +1008,7 @@ fn pending_records_answered_after_a_reload_raise_nothing() {
     crate::ui_script::run_pending_reload(world);
     // The reload's own cascade, spent ahead of the new VM's listener.
     crate::lanes::fire_in_order(world);
-    world.non_send_resource::<UiScript>().run(SPY).unwrap();
+    world.non_send::<UiScript>().run(SPY).unwrap();
     assert_eq!(
         answer(world, 4_302, 0x23, 9),
         Vec::<String>::new(),

@@ -17,10 +17,10 @@ too_many_arguments = "allow"
 
 [workspace.dependencies]
 anyhow = "1.0.102"
-# bevy's default features spelled out without `audio`: `2d`, `3d` and `ui` each pull `bevy_audio`
-# and `vorbis`, and the client mixes through kira. Add a feature by name, never `2d`/`3d`/`ui`; a
-# plugin that takes bevy with its default features brings the audio stack back too.
-bevy = { version = "0.18.1", default-features = false, features = [
+# bevy's default features spelled out: the members of `2d`, `3d` and `ui` less `bevy_ui_widgets`,
+# which nothing here uses, and no `audio`, since the client mixes through kira. Add a feature by
+# name; a plugin that takes bevy with its default features brings the audio stack back.
+bevy = { version = "0.20.1", default-features = false, features = [
     "default_app",
     "default_platform",
     "2d_bevy_render",
@@ -30,8 +30,8 @@ bevy = { version = "0.18.1", default-features = false, features = [
     "scene",
     "picking",
 ] }
-# For the `WOW_GPU_MS` meter's query set, which bevy 0.18 does not wrap; must match bevy's wgpu.
-wgpu = "27"
+# For the `WOW_GPU_MS` meter's query set, which bevy 0.20 does not wrap; must match bevy's wgpu.
+wgpu = "30"
 clap = { version = "4.6.1", features = ["derive"] }
 sha1 = "0.10.6"
 
@@ -39,10 +39,7 @@ sha1 = "0.10.6"
 # kira 0.12.4, patched to compute spatial gains and the volume tween per output chunk and
 # interpolate them, not per sample frame (`third_party/kira/BENILLA.md`).
 kira = { path = "third_party/kira" }
-# A lock-only stand-in: bevy_audio's unbuilt cpal 0.15 would otherwise hold `alsa-sys` 0.3 against
-# cpal 0.17's 0.4, and a lock holds one `links = "alsa"` (`third_party/alsa-0.9/BENILLA.md`).
-alsa = { path = "third_party/alsa-0.9" }
-# wgpu-hal 27.0.4, patched so a presentation stall past wgpu-core's 1 s frame timeout is waited out
+# wgpu-hal 30.0.2, patched so a presentation stall past wgpu-core's 1 s frame timeout is waited out
 # and not turned into a lost device (`third_party/wgpu-hal/BENILLA.md`).
 wgpu-hal = { path = "third_party/wgpu-hal" }
 

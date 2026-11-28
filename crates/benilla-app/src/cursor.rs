@@ -641,7 +641,7 @@ mod macos {
     /// Build every mode's `NSCursor`; exclusive, so it runs on the main thread.
     pub(super) fn setup(world: &mut World) {
         // Ahead of the early returns: `drive` reads it every frame.
-        world.insert_non_send_resource(PayloadCursors(HashMap::new()));
+        world.insert_non_send(PayloadCursors(HashMap::new()));
         // No client data: one warning, not one per stem.
         if world.get_resource::<WorldAssets>().is_none() {
             warn!("no client data — the OS cursor stands in for every mode cursor");
@@ -667,7 +667,7 @@ mod macos {
             warn!("no cursor BLPs available — using the OS cursor");
             return;
         }
-        world.insert_non_send_resource(NativeCursors(cursors));
+        world.insert_non_send(NativeCursors(cursors));
     }
 
     /// Disable the window's cursor rects once, set the payload or mode cursor while not looking,
@@ -890,7 +890,7 @@ mod tests {
         let mut script = benilla_ui::script::UiScript::new().unwrap();
         setup(&mut script);
         script.run(lua).unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.insert_resource(if covered {
             crate::loading_screen::LoadingScreen::test_covering()
         } else {
@@ -915,7 +915,7 @@ mod tests {
     /// The device flag after one frame over the glue VM `script`, from `device`.
     fn glue_pointer_after(script: benilla_ui::script::UiScript, device: PointerDevice) -> bool {
         let mut app = App::new();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.insert_resource(device);
         app.world_mut()
             .run_system_once(track_pointer_device)
@@ -936,7 +936,7 @@ mod tests {
         let mut script = benilla_ui::script::UiScript::new().unwrap();
         script.set_cursor_size_probe(Box::new(|p| (p == "Custom\\Arrow").then_some((32, 32))));
         script.run(r#"SetCursor("Custom\\Arrow")"#).unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.insert_resource(crate::loading_screen::LoadingScreen::default());
         app.insert_resource(WorldCursor::default());
         app.insert_resource(crate::ui_script::PointerOverUi(true));
@@ -1187,7 +1187,7 @@ mod tests {
             }),
         );
         script.run("ShowContainerSellCursor(0, 1)").unwrap();
-        app.insert_non_send_resource(script);
+        app.insert_non_send(script);
         app.insert_resource(crate::loading_screen::LoadingScreen::default());
         app.insert_resource(CAST_GREY);
         app.insert_resource(crate::ui_script::PointerOverUi(true));

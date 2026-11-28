@@ -956,7 +956,7 @@ mod tests {
         let mut app = App::new();
         // `WorldCollision` needs the mover's trace exclusions, which the world plugins insert.
         app.init_resource::<benilla_world::collision::MoverTraceExclusions>();
-        // avian's collider backend reads `Assets<Mesh>` and `SceneSpawner` even without meshes.
+        // avian's collider backend reads `Assets<Mesh>` even without meshes.
         app.add_plugins((
             MinimalPlugins,
             bevy::transform::TransformPlugin,
@@ -964,6 +964,9 @@ mod tests {
             bevy::scene::ScenePlugin,
             PhysicsPlugins::new(bevy::app::PostUpdate),
         ));
+        // avian registers the spatial-query diagnostics its casters write in `finish`.
+        app.finish();
+        app.cleanup();
         app.init_asset::<Mesh>();
         let (mut verts, mut tris) = (Vec::new(), Vec::new());
         for w in profile.windows(2) {
@@ -1120,6 +1123,9 @@ mod tests {
             bevy::scene::ScenePlugin,
             PhysicsPlugins::new(bevy::app::PostUpdate),
         ));
+        // avian registers the spatial-query diagnostics its casters write in `finish`.
+        app.finish();
+        app.cleanup();
         app.init_asset::<Mesh>();
         app.world_mut().spawn((
             RigidBody::Static,
@@ -1180,6 +1186,9 @@ mod tests {
             bevy::scene::ScenePlugin,
             PhysicsPlugins::new(bevy::app::PostUpdate),
         ));
+        // avian registers the spatial-query diagnostics its casters write in `finish`.
+        app.finish();
+        app.cleanup();
         app.init_asset::<Mesh>();
         let mut chunks = Vec::new();
         for (tx, ty) in ids {

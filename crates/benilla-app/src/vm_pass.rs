@@ -35,6 +35,8 @@ use bevy::ecs::schedule::{InternedSystemSet, NodeId, ScheduleLabel, SystemKey, S
 use bevy::ecs::system::{IntoSystem, System};
 use bevy::prelude::*;
 
+use crate::resource_access::resource_access;
+
 /// The pass's sets. [`VmPass::Start`] and [`VmPass::End`] hold the chain between them: every
 /// system whose declared access covers the call host's ([`crate::script_calls::ScriptCallHost`]),
 /// every one that writes the VM, and every other system [`order_the_pass`] takes in. A world
@@ -125,7 +127,7 @@ impl Plugin for VmPassPlugin {
 fn flush_unit_edits_elsewhere(world: &mut World) {
     let Some(edits) = world
         .components()
-        .get_resource_id(std::any::TypeId::of::<crate::creature_anim::UnitEdits>())
+        .get_id(std::any::TypeId::of::<crate::creature_anim::UnitEdits>())
     else {
         return;
     };
@@ -142,14 +144,14 @@ fn flush_unit_edits_elsewhere(world: &mut World) {
             let (exclusive, users): (Vec<_>, Vec<_>) = graph
                 .systems
                 .iter()
-                .filter(|(key, system, _)| {
-                    graph.systems.get(*key).is_some_and(|s| {
-                        system.is_exclusive() || s.access.combined_access().has_resource_read(edits)
-                    })
-                })
-                .filter_map(|(_, system, _)| {
+                .filter_map(|(key, system, _)| {
+                    let access = graph.systems.get(key)?.access();
+                    let exclusive = access.is_exclusive();
+                    if !exclusive && !resource_access(world, access).has_read(edits) {
+                        return None;
+                    }
                     let set: InternedSystemSet = system.default_system_sets().into_iter().next()?;
-                    Some((system.is_exclusive(), set))
+                    Some((exclusive, set))
                 })
                 .partition(|(exclusive, _)| *exclusive);
             if users.is_empty() {
@@ -180,7 +182,7 @@ pub(crate) fn shared_sinks(world: &World) -> Vec<ComponentId> {
         std::any::TypeId::of::<crate::player::FarSight>(),
     ]
     .into_iter()
-    .filter_map(|t| world.components().get_resource_id(t))
+    .filter_map(|t| world.components().get_id(t))
     .collect()
 }
 
@@ -271,27 +273,32 @@ pub(crate) fn order_the_pass(world: &mut World, label: impl ScheduleLabel) -> Ve
         // A host's access holds the call host's: adding the host's changes nothing. The sum is
         // made in one buffer, reused for every system, so the host's access is never cloned.
         let mut with_host = bevy::ecs::query::Access::default();
+        let host_combined = host.to_filtered_access_set();
         let joins: Vec<Joins> = graph
             .systems
             .iter()
-            .map(|(key, system, _)| {
-                let Some(declared) = graph.systems.get(key).map(|s| &s.access) else {
+            .map(|(key, _, _)| {
+                let Some(declared) = graph.systems.get(key).map(|s| s.access()) else {
                     return Joins::No;
                 };
-                if system.is_exclusive() {
+                if declared.is_exclusive() {
                     return if placed[index[&key]] {
                         Joins::Always
                     } else {
                         Joins::No
                     };
                 }
-                let combined = declared.combined_access();
+                let declared_set = declared.to_filtered_access_set();
+                let combined = declared_set.combined_access();
                 with_host.clone_from(combined);
-                with_host.extend(host.combined_access());
+                with_host.extend(host_combined.combined_access());
                 let hosted = with_host == *combined;
                 if hosted || (in_phase[index[&key]] && !declared.is_compatible(&host)) {
                     Joins::Always
-                } else if sinks.iter().any(|id| combined.has_resource_read(*id)) {
+                } else if sinks
+                    .iter()
+                    .any(|id| resource_access(world, declared).has_read(*id))
+                {
                     Joins::Sink
                 } else {
                     Joins::No
@@ -533,7 +540,7 @@ pub(crate) fn order_the_pass(world: &mut World, label: impl ScheduleLabel) -> Ve
                 None => graph
                     .systems
                     .get(keys[i])
-                    .map(|s| s.system.name().to_string())
+                    .map(|s| s.system().name().to_string())
                     .unwrap_or_default(),
             };
             // An unplaced node waits on an unplaced one; walking back from any closes a cycle.
@@ -593,7 +600,7 @@ pub(crate) fn order_the_pass(world: &mut World, label: impl ScheduleLabel) -> Ve
                 graph
                     .systems
                     .get(keys[*i])
-                    .map(|s| s.system.name().to_string())
+                    .map(|s| s.system().name().to_string())
                     .unwrap_or_default()
             })
             .collect();
@@ -649,6 +656,8 @@ mod tests {
     use bevy::ecs::schedule::{NodeId, SystemKey};
     use bevy::ecs::system::{IntoSystem, System};
     use bevy::prelude::*;
+
+    use crate::resource_access::resource_access;
 
     /// The pass's systems in order, or `None` in a build without type names, which skips.
     fn pass_order(app: &App) -> Option<Vec<String>> {
@@ -849,10 +858,11 @@ mod tests {
                 if !order.contains(&name) {
                     continue;
                 }
-                let declared = &graph.systems.get(key).expect("initialized").access;
+                let declared = graph.systems.get(key).expect("initialized").access();
+                let declared = crate::resource_access::declared_set(declared);
                 let combined = declared.combined_access();
                 for (edit, id) in &writes {
-                    if combined.has_component_read(*id)
+                    if combined.has_read(*id)
                         || declared
                             .filtered_accesses()
                             .iter()
@@ -890,7 +900,7 @@ mod tests {
         let edits = app
             .world()
             .components()
-            .get_resource_id(std::any::TypeId::of::<crate::creature_anim::UnitEdits>())
+            .get_id(std::any::TypeId::of::<crate::creature_anim::UnitEdits>())
             .expect("the queue is registered");
         let labels: Vec<_> = app
             .world()
@@ -899,7 +909,7 @@ mod tests {
             .map(|(_, schedule)| schedule.label())
             .collect();
         // By identity, not by name: a build without type names has none.
-        let flush = System::type_id(&IntoSystem::into_system(
+        let flush = System::system_type(&IntoSystem::into_system(
             crate::creature_anim::flush_unit_edits,
         ));
         let (mut users, mut exclusives) = (0, 0);
@@ -914,12 +924,12 @@ mod tests {
                         .systems
                         .iter()
                         .filter_map(|(key, system, _)| {
-                            let access = &graph.systems.get(key).expect("initialized").access;
-                            let kind = if system.is_exclusive() {
+                            let access = graph.systems.get(key).expect("initialized").access();
+                            let kind = if access.is_exclusive() {
                                 Kind::Exclusive
-                            } else if System::type_id(&**system) == flush {
+                            } else if System::system_type(&**system) == flush {
                                 Kind::Flush
-                            } else if access.combined_access().has_resource_read(edits) {
+                            } else if resource_access(world, access).has_read(edits) {
                                 Kind::User
                             } else {
                                 return None;
@@ -978,14 +988,10 @@ mod tests {
             graph
                 .systems
                 .iter()
-                .filter(|(key, system, _)| {
-                    let combined = graph
-                        .systems
-                        .get(*key)
-                        .expect("initialized")
-                        .access
-                        .combined_access();
-                    !system.is_exclusive() && sinks.iter().any(|id| combined.has_resource_read(*id))
+                .filter(|(key, _, _)| {
+                    let access = graph.systems.get(*key).expect("initialized").access();
+                    let resources = resource_access(world, access);
+                    !access.is_exclusive() && sinks.iter().any(|id| resources.has_read(*id))
                 })
                 .map(|(key, _, _)| key)
                 .collect()

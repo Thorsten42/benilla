@@ -951,7 +951,7 @@ mod tests {
             "the vendored wgpu-hal is not the version the lock resolves"
         );
 
-        let instance = read("third_party/wgpu-hal/src/vulkan/instance.rs");
+        let swapchain = read("third_party/wgpu-hal/src/vulkan/swapchain/native.rs");
         for hunk in [
             "const STALL_BUDGET",
             "Err(vk::Result::TIMEOUT) if retry_stall(stall_start, timeout_ns)",
@@ -959,16 +959,16 @@ mod tests {
             "waiting for the previous submission timed out",
         ] {
             assert!(
-                instance.contains(hunk),
-                "the vendored acquire_texture lost `{hunk}`"
+                swapchain.contains(hunk),
+                "the vendored `NativeSwapchain::acquire` lost `{hunk}`"
             );
         }
         assert!(
-            instance
+            swapchain
                 .matches("retry_stall(stall_start, timeout_ns)")
                 .count()
                 == 3,
-            "acquire_texture retries the previous-submission wait, the acquire and the post-acquire fence wait"
+            "`NativeSwapchain::acquire` retries the previous-submission wait, the acquire and the post-acquire fence wait"
         );
     }
 

@@ -5,8 +5,10 @@
 //! beside state of its own pairs them in a [`Pair`].
 
 use bevy::ecs::change_detection::Tick;
-use bevy::ecs::query::FilteredAccessSet;
-use bevy::ecs::system::{SystemMeta, SystemParam, SystemParamItem, SystemParamValidationError};
+use bevy::ecs::component::ComponentId;
+use bevy::ecs::system::{
+    SystemAccess, SystemMeta, SystemParam, SystemParamItem, SystemParamValidationError,
+};
 use bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy::ecs::world::{DeferredWorld, World};
 
@@ -16,12 +18,12 @@ use bevy::ecs::world::{DeferredWorld, World};
 pub(crate) fn gather<P: SystemParam>(
     state: &P::State,
     meta: &mut SystemMeta,
-    outside: &FilteredAccessSet,
-    gathered: &mut FilteredAccessSet,
+    outside: &SystemAccess,
+    gathered: &mut SystemAccess,
     world: &mut World,
     member: &str,
 ) {
-    let mut alone = FilteredAccessSet::new();
+    let mut alone = SystemAccess::default();
     P::init_access(state, meta, &mut alone, world);
     assert!(
         outside.is_compatible(&alone),
@@ -30,6 +32,120 @@ pub(crate) fn gather<P: SystemParam>(
         outside.get_conflicts(&alone),
     );
     gathered.extend(alone);
+}
+
+/// A set's verdict on whether its members can be fetched, kept between runs. A member's fetch
+/// fails only when a resource or non-send value it declares is absent (no member is a
+/// `Single`, `Populated`, `If` or `When`), so the verdict is a function of which declared ones
+/// exist: each run tests their existence, an O(1) lookup apiece, and fetches every member again
+/// only when that changed. Bevy 0.20 has no cheap `validate_param`; fetching each member every
+/// run cost the main thread about 4 ms a frame in motion across the call host's sets.
+/// The resources and non-send values a set's members declare, each as `(id, is non-send)`.
+type Declared = Box<[(ComponentId, bool)]>;
+
+#[doc(hidden)]
+#[derive(Default)]
+pub(crate) struct Validity {
+    /// What the members declare, as `(id, is non-send)`, gathered once; `None` for an access
+    /// unbounded by name, which fetches every run.
+    declared: std::sync::OnceLock<Option<Declared>>,
+    /// Which of `declared` existed when `verdict` was taken.
+    present: Vec<bool>,
+    verdict: Option<Result<(), SystemParamValidationError>>,
+}
+
+impl Validity {
+    /// Record what the members declare, from the access gathered for them.
+    pub(crate) fn declare(&self, gathered: &SystemAccess, world: &World) {
+        let declared = match gathered {
+            SystemAccess::Exclusive => None,
+            SystemAccess::None => Some(Box::default()),
+            SystemAccess::Shared(set) => {
+                let access = crate::resource_access::of_set(world, set);
+                match (
+                    access.reads().as_finite_set(),
+                    access.writes().as_finite_set(),
+                ) {
+                    (Some(reads), Some(writes)) => {
+                        let mut ids: Vec<ComponentId> = reads.iter().chain(writes.iter()).collect();
+                        ids.sort_unstable();
+                        ids.dedup();
+                        Some(
+                            ids.into_iter()
+                                .map(|id| {
+                                    let non_send = world
+                                        .components()
+                                        .get_info(id)
+                                        .is_some_and(|info| !info.is_send_and_sync());
+                                    (id, non_send)
+                                })
+                                .collect(),
+                        )
+                    }
+                    _ => None,
+                }
+            }
+        };
+        let _ = self.declared.set(declared);
+    }
+
+    /// The verdict, from the last one while the declared resources' existence is unchanged,
+    /// else from `fetch_all`, which fetches every member.
+    ///
+    /// # Safety
+    /// `world` may read the existence of every resource the members declare.
+    pub(crate) unsafe fn check(
+        &mut self,
+        world: UnsafeWorldCell,
+        mut fetch_all: impl FnMut() -> Result<(), SystemParamValidationError>,
+    ) -> Result<(), SystemParamValidationError> {
+        let Some(Some(declared)) = self.declared.get() else {
+            return fetch_all();
+        };
+        self.present.resize(declared.len(), false);
+        let mut changed = self.verdict.is_none();
+        for ((id, non_send), was) in declared.iter().zip(self.present.iter_mut()) {
+            // SAFETY: existence only, of a resource the caller may read.
+            let now = unsafe { exists(world, *id, *non_send) };
+            changed |= now != *was;
+            *was = now;
+        }
+        if changed {
+            self.verdict = Some(fetch_all());
+        }
+        let verdict = self.verdict.clone().expect("taken above");
+        // The tests hold the kept verdict to a fresh fetch, so a member that fails on more than a
+        // declared resource's existence is caught by a test that exercises that failure.
+        #[cfg(test)]
+        if !changed {
+            assert_eq!(
+                verdict.is_ok(),
+                fetch_all().is_ok(),
+                "a set's kept verdict differs from fetching its members"
+            );
+        }
+        verdict
+    }
+}
+
+/// Whether the resource or non-send value `id` exists, as a fetch of it would find it.
+///
+/// # Safety
+/// `world` may read whether `id` exists.
+unsafe fn exists(world: UnsafeWorldCell, id: ComponentId, non_send: bool) -> bool {
+    if non_send {
+        // SAFETY: the existence of a value the caller may read.
+        unsafe { world.storages() }
+            .non_sends
+            .get(id)
+            .is_some_and(|data| data.is_present())
+    } else {
+        // SAFETY: as above.
+        unsafe { world.resource_entities() }
+            .get(id)
+            .and_then(|entity| world.get_entity(entity).ok())
+            .is_some_and(|entity| entity.contains_id(id))
+    }
 }
 
 /// A set of named members that may conflict with one another, lent one at a time through a
@@ -57,6 +173,7 @@ macro_rules! disjoint_set {
         #[doc(hidden)]
         $vis struct $state {
             $($(#[cfg($cfg)])? $field: crate::script_calls::disjoint::Lent<<$ty as bevy::ecs::system::SystemParam>::State>,)*
+            validity: crate::script_calls::disjoint::Validity,
         }
 
         // SAFETY: the set registers every member's access, each checked against what the system
@@ -76,16 +193,17 @@ macro_rules! disjoint_set {
                             lent: false,
                         },
                     )*
+                    validity: Default::default(),
                 })
             }
 
             fn init_access(
                 state: &Self::State,
                 meta: &mut bevy::ecs::system::SystemMeta,
-                access: &mut bevy::ecs::query::FilteredAccessSet,
+                access: &mut bevy::ecs::system::SystemAccess,
                 world: &mut bevy::ecs::world::World,
             ) {
-                let mut gathered = bevy::ecs::query::FilteredAccessSet::new();
+                let mut gathered = bevy::ecs::system::SystemAccess::default();
                 $(
                     $(#[cfg($cfg)])?
                     crate::script_calls::disjoint::gather::<$ty>(
@@ -97,6 +215,7 @@ macro_rules! disjoint_set {
                         stringify!($field),
                     );
                 )*
+                state.validity.declare(&gathered, world);
                 access.extend(gathered);
             }
 
@@ -127,36 +246,40 @@ macro_rules! disjoint_set {
                 })*
             }
 
-            unsafe fn validate_param(
-                state: &mut Self::State,
-                meta: &bevy::ecs::system::SystemMeta,
-                world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell,
-            ) -> Result<(), bevy::ecs::system::SystemParamValidationError> {
-                // SAFETY: upheld by the caller, for every member's access as for the set's.
-                unsafe {
-                    $($(#[cfg($cfg)])? <$ty as bevy::ecs::system::SystemParam>::validate_param(
-                        &mut state.$field.state,
-                        meta,
-                        world,
-                    )?;)*
-                }
-                Ok(())
-            }
-
             unsafe fn get_param<'w, 's>(
                 state: &'s mut Self::State,
                 meta: &bevy::ecs::system::SystemMeta,
                 world: bevy::ecs::world::unsafe_world_cell::UnsafeWorldCell<'w>,
                 change_tick: bevy::ecs::change_detection::Tick,
-            ) -> Self::Item<'w, 's> {
-                $name {
+            ) -> Result<Self::Item<'w, 's>, bevy::ecs::system::SystemParamValidationError> {
+                // Every member validated up front, so an unavailable member skips the system
+                // rather than failing its lend: fetched and dropped when the declared resources'
+                // existence changed, the kept verdict otherwise
+                // ([`crate::script_calls::disjoint::Validity`]).
+                let $state { validity, $($(#[cfg($cfg)])? $field,)* } = &mut **state;
+                // SAFETY: upheld by the caller, for every member's access as for the set's.
+                unsafe {
+                    validity.check(world, || {
+                        $(
+                            $(#[cfg($cfg)])?
+                            let _ = <$ty as bevy::ecs::system::SystemParam>::get_param(
+                                &mut $field.state,
+                                meta,
+                                world,
+                                change_tick,
+                            )?;
+                        )*
+                        Ok(())
+                    })
+                }?;
+                Ok($name {
                     states: &mut **state,
                     meta: meta.clone(),
                     world,
                     change_tick,
                     #[cfg(debug_assertions)]
                     lend: None,
-                }
+                })
             }
         }
 
@@ -205,6 +328,9 @@ macro_rules! disjoint_set {
                             change_tick,
                         )
                     }
+                    .unwrap_or_else(|err| {
+                        panic!("{} validated at fetch, then failed: {err}", stringify!($field))
+                    })
                 }
             )*
         }
@@ -241,6 +367,7 @@ pub(crate) struct PairState<A, B> {
     first: A,
     second: B,
     second_lent: bool,
+    validity: Validity,
 }
 
 // SAFETY: as [`disjoint_set!`]'s: both members' access registered and checked against what the
@@ -254,18 +381,20 @@ unsafe impl<A: SystemParam, B: SystemParam> SystemParam for Pair<'_, '_, A, B> {
             first: A::init_state(world),
             second: B::init_state(world),
             second_lent: false,
+            validity: Validity::default(),
         }
     }
 
     fn init_access(
         state: &Self::State,
         meta: &mut SystemMeta,
-        access: &mut FilteredAccessSet,
+        access: &mut SystemAccess,
         world: &mut World,
     ) {
-        let mut gathered = FilteredAccessSet::new();
+        let mut gathered = SystemAccess::default();
         gather::<A>(&state.first, meta, access, &mut gathered, world, "p0");
         gather::<B>(&state.second, meta, access, &mut gathered, world, "p1");
+        state.validity.declare(&gathered, world);
         access.extend(gathered);
     }
 
@@ -283,25 +412,28 @@ unsafe impl<A: SystemParam, B: SystemParam> SystemParam for Pair<'_, '_, A, B> {
         }
     }
 
-    unsafe fn validate_param(
-        state: &mut Self::State,
-        meta: &SystemMeta,
-        world: UnsafeWorldCell,
-    ) -> Result<(), SystemParamValidationError> {
-        // SAFETY: upheld by the caller, for each member's access as for the pair's.
-        unsafe {
-            A::validate_param(&mut state.first, meta, world)?;
-            B::validate_param(&mut state.second, meta, world)
-        }
-    }
-
     unsafe fn get_param<'w, 's>(
         state: &'s mut Self::State,
         meta: &SystemMeta,
         world: UnsafeWorldCell<'w>,
         change_tick: Tick,
-    ) -> Self::Item<'w, 's> {
-        Pair {
+    ) -> Result<Self::Item<'w, 's>, bevy::ecs::system::SystemParamValidationError> {
+        // Both members validated up front, as the set's are ([`disjoint_set!`]).
+        let PairState {
+            first,
+            second,
+            validity,
+            ..
+        } = &mut *state;
+        // SAFETY: upheld by the caller, for each member's access as for the pair's.
+        unsafe {
+            validity.check(world, || {
+                let _ = A::get_param(first, meta, world, change_tick)?;
+                let _ = B::get_param(second, meta, world, change_tick)?;
+                Ok(())
+            })
+        }?;
+        Ok(Pair {
             states: state,
             meta: meta.clone(),
             world,
@@ -309,7 +441,7 @@ unsafe impl<A: SystemParam, B: SystemParam> SystemParam for Pair<'_, '_, A, B> {
             valid: None,
             #[cfg(debug_assertions)]
             lend: None,
-        }
+        })
     }
 }
 
@@ -322,6 +454,7 @@ impl<A: SystemParam, B: SystemParam> Pair<'_, '_, A, B> {
         let change_tick = self.change_tick;
         // SAFETY: the pair registered `A`'s access, and `&mut self` keeps `B` unlent.
         unsafe { A::get_param(&mut self.states.first, &self.meta, self.world, change_tick) }
+            .unwrap_or_else(|err| panic!("p0 validated at fetch, then failed: {err}"))
     }
 
     /// The first member's lend has ended, for the census ([`end_lend`]): its item has dropped.
@@ -342,6 +475,7 @@ impl<A: SystemParam, B: SystemParam> Pair<'_, '_, A, B> {
                 self.change_tick,
             )
         }
+        .unwrap_or_else(|err| panic!("p1 validated at fetch, then failed: {err}"))
     }
 }
 
@@ -349,14 +483,23 @@ impl<A: SystemParam, T: SystemParam> Pair<'_, '_, A, Option<T>> {
     /// The second member as `p1` lends it, validated once a run: nothing adds or removes a resource
     /// or an entity mid-run.
     pub(crate) fn p1_valid(&mut self) -> Option<SystemParamItem<'_, '_, T>> {
-        let (states, meta, world) = (&mut self.states.second, &self.meta, self.world);
-        // SAFETY: the pair registered `T`'s access, and `&mut self` keeps `A` unlent.
+        let (states, meta, world, tick) = (
+            &mut self.states.second,
+            &self.meta,
+            self.world,
+            self.change_tick,
+        );
+        // SAFETY: the pair registered `T`'s access, and `&mut self` keeps `A` unlent. The fetch
+        // is the validation, as Bevy has no separate one; its item drops at once.
         let valid = *self
             .valid
-            .get_or_insert_with(|| unsafe { T::validate_param(states, meta, world) }.is_ok());
+            .get_or_insert_with(|| unsafe { T::get_param(states, meta, world, tick) }.is_ok());
         self.states.second_lent |= valid;
+        if !valid {
+            return None;
+        }
         // SAFETY: as above, and `T` validated in this run.
-        valid.then(|| unsafe { T::get_param(states, meta, world, self.change_tick) })
+        unsafe { T::get_param(states, meta, world, tick) }.ok()
     }
 }
 
@@ -402,8 +545,8 @@ pub(crate) fn end_lend(world: UnsafeWorldCell, lend: &mut Option<(Tick, &'static
     }
 }
 
-/// Whether anything in the world carries `tick` as its change tick: a resource, or a table
-/// component of any entity. A write through a `ResMut` or a `Mut` stamps the tick its lend was
+/// Whether anything in the world carries `tick` as its change tick: a resource, non-send data, or
+/// a table component of any entity. A write through a `ResMut` or a `Mut` stamps the tick its lend was
 /// given, so a lend with a tick of its own wrote exactly if something carries it. Commands
 /// queued by the lend and sparse-set components are not seen.
 #[cfg(debug_assertions)]
@@ -411,16 +554,14 @@ fn written_at(world: UnsafeWorldCell, tick: Tick) -> bool {
     // SAFETY: only the change ticks are read, as plain values, with no member of the set lent
     // (the caller's contract above) and no other thread running.
     let storages = unsafe { world.storages() };
-    let resources = storages
-        .resources
+    // A resource is a sparse-set component on an entity of its own, found through the world's
+    // resource-entity map; non-send data keeps its own storage.
+    // SAFETY: as above: the map is read, no resource it names is lent.
+    let resource_entities = unsafe { world.resource_entities() };
+    let resources = resource_entities
         .iter()
-        .filter_map(|(_, r)| r.get_ticks())
-        .chain(
-            storages
-                .non_send_resources
-                .iter()
-                .filter_map(|(_, r)| r.get_ticks()),
-        );
+        .filter_map(|(id, entity)| storages.sparse_sets.get(id)?.get_ticks(entity))
+        .chain(storages.non_sends.iter().filter_map(|(_, r)| r.get_ticks()));
     for ticks in resources {
         if ticks.changed.get() == tick.get() {
             return true;
@@ -428,9 +569,9 @@ fn written_at(world: UnsafeWorldCell, tick: Tick) -> bool {
     }
     let components = world.components();
     storages.tables.iter().any(|table| {
-        components.iter_registered().any(|info| {
+        components.iter_registered().any(|(id, _)| {
             table
-                .get_changed_ticks_slice_for(info.id())
+                .get_changed_ticks_slice_for(id)
                 // SAFETY: as above.
                 .is_some_and(|ticks| {
                     ticks
@@ -446,6 +587,119 @@ mod tests {
     use bevy::prelude::*;
 
     use super::Pair;
+
+    #[derive(Resource, Default)]
+    struct Gate;
+
+    #[derive(Resource, Default)]
+    struct Spare;
+
+    /// Non-send data a set may require.
+    #[derive(Default)]
+    struct Local;
+
+    #[derive(Resource, Default)]
+    struct Runs(u32);
+
+    disjoint_set! {
+        /// A set that requires `Gate` and the non-send `Local`, and takes `Spare` if present.
+        struct Gated, GatedState {
+            gate: Res<'static, Gate>,
+            local: NonSend<'static, Local>,
+            spare: Option<Res<'static, Spare>>,
+            runs: ResMut<'static, Runs>,
+        }
+    }
+
+    fn count_set(mut set: Gated) {
+        let _ = set.gate();
+        let _ = set.local();
+        let _ = set.spare();
+        set.runs().0 += 1;
+    }
+
+    fn count_pair(mut pair: Pair<Res<'static, Gate>, ResMut<'static, Runs>>) {
+        let _ = pair.p0();
+        pair.p1().0 += 1;
+    }
+
+    /// Lets a failed validation skip its system, as the client's error handler does, and fails
+    /// the test on anything else: a lend that fails after validating is a panic Bevy reports
+    /// through the same handler.
+    fn skip_only(error: bevy::ecs::error::BevyError, _: bevy::ecs::error::ErrorContext) {
+        let error = error.to_string();
+        assert!(
+            error.contains("failed validation"),
+            "a system failed other than by skipping: {error}"
+        );
+    }
+
+    /// A world where a member's fetch failing skips its system, with one counting system.
+    fn gated(system: fn(&mut App)) -> App {
+        let mut app = App::new();
+        app.set_error_handler(skip_only)
+            .init_resource::<Runs>()
+            .insert_non_send(Local);
+        system(&mut app);
+        app
+    }
+
+    fn runs(app: &App) -> u32 {
+        app.world().resource::<Runs>().0
+    }
+
+    /// A set skips while a member's resource is missing and runs while every one exists, whatever
+    /// its verdict was the run before: a removal after a run and a re-insert are each seen on the
+    /// next run. An optional member's absence skips nothing.
+    #[test]
+    fn a_set_skips_while_a_member_resource_is_missing_and_runs_once_it_exists() {
+        for system in [
+            |app: &mut App| {
+                app.add_systems(Update, count_set);
+            },
+            |app: &mut App| {
+                app.add_systems(Update, count_pair);
+            },
+        ] {
+            let mut app = gated(system);
+            app.update();
+            assert_eq!(runs(&app), 0, "no Gate: skipped");
+            app.init_resource::<Gate>();
+            app.update();
+            app.update();
+            assert_eq!(runs(&app), 2, "Gate present, Spare absent: runs");
+            // Removed by a system after it in the same frame, as a teardown would.
+            app.add_systems(Last, |mut commands: Commands, runs: Res<Runs>| {
+                if runs.0 == 3 {
+                    commands.remove_resource::<Gate>();
+                }
+            });
+            app.update();
+            assert_eq!(runs(&app), 3, "the run before the removal");
+            app.update();
+            app.update();
+            assert_eq!(runs(&app), 3, "Gate removed: skipped on the next runs");
+            app.init_resource::<Gate>();
+            app.update();
+            assert_eq!(runs(&app), 4, "Gate back: runs again");
+        }
+    }
+
+    /// The same for a member's non-send value.
+    #[test]
+    fn a_set_skips_while_a_member_non_send_value_is_missing() {
+        let mut app = gated(|app: &mut App| {
+            app.init_resource::<Gate>().add_systems(Update, count_set);
+        });
+        app.update();
+        assert_eq!(runs(&app), 1);
+        app.world_mut().remove_non_send::<Local>();
+        app.update();
+        assert_eq!(runs(&app), 1, "Local removed: skipped");
+        app.insert_non_send(Local);
+        app.update();
+        assert_eq!(runs(&app), 2, "Local back: runs");
+    }
 
     /// A system holds the host's state inline from the moment it is added.
     #[test]
@@ -496,6 +750,8 @@ mod tests {
         fn apply(&mut self, _: &bevy::ecs::system::SystemMeta, _: &mut World) {
             APPLIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
+        fn queue(&mut self, _: &bevy::ecs::system::SystemMeta, _: bevy::ecs::world::DeferredWorld) {
+        }
     }
 
     /// The second member's deferred work goes out after a run that lent it, and not after one that
@@ -530,6 +786,8 @@ mod tests {
     impl bevy::ecs::system::SystemBuffer for SetApplies {
         fn apply(&mut self, _: &bevy::ecs::system::SystemMeta, _: &mut World) {
             SET_APPLIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        fn queue(&mut self, _: &bevy::ecs::system::SystemMeta, _: bevy::ecs::world::DeferredWorld) {
         }
     }
 

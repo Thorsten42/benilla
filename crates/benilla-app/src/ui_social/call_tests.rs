@@ -88,7 +88,7 @@ fn client() -> Social {
             end)"#,
         )
         .expect("the recorder installs");
-    app.world_mut().insert_non_send_resource(script);
+    app.world_mut().insert_non_send(script);
     // A new VM's first feed; the lane fires what the handlers raise.
     let seed = app.world_mut().register_system(super::feed::feed_social);
     app.world_mut()
@@ -286,7 +286,7 @@ fn a_new_vms_first_feed_signals_no_list_event() {
             f:SetScript("OnEvent", function() HEARD = HEARD + 1 end)"#,
         )
         .expect("the recorder installs");
-    s.app.world_mut().insert_non_send_resource(script);
+    s.app.world_mut().insert_non_send(script);
     s.app
         .world_mut()
         .run_system_cached(super::feed::feed_social)

@@ -246,7 +246,7 @@ fn fire_arrived_macros(In(until): In<crate::lanes::Until>, world: &mut World) {
         return;
     };
     // No VM: the settling waits for one.
-    let Some(mut script) = world.remove_non_send_resource::<UiScript>() else {
+    let Some(mut script) = world.remove_non_send::<UiScript>() else {
         return;
     };
     world
@@ -260,7 +260,7 @@ fn fire_arrived_macros(In(until): In<crate::lanes::Until>, world: &mut World) {
         let per_character = section == crate::account_data::MACROS[1];
         crate::lanes::firing(at, || read_macro_scope(world, &mut script, per_character));
     }
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
 }
 
 /// What the macros lane's firing touches beside the call host and its own lane: the files. The
@@ -313,10 +313,10 @@ fn renumber_buttons(world: &mut World, script: &mut UiScript) -> Vec<u32> {
     }
     let mut host =
         bevy::ecs::system::SystemState::<Option<crate::script_calls::ScriptCallHost>>::new(world);
-    let moved = host
-        .get_mut(world)
-        .as_mut()
-        .and_then(|host| host.engine_bar_writes(script, |buttons| legacy_writes(buttons, &moves)));
+    let moved =
+        host.get_mut(world).unwrap().as_mut().and_then(|host| {
+            host.engine_bar_writes(script, |buttons| legacy_writes(buttons, &moves))
+        });
     host.apply(world);
     let Some(moved) = moved else {
         // The bar is not loaded yet: the moves wait for the arrival's load.
@@ -362,7 +362,7 @@ fn legacy_writes(
 /// Our player's arrival's leg after its slot pass, which loaded this login's bar: the buttons the
 /// macro reader parked moved ([`renumber_buttons`]), each signalled as a placement is.
 pub(crate) fn renumber_parked_buttons(world: &mut World) {
-    let Some(mut script) = world.remove_non_send_resource::<UiScript>() else {
+    let Some(mut script) = world.remove_non_send::<UiScript>() else {
         return;
     };
     let moved = renumber_buttons(world, &mut script);
@@ -376,7 +376,7 @@ pub(crate) fn renumber_parked_buttons(world: &mut World) {
             }
         });
     }
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
 }
 
 /// Persist on the engine's dirty edge. The verbs signal `UPDATE_MACROS` themselves, inside their

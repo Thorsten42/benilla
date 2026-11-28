@@ -60,13 +60,23 @@ pub fn tuned_default_plugins(primary_window: Window) -> PluginGroupBuilder {
         // Sound is kira behind our own mixer; `bevy_audio` is off by feature (workspace
         // `Cargo.toml`). Kept though they look idle: gizmos (bowstring, fishing line), sprites (the
         // FrameXML quad pass), picking, TextPlugin (glue text), PostProcessPlugin (glow bloom) and
-        // ScenePlugin (avian's collider backend reads `SceneSpawner`); the ForwardDecal family is
-        // registered inside `PbrPlugin::build`, so it cannot be disabled on its own.
+        // WorldSerializationPlugin (avian's collider backend reads its `WorldInstanceSpawner`); the
+        // ForwardDecal family is registered inside `PbrPlugin::build`, so it cannot be disabled on
+        // its own.
         //
         // M2/WMO/ADT load through our own `mpq://` loaders; there is no glTF.
         .disable::<bevy::gltf::GltfPlugin>()
+        // Nor its `StandardMaterial` hook, which needs the `GltfPlugin` registry.
+        .set(bevy::pbr::PbrPlugin {
+            gltf_enable_standard_materials: false,
+            ..default()
+        })
         // No bevy AA: no Fxaa/TAA/SMAA/CAS component anywhere (MSAA is core render, unaffected).
         .disable::<bevy::anti_alias::AntiAliasPlugin>()
         // No gamepad input; 1.12's bindings are keyboard/mouse.
         .disable::<bevy::gilrs::GilrsPlugin>()
+        // No Bevy input focus: keys and the wheel route through the client's own bindings, and
+        // the Bevy UI readers of `InputFocus` take it as optional.
+        .disable::<bevy::input_focus::InputFocusPlugin>()
+        .disable::<bevy::input_focus::InputDispatchPlugin>()
 }

@@ -1,10 +1,10 @@
 // Night-sky stars (`Stars.m2`): white `Stars.blp` dots blended as premultiplied white in gamma
-// space, as the reference blends them. Depth is the far pin in `sky_vertex.wgsl`.
+// space, as the reference blends them. Depth is the far pin in `sky_vertex.wesl`.
 
-#import bevy_pbr::{
+import bevy_pbr::render::{
     pbr_fragment::pbr_input_from_standard_material,
     forward_io::VertexOutput,
-}
+};
 
 @fragment
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> @location(0) vec4<f32> {

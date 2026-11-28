@@ -301,7 +301,7 @@ fn fire_arrived_layout(In(until): In<crate::lanes::Until>, world: &mut World) {
         return;
     };
     // No VM: the settling waits for one.
-    let Some(mut script) = world.remove_non_send_resource::<UiScript>() else {
+    let Some(mut script) = world.remove_non_send::<UiScript>() else {
         return;
     };
     world
@@ -316,7 +316,7 @@ fn fire_arrived_layout(In(until): In<crate::lanes::Until>, world: &mut World) {
     if let Some(id) = id {
         crate::lanes::firing(at, || read_layout(world, &mut script, id));
     }
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
 }
 
 /// What the layout lane's firing touches beside the call host and its own lane: the file's state.

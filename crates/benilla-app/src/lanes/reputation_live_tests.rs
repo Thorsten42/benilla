@@ -101,7 +101,7 @@ fn initial_list() -> Vec<(u8, i32)> {
 /// Stormwind's standing, rank and at-war flag, and the watched faction's name and standing.
 fn client() -> Client {
     let mut app = crate::game_plugins::schedule_tests::headless_client();
-    app.insert_resource(bevy::ecs::error::DefaultErrorHandler(
+    app.insert_resource(bevy::ecs::error::FallbackErrorHandler(
         bevy::ecs::error::ignore,
     ));
     let (tx, sent) = crossbeam_channel::unbounded();
@@ -132,7 +132,7 @@ fn client() -> Client {
             "#,
         )
         .unwrap();
-    app.insert_non_send_resource(script);
+    app.insert_non_send(script);
     app.insert_resource(State::new(crate::client_state::ClientState::InWorld));
     benilla_world::world_point::init_world_point_resources(app.world_mut());
     app.world_mut().resource_mut::<crate::net::SelfGuid>().0 = Some(ME);
@@ -338,7 +338,7 @@ fn a_reloaded_vm_reads_the_list_and_standings_in_the_first_cascade_events() {
             "#,
         )
         .unwrap();
-    c.app.insert_non_send_resource(fresh);
+    c.app.insert_non_send(fresh);
     crate::script_calls::with_hosted_vm(c.app.world_mut(), |s| {
         s.expect("a VM").fire_world_enter();
     });
@@ -368,7 +368,7 @@ fn each_at_war_listener_reads_the_reaction_its_own_message_left() {
     .with_faction_text(STORMWIND.0, 0, "Stormwind", "");
     app.insert_resource(crate::target::Factions::from_catalog(catalog));
     app.world_mut()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .run(
             r#"
             local f = CreateFrame("Frame")

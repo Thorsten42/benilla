@@ -1,5 +1,6 @@
 //! The plate gate `0x60f600` on the whole client headless: which units the driver gives a plate,
 //! and the name the bind sets on it.
+#![allow(deprecated)] // glam 0.33's `Mat4::*_rh`, kept so the test matrices stay bit-identical
 
 use std::collections::HashSet;
 
@@ -45,7 +46,7 @@ fn plates_app() -> App {
     script
         .run(r#"CreateFrame("Frame", "WorldFrame") UNKNOWNOBJECT = "Unknown""#)
         .unwrap();
-    world.insert_non_send_resource(script);
+    world.insert_non_send(script);
     let mut camera = Camera::default();
     camera.computed.clip_from_view =
         Mat4::perspective_infinite_reverse_rh(1.2, 1024.0 / 768.0, 0.1);
@@ -158,7 +159,7 @@ fn plate_names(app: &mut App) -> Vec<String> {
     super::drive_vplates_once(app.world_mut());
     let mut names = app
         .world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<Vec<String>>(
             r#"local out = {}
             for _, c in ipairs({WorldFrame:GetChildren()}) do
@@ -358,7 +359,7 @@ fn far_sight_judges_plates_around_the_cameras_object() {
 fn first_level(app: &mut App) -> String {
     super::drive_vplates_once(app.world_mut());
     app.world()
-        .non_send_resource::<UiScript>()
+        .non_send::<UiScript>()
         .eval::<String>(
             r#"local _, _, _, level = WorldFrame:GetChildren():GetRegions()
             return level:GetText() or """#,
@@ -389,7 +390,7 @@ fn a_kept_plates_level_moves_at_the_frame_only_on_the_latch() {
         "no callback ran: the frame keeps it"
     );
     app.world_mut()
-        .non_send_resource_mut::<UiScript>()
+        .non_send_mut::<UiScript>()
         .latch_nameplate_levels();
     assert_eq!(first_level(&mut app), "20", "the latch refreshes it");
     set_level(&mut app, wolf, 30);
