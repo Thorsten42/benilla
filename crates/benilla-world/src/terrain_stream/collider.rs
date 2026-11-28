@@ -368,6 +368,7 @@ mod tests {
             area_id: 0,
             impassable,
             liquids: Vec::new(),
+            doodad_uids: Vec::new(),
         }
     }
 

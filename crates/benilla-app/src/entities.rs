@@ -432,6 +432,19 @@ pub(crate) struct GameObjects {
 }
 
 impl GameObjects {
+    /// Whether this display's model is a map object (`.wmo`), `None` for a display with no path.
+    pub(crate) fn is_wmo(&self, display_id: u32) -> Option<bool> {
+        self.catalog
+            .model_path(display_id)
+            .map(|p| p.to_ascii_lowercase().ends_with(".wmo"))
+    }
+
+    /// A catalog and model cache of exactly these, for tests.
+    #[cfg(test)]
+    pub(crate) fn for_test(catalog: GameObjectCatalog, models: HashMap<u32, DisplayModel>) -> Self {
+        Self { catalog, models }
+    }
+
     /// The point test of a transport with this display once its model has loaded, the world
     /// entity's answer (`0x670a70`): a map object's convex volume, a doodad's file box; `None`
     /// while the model is unloaded, which holds no rider.

@@ -125,6 +125,8 @@ windows-sys = { version = "0.59", features = [
 
 # The login cycle's fake realmd runs the server half of SRP6 (`net::io::cycle_tests`).
 [dev-dependencies]
+# The game-object catalog the transport tests build (`GameObjectCatalog::from_paths`).
+benilla-formats = { path = "../benilla-formats", default-features = false, features = ["test-support"] }
 benilla-srp = { path = "../benilla-srp" }
 # The synthetic movie the movie screen's tests open.
 benilla-movie = { path = "../benilla-movie", features = ["test-support"] }

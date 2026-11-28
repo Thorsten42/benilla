@@ -32,7 +32,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 - [benilla-app](#benilla-app): 258
 - [benilla-assets](#benilla-assets): 5
 - [benilla-blp](#benilla-blp): 1
-- [benilla-formats](#benilla-formats): 25
+- [benilla-formats](#benilla-formats): 26
 - [benilla-lua](#benilla-lua): 11
 - [benilla-protocol](#benilla-protocol): 29
 - [benilla-srp](#benilla-srp): 2
@@ -587,6 +587,7 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### models
 
+- Any negative word ends the chain, because the reference ends it only on 0xffff (`0x7124d4`) and indexes any other value unchecked (`0x7124b6`), past its table. ([`src/models/anim.rs:643`](../crates/benilla-formats/src/models/anim.rs#L643))
 - The fraction is clamped to `[0, 1]` because the reference extrapolates, which for a window whose brackets miss the band can push a fix16 factor negative and cull the batch on a quirk. ([`src/models/key_anim.rs:130`](../crates/benilla-formats/src/models/key_anim.rs#L130))
 - Owners past the ceiling (Maraudon's waterfalls, the glue screens) keep the interleave with their emitters, because a bias past a 200-yard owner would jump every transparent surface in the zone. ([`src/models/m2_batches.rs:809`](../crates/benilla-formats/src/models/m2_batches.rs#L809))
 - The reference compares the texture objects' addresses (`0x41af70` on instance `+0xa4`, `0x70ac45`-`0x70ac69`); the model's own texture order stands in for them, because those addresses are a fact of the run's allocator and not of the file. Entries sharing a handle still tie. ([`src/models/sort_order.rs:47`](../crates/benilla-formats/src/models/sort_order.rs#L47))
@@ -935,12 +936,12 @@ Each entry is the first sentence of a `Deviation:` comment, linking to where it 
 
 #### terrain_stream
 
-- The debug free-fly eye holds nothing because it is benilla's own tool with no reference counterpart, and a stall there only slows the developer. ([`src/terrain_stream.rs:434`](../crates/benilla-world/src/terrain_stream.rs#L434))
-- A tile is released only one chunk past the outer window (`StreamWindow::keeps`), where the reference releases by window membership (`0x6984f0`), because our reload is a re-decode and re-spawn, not a cheap async read. ([`src/terrain_stream.rs:775`](../crates/benilla-world/src/terrain_stream.rs#L775))
-- A read still loading after `INNER_WAIT_CAP` is given up on with a warning, once per request, and its tile then streams on unwaited like the outer ring, where the reference waits for ever, because that way a hung read costs one capped stall, not one every frame. ([`src/terrain_stream.rs:870`](../crates/benilla-world/src/terrain_stream.rs#L870))
-- Benilla gates on terrain alone, which is more permissive; the settle hold covers a building or doodad arriving after a teleport. And an authored tile whose ADT failed to load counts as resident, where the reference would have loaded it, because a permanent wall over a bad file is worse for a player than walking on without its ground. ([`src/terrain_stream/residency.rs:9`](../crates/benilla-world/src/terrain_stream/residency.rs#L9))
-- Tagged per submesh, where the reference tests the whole object, because a placement has no root entity to carry the bound. The anim-host root is skipped: with no geometry it has no `Aabb`, and would only pad the counts. ([`src/terrain_stream/spawn/mod.rs:229`](../crates/benilla-world/src/terrain_stream/spawn/mod.rs#L229))
-- The box, where the reference tests its circumsphere (`0x683700` → `0x682ef0` → `0x686b80` on the `[rec+0x5c]` centre and `[rec+0x68]` radius × scale), because Bevy culls by box and the box is tighter. ([`src/terrain_stream/spawn/mod.rs:888`](../crates/benilla-world/src/terrain_stream/spawn/mod.rs#L888))
+- The debug free-fly eye holds nothing because it is benilla's own tool with no reference counterpart, and a stall there only slows the developer. ([`src/terrain_stream.rs:447`](../crates/benilla-world/src/terrain_stream.rs#L447))
+- A tile is released only one chunk past the outer window (`StreamWindow::keeps`), where the reference releases by window membership (`0x6984f0`), because our reload is a re-decode and re-spawn, not a cheap async read. ([`src/terrain_stream.rs:777`](../crates/benilla-world/src/terrain_stream.rs#L777))
+- A read still loading after `INNER_WAIT_CAP` is given up on with a warning, once per request, and its tile then streams on unwaited like the outer ring, where the reference waits for ever, because that way a hung read costs one capped stall, not one every frame. ([`src/terrain_stream.rs:872`](../crates/benilla-world/src/terrain_stream.rs#L872))
+- A model whose file failed to load counts as ready with nothing to collide, and an authored tile whose ADT failed to load counts as resident, where the reference never runs on without them: its WMO root and ADT opens go through `CMap::SafeOpen` (`0x6c38b5`, `0x6c1e85`), which retries ten times and then ends the process (`0x694130`, `0x64d0e0` at `0x694162`); its M2 open's failure is not traced. It differs because a client must not exit over one bad file. ([`src/terrain_stream/residency.rs:10`](../crates/benilla-world/src/terrain_stream/residency.rs#L10))
+- Tagged per submesh, where the reference tests the whole object, because a placement has no root entity to carry the bound. The anim-host root is skipped: with no geometry it has no `Aabb`, and would only pad the counts. ([`src/terrain_stream/spawn/mod.rs:234`](../crates/benilla-world/src/terrain_stream/spawn/mod.rs#L234))
+- The box, where the reference tests its circumsphere (`0x683700` → `0x682ef0` → `0x686b80` on the `[rec+0x5c]` centre and `[rec+0x68]` radius × scale), because Bevy culls by box and the box is tighter. ([`src/terrain_stream/spawn/mod.rs:899`](../crates/benilla-world/src/terrain_stream/spawn/mod.rs#L899))
 - Whole tiles, because benilla loads, spawns and releases ADT tiles, not chunks: a tile is wanted when any of its chunks lies in the outer window, and waited for when any lies in the inner one, so each edge is a tile line where the reference's is a chunk line. ([`src/terrain_stream/window.rs:7`](../crates/benilla-world/src/terrain_stream/window.rs#L7))
 - A one-chunk keep band (`KEEP_BAND_CHUNKS`), because a tile reload re-decodes and re-spawns where the reference's is a cheap read: a tile releases only past `outer + 1`. ([`src/terrain_stream/window.rs:10`](../crates/benilla-world/src/terrain_stream/window.rs#L10))
 

@@ -1357,6 +1357,72 @@ fn a_transport_create_anchors_its_clock_at_the_packets_arrival() {
     assert_eq!(anchor.at, arrived);
 }
 
+/// A transport's doodad def is registered at its create, unloaded, for a type 11 or 15 game
+/// object whose model is not a `.wmo` (`0x5f4970`, `0x6707c0`): a lift's `.mdx`, not a ship's
+/// `.wmo`, which becomes a map object def, and not a door.
+#[test]
+fn a_transport_create_registers_an_unloaded_def() {
+    const LIFT: u64 = 0xF120_0000_0000_0011;
+    const SHIP: u64 = 0xF120_0000_0000_0013;
+    const DOOR: u64 = 0xF120_0000_0000_0012;
+    let mut app = client();
+    let world = app.world_mut();
+    world.insert_resource(crate::entities::GameObjects::for_test(
+        benilla_formats::GameObjectCatalog::from_paths([
+            (1, "World\\Lift.mdx"),
+            (2, "World\\Ship.wmo"),
+        ]),
+        Default::default(),
+    ));
+    let shown = |guid: u64, ty: u32, display: u32| {
+        let SessionEvent::ObjectCreate {
+            guid,
+            kind,
+            position,
+            orientation,
+            scale,
+            speeds,
+            mover,
+            transport_progress,
+            transport,
+            spline,
+            fields,
+            ..
+        } = created(guid, EntityKind::GameObject, [0.0; 3], &[(21, ty)])
+        else {
+            unreachable!()
+        };
+        SessionEvent::ObjectCreate {
+            guid,
+            kind,
+            display_id: Some(display),
+            position,
+            orientation,
+            scale,
+            speeds,
+            mover,
+            transport_progress,
+            transport,
+            spline,
+            fields,
+        }
+    };
+    send(
+        world,
+        [shown(LIFT, 11, 1), shown(SHIP, 15, 2), shown(DOOR, 0, 1)],
+    );
+    world.flush();
+    let def = |world: &World, g: u64| {
+        let e = world.resource::<GuidIndex>().0[&g];
+        world
+            .get::<benilla_world::terrain_stream::UnloadedObjectDef>(e)
+            .is_some()
+    };
+    assert!(def(world, LIFT), "a lift's .mdx");
+    assert!(!def(world, SHIP), "a ship's .wmo");
+    assert!(!def(world, DOOR), "a door");
+}
+
 /// A type-15 ship's create block with this clock.
 fn ship_create(guid: u64, progress_ms: u32, arrived: std::time::Instant) -> SessionEvent {
     let SessionEvent::ObjectCreate {

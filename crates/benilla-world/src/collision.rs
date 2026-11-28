@@ -142,13 +142,32 @@ pub struct WorldCollision<'w, 's> {
 impl WorldCollision<'_, '_> {
     /// Whether the terrain leg of the mover's world query over the WoW-space box `min..max` (x, y)
     /// would complete: the reference's `0x6721b0` returns its gather's result, which is 0 when a
-    /// chunk under the box is not loaded ([`crate::terrain_stream::TerrainResidency::box_resident`],
-    /// whose module names the legs not built), and the substep loop then resolves nothing
-    /// (`0x634154`). An app with no streamer gates nothing.
+    /// chunk under the box is not loaded
+    /// ([`crate::terrain_stream::TerrainResidency::box_resident`]; [`Self::gather_ready`] answers
+    /// every leg), and the substep loop then resolves nothing (`0x634154`). An app with no
+    /// streamer gates nothing.
     pub fn terrain_resident(&self, min: [f32; 2], max: [f32; 2]) -> bool {
         self.residency
             .as_deref()
             .is_none_or(|r| r.box_resident(min, max))
+    }
+
+    /// The class word `0x6315f0` gives a unit's mover: 0x102111 when `0x5fa550` says no player
+    /// drives the unit, 0x100111 when one does (a player-type unit with no charmer, or, under flag
+    /// 0x1000000, the unit it answers for). The 0x2000 that separates the two has no reader, so
+    /// they gather alike. 0x8000 joins the word for a ghost player.
+    pub const UNIT_MOVER_CLASS: u32 = 0x102111;
+    /// What [`Self::UNIT_MOVER_CLASS`] gains under water walking, off the swim and pitched above
+    /// −37° (`0x631610`-`0x63162e`).
+    pub const WATER_WALK_CLASS: u32 = 0x30000;
+
+    /// Whether the world query `0x6721b0` over the WoW-space box `min..max` with the class word
+    /// `mask` would complete ([`crate::terrain_stream::TerrainResidency::gather_ready`]). An app
+    /// with no streamer gates nothing.
+    pub fn gather_ready(&self, min: [f32; 3], max: [f32; 3], mask: u32) -> bool {
+        self.residency
+            .as_deref()
+            .is_none_or(|r| r.gather_ready(min, max, mask))
     }
 
     /// What a walking body collides with: the default layer and the WMO walking colliders. Public

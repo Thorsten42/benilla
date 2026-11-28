@@ -143,6 +143,7 @@ pub(super) fn spawn_loaded_placements(
         by_id,
         materials: mat_cache,
         pending_spawns,
+        ..
     } = placements;
 
     // At most `SPAWN_BUDGET` per frame, resumed next frame through the `spawned` flags; the check
@@ -172,14 +173,18 @@ pub(super) fn spawn_loaded_placements(
                     // `CMapDoodadDef` `[+0xa4]` is only ever 0.0, 0.5 or 1.0. The 2.5 boost and its
                     // 3.3333/s ramp (`0x69e770`) belong to the entity light node (vtable
                     // `0x810810`), which a doodad lacks; the 2.5's one reader is `0x69e4ad`.
-                    let shade =
-                        match doodad_ground_shade(&streamer, &adt_tiles, p.transform.translation) {
-                            ShadeResolve::Ready(true) => ShadeSel::Shaded,
-                            ShadeResolve::Ready(false) => ShadeSel::Matte,
-                            // The ground tile is still decoding: wait, rather than bake the lit
-                            // fallback into a straddling tree whose tile lands a frame later.
-                            ShadeResolve::Pending => continue,
-                        };
+                    let shade = match doodad_ground_shade(
+                        &streamer,
+                        &adt_tiles,
+                        &asset_server,
+                        p.transform.translation,
+                    ) {
+                        ShadeResolve::Ready(true) => ShadeSel::Shaded,
+                        ShadeResolve::Ready(false) => ShadeSel::Matte,
+                        // The ground tile is still decoding: wait, rather than bake the lit
+                        // fallback into a straddling tree whose tile lands a frame later.
+                        ShadeResolve::Pending => continue,
+                    };
                     let (radius, center) = m2_fade(&m.bounds, p.transform.scale.x);
                     let anim_bound = m2_anim_bound(&m.bounds);
                     // The placement's one draw-set gate; a map doodad has no instance or rooms.
@@ -530,6 +535,7 @@ pub(super) fn spawn_loaded_placements(
             };
             p.spawned = true;
             p.entities = entities;
+            p.root_entities = p.entities.len();
             // The model landed; a WMO's just-resolved props join the pending count.
             *pending_spawns += p.doodads.iter().filter(|d| !d.spawned).count();
             *pending_spawns -= 1;
@@ -565,7 +571,12 @@ pub(super) fn spawn_loaded_placements(
             let shade = if matches!(d.light, PropLight::Interior { .. }) {
                 ShadeSel::Matte // interior lane; the selector is unread
             } else {
-                match doodad_ground_shade(&streamer, &adt_tiles, d.transform.translation) {
+                match doodad_ground_shade(
+                    &streamer,
+                    &adt_tiles,
+                    &asset_server,
+                    d.transform.translation,
+                ) {
                     ShadeResolve::Ready(true) => ShadeSel::Shaded,
                     ShadeResolve::Ready(false) => ShadeSel::Matte,
                     // The ground tile is still decoding: defer this prop a frame.
@@ -944,6 +955,9 @@ mod retire_tests {
             portal_instance: None,
             refs: 1,
             owner: (0, 0),
+            map_box: None,
+            chunks: Vec::new(),
+            root_entities: 0,
         }
     }
 

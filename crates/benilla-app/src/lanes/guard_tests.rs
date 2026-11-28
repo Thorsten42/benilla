@@ -618,6 +618,10 @@ pub(super) const READ_ONLY_TO_HANDLERS: &[&str] = &[
     "::creature_anim::env_damage::EnvDamageTable",
     "::creature_anim::spell_visual::SpellVisuals",
     "::entities::Creatures",
+    // `GameObjectDisplayInfo.dbc` and its model cache, whose path the create handler reads to
+    // give a transport a doodad def or not (`0x6707c0`); the model cache is written outside the
+    // packets, by the display build.
+    "::entities::GameObjects",
     "::entities::equipment::ItemDisplays",
     // `ItemClass.dbc`, whose names the host's `GetItemInfo` reads.
     "::ui_items::ItemClasses",

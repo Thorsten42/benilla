@@ -80,6 +80,10 @@ pub struct GlobalWmo {
     pub doodad_set: u16,
     /// MODF name-set index, the placement's `WMOAreaTable.NameSetID` variant.
     pub name_set: u16,
+    /// The entry's bounding box in the file's axes, its lower and upper corners (`+0x20`,
+    /// `+0x2c`); the reference makes the def's world box from them about origin 0
+    /// (`0x6948a6`-`0x6948c5` → `0x695650`).
+    pub extents: [[f32; 3]; 2],
 }
 
 /// A parsed WDT: the 64×64 tile-existence grid, plus the global WMO on a WMO-only map.
@@ -214,8 +218,12 @@ impl<R: Read + Seek> WdtReader<R> {
                 model,
                 position: [f32_at(&e, 8), f32_at(&e, 12), f32_at(&e, 16)],
                 rotation: [f32_at(&e, 20), f32_at(&e, 24), f32_at(&e, 28)],
-                // 0x20..0x38 is the bounding box. `uniqueId` at +4 is unread: the reference
-                // overwrites it from its own counter (`0xc9a320`).
+                // `uniqueId` at +4 is unread: the reference overwrites it from its own counter
+                // (`0xc9a320`).
+                extents: [
+                    [f32_at(&e, 32), f32_at(&e, 36), f32_at(&e, 40)],
+                    [f32_at(&e, 44), f32_at(&e, 48), f32_at(&e, 52)],
+                ],
                 doodad_set: u16_at(&e, 58),
                 name_set: u16_at(&e, 60),
             }),
@@ -326,7 +334,9 @@ mod tests {
             for (i, v) in [1.0f32, 180.0, 2.0].iter().enumerate() {
                 e[20 + i * 4..24 + i * 4].copy_from_slice(&v.to_le_bytes()); // rotation
             }
-            // 0x20..0x38, the bounding box, left zero: unread.
+            for (i, v) in [-4.0f32, -1.0, -6.0, 8.0, 3.0, 9.0].iter().enumerate() {
+                e[32 + i * 4..36 + i * 4].copy_from_slice(&v.to_le_bytes()); // extents
+            }
             e[56..58].copy_from_slice(&7u16.to_le_bytes()); // flags, unread
             e[58..60].copy_from_slice(&3u16.to_le_bytes()); // doodadSet
             e[60..62].copy_from_slice(&5u16.to_le_bytes()); // nameSet
@@ -343,6 +353,7 @@ mod tests {
         assert_eq!(g.position, [11.0, 22.0, 33.0]);
         assert_eq!(g.rotation, [1.0, 180.0, 2.0]);
         assert_eq!((g.doodad_set, g.name_set), (3, 5));
+        assert_eq!(g.extents, [[-4.0, -1.0, -6.0], [8.0, 3.0, 9.0]]);
         assert!(!wdt.get_tile(32, 32).expect("in range").has_adt);
     }
 

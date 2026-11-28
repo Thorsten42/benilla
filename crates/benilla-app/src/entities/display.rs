@@ -24,6 +24,17 @@ pub(crate) enum ModelHandle {
     None,
 }
 
+impl ModelHandle {
+    /// Whether the model's file failed to load, so it never builds.
+    pub(crate) fn failed(&self, server: &AssetServer) -> bool {
+        match self {
+            Self::M2(h) => server.load_state(h).is_failed(),
+            Self::Wmo(h) => server.load_state(h).is_failed(),
+            Self::None => false,
+        }
+    }
+}
+
 /// One spawn part of a display model: a submesh's render forms and built materials.
 #[derive(Clone)]
 pub(super) struct EntityPart {

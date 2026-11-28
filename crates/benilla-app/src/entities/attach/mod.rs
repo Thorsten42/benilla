@@ -349,7 +349,16 @@ pub(super) fn attach_entity_visuals(
         // name anchor and emitters all come from it.
         let model = match dm {
             Some(d) => match &d.parts {
-                None => continue,
+                None => {
+                    // A transport's def whose model failed to load counts as loaded, under the
+                    // residency's failed-load `Deviation:`, so it holds no chunk for good.
+                    if d.handle.failed(&asset_server) {
+                        commands
+                            .entity(entity)
+                            .remove::<benilla_world::terrain_stream::UnloadedObjectDef>();
+                    }
+                    continue;
+                }
                 Some(parts) => named_a_model.then_some(parts.as_slice()),
             },
             None => None,
@@ -916,6 +925,8 @@ pub(super) fn attach_entity_visuals(
         commands
             .entity(entity)
             .insert(VisualAttached)
+            // A transport's def is loaded with its model (flag 0x80, `0x698ec1`).
+            .remove::<benilla_world::terrain_stream::UnloadedObjectDef>()
             // The display the visual was built with, for `refresh_live_display` to diff.
             .insert(super::live_display::AppliedDisplay(net.display_id))
             .remove::<(
@@ -1089,6 +1100,130 @@ mod tests {
             world.entity(live).contains::<VisualAttached>(),
             "a live unit still builds"
         );
+    }
+
+    /// A transport's def is loaded with its model: the build clears its [`UnloadedObjectDef`]
+    /// (flag 0x80, `0x698ec1`).
+    ///
+    /// [`UnloadedObjectDef`]: benilla_world::terrain_stream::UnloadedObjectDef
+    #[test]
+    fn a_built_transport_loads_its_def() {
+        use benilla_world::terrain_stream::UnloadedObjectDef;
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<Mesh>()
+            .init_asset::<benilla_assets::materials::WowModelMaterial>()
+            .init_resource::<benilla_world::model_render::ModelMaterials>()
+            .init_resource::<super::super::corpse::BonesModels>()
+            .init_resource::<SkinComposites>()
+            .init_resource::<merge::MergedFormsCache>()
+            .init_resource::<benilla_world::doodad_anim::UvAnimMaterials>()
+            .init_resource::<benilla_world::doodad_anim::TintAnimMaterials>()
+            .init_resource::<benilla_world::mat_anim_table::MatAnimTable>()
+            .init_resource::<benilla_world::rig_palette::RigPalettes>()
+            .init_resource::<benilla_world::collision::ColliderEpoch>()
+            .insert_resource(CubeAssets {
+                mesh: Handle::default(),
+                player_mesh: Handle::default(),
+                player_mat: Handle::default(),
+                npc_mat: Handle::default(),
+            });
+        let lift = app
+            .world_mut()
+            .spawn((
+                NetEntity {
+                    kind: EntityKind::GameObject,
+                    display_id: None,
+                    scale: 1.0,
+                },
+                UnloadedObjectDef,
+            ))
+            .id();
+        app.world_mut()
+            .run_system_once(attach_entity_visuals)
+            .expect("the build system runs");
+        let lift = app.world().entity(lift);
+        assert!(lift.contains::<VisualAttached>());
+        assert!(!lift.contains::<UnloadedObjectDef>());
+    }
+
+    /// A transport whose model's file failed to load counts as loaded, under the residency's
+    /// failed-load `Deviation:`: its def stops holding its chunk though nothing is built.
+    #[test]
+    fn a_transport_whose_model_failed_loads_its_def() {
+        use benilla_world::terrain_stream::UnloadedObjectDef;
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, AssetPlugin::default()))
+            .init_asset::<Image>()
+            .init_asset::<Mesh>()
+            .init_asset::<benilla_assets::M2Model>()
+            .init_asset::<benilla_assets::materials::WowModelMaterial>()
+            .init_resource::<benilla_world::model_render::ModelMaterials>()
+            .init_resource::<super::super::corpse::BonesModels>()
+            .init_resource::<SkinComposites>()
+            .init_resource::<merge::MergedFormsCache>()
+            .init_resource::<benilla_world::doodad_anim::UvAnimMaterials>()
+            .init_resource::<benilla_world::doodad_anim::TintAnimMaterials>()
+            .init_resource::<benilla_world::mat_anim_table::MatAnimTable>()
+            .init_resource::<benilla_world::rig_palette::RigPalettes>()
+            .init_resource::<benilla_world::collision::ColliderEpoch>()
+            .insert_resource(CubeAssets {
+                mesh: Handle::default(),
+                player_mesh: Handle::default(),
+                player_mat: Handle::default(),
+                npc_mat: Handle::default(),
+            });
+        let server = app.world().resource::<AssetServer>().clone();
+        let handle = server.load::<benilla_assets::M2Model>("no_such_dir/no_such_lift.m2");
+        let model = super::super::display::DisplayModel {
+            handle: super::super::display::ModelHandle::M2(handle.clone()),
+            ..super::super::display::empty_shell()
+        };
+        app.insert_resource(super::super::GameObjects::for_test(
+            benilla_formats::GameObjectCatalog::from_paths([(7, "no_such_lift.mdx")]),
+            [(7, model)].into_iter().collect(),
+        ));
+        let lift = app
+            .world_mut()
+            .spawn((
+                NetEntity {
+                    kind: EntityKind::GameObject,
+                    display_id: Some(7),
+                    scale: 1.0,
+                },
+                UnloadedObjectDef,
+            ))
+            .id();
+        app.world_mut()
+            .run_system_once(attach_entity_visuals)
+            .expect("the build system runs");
+        assert!(
+            app.world().entity(lift).contains::<UnloadedObjectDef>(),
+            "still loading"
+        );
+        for _ in 0..400 {
+            if server.load_state(&handle).is_failed() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            app.update();
+        }
+        assert!(
+            server.load_state(&handle).is_failed(),
+            "the read never failed"
+        );
+        app.world_mut()
+            .run_system_once(attach_entity_visuals)
+            .expect("the build system runs");
+        let lift = app.world().entity(lift);
+        assert!(
+            !lift.contains::<UnloadedObjectDef>(),
+            "a failed model loads it"
+        );
+        assert!(!lift.contains::<VisualAttached>(), "nothing is built");
     }
 
     /// A rider that drops its still-pending mount child, dismounted or mounted on another display,

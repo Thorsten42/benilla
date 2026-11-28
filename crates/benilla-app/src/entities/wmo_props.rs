@@ -159,6 +159,7 @@ pub(super) fn spawn_wmo_gameobject_props(
     // An exterior prop's one-shot MCSH sample, as the reference's queue drain `0x698c50` takes it.
     streamer: Option<Res<TerrainStreamer>>,
     adt_tiles: Res<Assets<benilla_assets::AdtTile>>,
+    asset_server: Res<AssetServer>,
     time: Res<Time>,
     mut hosts: Query<(Entity, &GlobalTransform, &mut WmoProps)>,
 ) {
@@ -204,7 +205,7 @@ pub(super) fn spawn_wmo_gameobject_props(
                 let world = host_world.mul_transform(prop.local).translation;
                 match streamer
                     .as_deref()
-                    .map(|st| doodad_ground_shade(st, &adt_tiles, world))
+                    .map(|st| doodad_ground_shade(st, &adt_tiles, &asset_server, world))
                 {
                     Some(ShadeResolve::Ready(true)) => ShadeSel::Shaded,
                     Some(ShadeResolve::Ready(false)) | None => ShadeSel::Matte,

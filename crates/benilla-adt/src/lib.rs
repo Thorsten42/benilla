@@ -185,6 +185,10 @@ pub struct McnkChunk {
     /// MCRF's first part: indices into the tile's MDDF, the doodads that overlap this chunk. The
     /// count is the header's `+0x10`, not the record's size (`0x6af68e`).
     pub doodad_refs: Vec<u32>,
+    /// The unique ids of [`Self::doodad_refs`]' MDDF entries, an index out of range naming none:
+    /// the chunk's doodad list (`+0xdc`, `0x6b00f0`), which the world query's doodad leg walks
+    /// (`0x6ab4a1` → `0x6abc40`).
+    pub doodad_uids: Vec<u32>,
     /// MCRF's second part, after the doodad refs: indices into MODF, the count the header's
     /// `+0x38`.
     pub object_refs: Vec<u32>,
@@ -208,6 +212,9 @@ pub struct WmoPlacement {
     pub unique_id: u32,
     pub position: [f32; 3],
     pub rotation: [f32; 3],
+    /// The placement's bounding box in the file's axes, its lower and upper corners (`+0x20`,
+    /// `+0x2c`); the reference's world box is built from them (`0x695650`).
+    pub extents: [[f32; 3]; 2],
     pub flags: u16,
     pub doodad_set: u16,
     /// `WMOAreaTable.NameSetID`: which name and audio variant of the WMO this placement is
@@ -328,6 +335,14 @@ pub fn parse_adt(cursor: &mut Cursor<&[u8]>) -> Result<ParsedAdt> {
         }
     }
 
+    for c in &mut mcnk_chunks {
+        c.doodad_uids = c
+            .doodad_refs
+            .iter()
+            .filter_map(|&i| doodad_entries.get(i as usize).map(|e| e.unique_id))
+            .collect();
+    }
+
     // MDDF/MODF `name_id` indexes the MMID/MWID offset tables.
     let models = mmid.iter().map(|&o| cstring_at(mmdx, o as usize)).collect();
     let wmos = mwid.iter().map(|&o| cstring_at(mwmo, o as usize)).collect();
@@ -432,7 +447,18 @@ fn read_modf(data: &[u8]) -> Result<Vec<WmoPlacement>> {
                 r.f32_at(24).ok_or(Error::Truncated("MODF"))?,
                 r.f32_at(28).ok_or(Error::Truncated("MODF"))?,
             ],
-            // 0x20..0x38: the bounding box (6 f32), unread.
+            extents: [
+                [
+                    r.f32_at(32).ok_or(Error::Truncated("MODF"))?,
+                    r.f32_at(36).ok_or(Error::Truncated("MODF"))?,
+                    r.f32_at(40).ok_or(Error::Truncated("MODF"))?,
+                ],
+                [
+                    r.f32_at(44).ok_or(Error::Truncated("MODF"))?,
+                    r.f32_at(48).ok_or(Error::Truncated("MODF"))?,
+                    r.f32_at(52).ok_or(Error::Truncated("MODF"))?,
+                ],
+            ],
             flags: r.u16_at(56).ok_or(Error::Truncated("MODF"))?,
             doodad_set: r.u16_at(58).ok_or(Error::Truncated("MODF"))?,
             name_set: r.u16_at(60).ok_or(Error::Truncated("MODF"))?,
@@ -485,6 +511,7 @@ fn read_mcnk(data: &[u8]) -> Result<McnkChunk> {
         shadow: None,
         liquids: Vec::new(),
         doodad_refs: Vec::new(),
+        doodad_uids: Vec::new(),
         object_refs: Vec::new(),
     };
 
@@ -774,6 +801,9 @@ mod tests {
         mddf[32..34].copy_from_slice(&7u16.to_le_bytes()); // scale
         let mut modf = vec![0u8; 64];
         modf[58..60].copy_from_slice(&3u16.to_le_bytes()); // doodad_set
+        for (i, v) in [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0].iter().enumerate() {
+            modf[32 + 4 * i..36 + 4 * i].copy_from_slice(&v.to_le_bytes()); // extents
+        }
 
         let b = Tile {
             mtex: b"tex1.blp\0tex2.blp\0".to_vec(),
@@ -796,6 +826,10 @@ mod tests {
         assert_eq!(root.doodad_placements[0].scale, 7);
         assert_eq!(root.wmo_placements.len(), 1);
         assert_eq!(root.wmo_placements[0].doodad_set, 3);
+        assert_eq!(
+            root.wmo_placements[0].extents,
+            [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+        );
         assert_eq!(root.mcnk_chunks.len(), 1);
         let heights = &root.mcnk_chunks[0]
             .heights
@@ -882,6 +916,12 @@ mod tests {
         let ParsedAdt::Root(root) = parse(&b).expect("parses");
 
         assert_eq!(root.mcnk_chunks[0].doodad_refs, [0]);
+        assert_eq!(root.mcnk_chunks[0].doodad_uids, [7]);
+        assert_eq!(
+            root.mcnk_chunks[1].doodad_uids,
+            [7, 9],
+            "each ref names its entry's unique id; one out of range names none"
+        );
         assert_eq!(
             root.mcnk_chunks[0].object_refs,
             [1],

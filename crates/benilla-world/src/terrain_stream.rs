@@ -58,7 +58,7 @@ pub use queries::{
     terrain_height_under_cached, AreaAuthoritySet, CurrentArea, ShadeResolve,
 };
 use residency::publish_terrain_residency;
-pub use residency::TerrainResidency;
+pub use residency::{TerrainResidency, UnloadedObjectDef};
 
 /// Wall-clock per frame for spawning streamed tiles and placements before the rest waits a frame;
 /// uncapped, a cold start spawns the whole ring at once and blocks the main thread for seconds.
@@ -181,8 +181,10 @@ fn rearm_load(p: &mut WorldLoadProgress, was_paced: bool, focus: &ViewFocus, rel
     }
 }
 
-/// Whether the load counts the tile as in: furnished, or its ADT read failed, as the reference's
-/// wait-all completes on a failed read (`0x443d30`) and loads on without the tile.
+/// Whether the load counts the tile as in: furnished, or its ADT read failed. The reference's
+/// wait-all (`0x443d30`) waits for its reader to go idle, and a failed ADT open never reaches it:
+/// `CMap::SafeOpen` ends the process (`0x6c1e85` → `0x694130`). benilla walks on without the tile
+/// instead (the residency module's `Deviation:`), so the wait counts it done.
 fn tile_done(t: &TileState, server: &AssetServer) -> bool {
     t.furnished
         || (t.entity.is_none()
@@ -222,6 +224,9 @@ pub(crate) struct Placements {
     /// Placements awaiting their model plus WMO props awaiting their M2s; at zero the spawner skips
     /// its [`Self::by_id`] walk. Every register, handoff, release and spawn site keeps it.
     pending_spawns: usize,
+    /// The placements not yet latched collidable, which the residency publish looks at each frame
+    /// and drops once ready; every register and respawn site adds to it.
+    unsettled: bevy::platform::collections::HashSet<u32>,
 }
 
 impl Placements {
@@ -255,6 +260,14 @@ struct Placement {
     /// The tile owning an M2 doodad's hull weld and merged blobs, first the registering tile;
     /// WMOs never read it.
     owner: (i32, i32),
+    /// A WMO's world box `(min, max)`, by which a world query tests whether it must be loaded
+    /// (`0x6aaab0`); `None` for an M2.
+    map_box: Option<[[f32; 3]; 2]>,
+    /// An M2's chunks, the [`residency::chunk_key`]s of every loaded chunk whose MCRF lists it: the
+    /// doodad lists a world query's doodad leg walks (`0x6abc40`).
+    chunks: Vec<(i32, i32)>,
+    /// How many of [`Self::entities`] the root's own spawn made; the props' and their welds follow.
+    root_entities: usize,
 }
 
 /// How much of the world wanted around the view focus is there, read by the loading bar and by
@@ -684,18 +697,7 @@ fn stream_terrain(
                 "terrain: map {dir} has no tiles — its world is one WMO ({})",
                 g.model
             );
-            register_wmo(
-                placements,
-                &asset_server,
-                &WmoInstance {
-                    model: g.model.clone(),
-                    position: g.position,
-                    rotation: g.rotation,
-                    unique_id: GLOBAL_WMO_UID,
-                    doodad_set: g.doodad_set,
-                    name_set: g.name_set,
-                },
-            );
+            register_wmo(placements, &asset_server, &global_wmo_instance(g));
             state.global_wmo = true;
         }
     }
@@ -1060,6 +1062,7 @@ fn spawn_streamed_tiles(
             register_wmo(placements, &asset_server, w);
             tile.placements.push(w.unique_id);
         }
+        link_chunk_doodads(placements, &adt.chunks);
 
         let mut liquid_ents = Vec::new();
         spawn_liquids(
@@ -1198,6 +1201,40 @@ fn tile_drop_disabled() -> bool {
     *ON.get_or_init(|| std::env::var_os("WOW_NO_TILE_DROP").is_some())
 }
 
+/// A WMO-only map's one building as a placement: its WDT entry's def is made about origin 0
+/// (`0x6948a6`-`0x6948c5` → `0x695650`), its box from the entry's extents like any other.
+fn global_wmo_instance(g: &benilla_formats::GlobalWmo) -> WmoInstance {
+    WmoInstance {
+        model: g.model.clone(),
+        position: g.position,
+        rotation: g.rotation,
+        unique_id: GLOBAL_WMO_UID,
+        doodad_set: g.doodad_set,
+        name_set: g.name_set,
+        bounds: benilla_formats::modf_world_box(g.extents, 0.0),
+    }
+}
+
+/// Files each chunk's doodad list (MCRF, `+0xdc`), which a world query's doodad leg walks
+/// (`0x6abc40`), on the doodads it names: the chunk keyed by its centre, half a chunk in from its
+/// first vertex, the north-west corner (WoW's greatest x and y).
+fn link_chunk_doodads(placements: &mut Placements, chunks: &[benilla_formats::ChunkMesh]) {
+    for c in chunks {
+        let Some(nw) = c.positions.first() else {
+            continue;
+        };
+        let half = benilla_formats::CHUNK_SIZE * 0.5;
+        let key = residency::chunk_key(nw[0] - half, nw[1] - half);
+        for uid in &c.doodad_uids {
+            if let Some(p) = placements.by_id.get_mut(uid) {
+                if !p.chunks.contains(&key) {
+                    p.chunks.push(key);
+                }
+            }
+        }
+    }
+}
+
 /// Register one M2 doodad placement, or bump its refcount if already known.
 fn register_doodad(
     placements: &mut Placements,
@@ -1227,9 +1264,13 @@ fn register_doodad(
             portal_instance: None,
             refs: 1,
             owner: tile,
+            map_box: None,
+            chunks: Vec::new(),
+            root_entities: 0,
         },
     );
     placements.pending_spawns += 1;
+    placements.unsettled.insert(d.unique_id);
 }
 
 /// Register one WMO placement, or bump its refcount; a 1.12 WMO placement has no scale.
@@ -1256,9 +1297,13 @@ fn register_wmo(placements: &mut Placements, asset_server: &AssetServer, w: &Wmo
             portal_instance: None,
             refs: 1,
             owner: (0, 0), // unread for WMOs: their prop hulls weld per placement
+            map_box: Some(w.bounds),
+            chunks: Vec::new(),
+            root_entities: 0,
         },
     );
     placements.pending_spawns += 1;
+    placements.unsettled.insert(w.unique_id);
 }
 
 /// Drop every streamed tile and the placements they reference, on a cross-map teleport or on
@@ -1505,6 +1550,7 @@ fn handoff_straddlers(
             }
             p.spawned = false;
             placements.pending_spawns += 1;
+            placements.unsettled.insert(uid);
         }
         handed += 1;
     }
@@ -1692,6 +1738,24 @@ mod straddler_tests {
         }
     }
 
+    /// A WMO-only map's building is boxed by its WDT entry's extents about origin 0
+    /// (`0x6948a6`-`0x6948c5`), not the map centre an ADT's placements take.
+    #[test]
+    fn the_global_wmo_takes_its_entrys_box_about_origin_zero() {
+        let g = benilla_formats::GlobalWmo {
+            model: "w.wmo".into(),
+            position: [0.0; 3],
+            rotation: [0.0; 3],
+            doodad_set: 0,
+            name_set: 0,
+            extents: [[-4.0, -1.0, -6.0], [8.0, 3.0, 9.0]],
+        };
+        assert_eq!(
+            super::global_wmo_instance(&g).bounds,
+            [[-9.0, -8.0, -1.0], [6.0, 4.0, 3.0]]
+        );
+    }
+
     fn straddler(owner: (i32, i32), entities: Vec<Entity>) -> Placement {
         Placement {
             model: ModelHandle::M2(Default::default()),
@@ -1704,6 +1768,9 @@ mod straddler_tests {
             portal_instance: None,
             refs: 1,
             owner,
+            map_box: None,
+            chunks: Vec::new(),
+            root_entities: 0,
         }
     }
 
@@ -1787,6 +1854,101 @@ mod straddler_tests {
         assert!(!p8.spawned);
         assert!(world.get_entity(e1).is_ok());
         assert!(world.get_entity(e2).is_err());
+    }
+
+    /// A handed-off straddler respawns, so it holds the world query again until it can collide.
+    #[test]
+    fn a_handed_off_straddler_is_unsettled_again() {
+        let mut world = World::new();
+        let e = world.spawn_empty().id();
+        let mut streamer = TerrainStreamer::default();
+        streamer.tiles.insert((3, 5), tile_listing(&[7]));
+        let mut placements = Placements::default();
+        placements.by_id.insert(7, straddler((3, 4), vec![e]));
+        world.insert_resource(streamer);
+        world.insert_resource(placements);
+        run_handoff(&mut world, (3, 4), vec![7], true);
+        assert!(world.resource::<Placements>().unsettled.contains(&7));
+    }
+
+    /// A newly registered doodad or building is unsettled until it can collide; a second referrer
+    /// only adds a ref.
+    #[test]
+    fn a_registered_placement_is_unsettled() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<M2Model>()
+            .init_asset::<WmoModel>();
+        let server = app.world().resource::<AssetServer>().clone();
+        let mut placements = Placements::default();
+        let d = Doodad {
+            model: "d.mdx".into(),
+            position: [1.0, 2.0, 3.0],
+            rotation: [0.0; 3],
+            scale: 1.0,
+            unique_id: 7,
+        };
+        register_doodad(&mut placements, &server, &d, (3, 4));
+        let w = WmoInstance {
+            model: "w.wmo".into(),
+            position: [0.0; 3],
+            rotation: [0.0; 3],
+            unique_id: 9,
+            doodad_set: 0,
+            name_set: 0,
+            bounds: [[0.0; 3], [1.0; 3]],
+        };
+        register_wmo(&mut placements, &server, &w);
+        assert!(placements.unsettled.contains(&7), "the doodad");
+        assert!(placements.unsettled.contains(&9), "the building");
+        placements.unsettled.clear();
+        register_doodad(&mut placements, &server, &d, (3, 5));
+        assert!(placements.unsettled.is_empty(), "a second referrer");
+        assert_eq!(placements.by_id[&7].refs, 2);
+    }
+
+    /// A chunk's MCRF files its doodads under the chunk its vertices cover: the key of a point
+    /// inside it, half a chunk in from its first vertex, not of a neighbour.
+    #[test]
+    fn a_chunks_doodads_are_filed_under_its_own_key() {
+        let mut placements = Placements::default();
+        placements.by_id.insert(7, straddler((3, 4), Vec::new()));
+        // A chunk whose first vertex, its greatest x and y, lies a hair north-west of its grid line,
+        // as a float position can: its own key is half a chunk in, not at the vertex.
+        let size = benilla_formats::CHUNK_SIZE;
+        let (x, y) = (500.01, 300.01);
+        let mut positions = vec![[x, y, 0.0]; 145];
+        positions[144] = [x - size, y - size, 0.0];
+        let chunk = benilla_formats::ChunkMesh {
+            positions,
+            normals: Vec::new(),
+            uvs: Vec::new(),
+            indices: Vec::new(),
+            holes: 0,
+            base_texture: None,
+            layer_textures: Vec::new(),
+            layer_effect_ids: Vec::new(),
+            alpha_map: None,
+            shadow: None,
+            pred_tex: [0; 64],
+            no_effect_doodad: [false; 64],
+            index_x: 0,
+            index_y: 0,
+            area_id: 0,
+            impassable: false,
+            liquids: Vec::new(),
+            doodad_uids: vec![7],
+        };
+        link_chunk_doodads(&mut placements, &[chunk]);
+        let inside = residency::chunk_key(x - 1.0, y - 1.0);
+        assert_eq!(placements.by_id[&7].chunks, vec![inside]);
+        assert_ne!(
+            inside,
+            residency::chunk_key(x, y),
+            "the vertex's own key is the neighbour's"
+        );
+        assert_ne!(inside, residency::chunk_key(x + 1.0, y + 1.0));
+        assert_ne!(inside, residency::chunk_key(x - size - 1.0, y - size - 1.0));
     }
 }
 
@@ -1992,6 +2154,7 @@ mod inner_hold_tests {
             area_id: 0,
             impassable: false,
             liquids: Vec::new(),
+            doodad_uids: Vec::new(),
         }
     }
 

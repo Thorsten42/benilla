@@ -237,6 +237,7 @@ pub(crate) fn update_ground_shade(
     time: Res<Time>,
     streamer: Option<Res<TerrainStreamer>>,
     adt_tiles: Res<Assets<AdtTile>>,
+    asset_server: Res<AssetServer>,
     mut roots: Query<(
         Entity,
         &GlobalTransform,
@@ -297,7 +298,7 @@ pub(crate) fn update_ground_shade(
         let shade = shade.into_inner();
         let pos = gt.translation();
         if !shade.sampled || pos.distance_squared(shade.last_pos) >= RESAMPLE_DIST_SQ {
-            match doodad_ground_shade(&streamer, &adt_tiles, pos) {
+            match doodad_ground_shade(&streamer, &adt_tiles, &asset_server, pos) {
                 ShadeResolve::Ready(shadowed) => {
                     shade.on_sample(shadowed, pos);
                 }

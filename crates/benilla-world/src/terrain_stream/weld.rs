@@ -97,6 +97,16 @@ impl HullWelds {
         self.tiles.len() + self.props.len()
     }
 
+    /// Whether a tile's map-doodad hulls are still accumulating, not yet a collider.
+    pub(super) fn welding_tile(&self, tile: (i32, i32)) -> bool {
+        self.tiles.contains_key(&tile)
+    }
+
+    /// Whether a WMO placement's prop hulls are still accumulating, not yet a collider.
+    pub(super) fn welding_prop(&self, uid: u32) -> bool {
+        self.props.contains_key(&uid)
+    }
+
     pub(super) fn clear(&mut self) {
         self.tiles.clear();
         self.props.clear();
@@ -200,6 +210,9 @@ mod tests {
             portal_instance: None,
             refs: 1,
             owner: (0, 0),
+            map_box: None,
+            chunks: Vec::new(),
+            root_entities: 0,
         }
     }
 

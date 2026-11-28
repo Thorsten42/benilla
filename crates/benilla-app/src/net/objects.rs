@@ -122,6 +122,8 @@ pub(crate) struct Scene<'w, 's> {
     death_net: ResMut<'w, crate::death::DeathNet>,
     group: ResMut<'w, crate::ui_party::GroupState>,
     pet_bar: Option<Res<'w, crate::ui_pet::PetBar>>,
+    /// The display catalog that says whether a transport's model is a doodad or a map object.
+    gameobjects: Option<Res<'w, crate::entities::GameObjects>>,
     /// The selection, whose aura state the usable refresh watches (`0x6048a6`), and which a
     /// unit's release ends and a create or a reactivation holds again ([`crate::target`]).
     selection: Option<ResMut<'w, crate::target::Selection>>,
@@ -1199,6 +1201,18 @@ fn object_create(
             }
             if let Some(seed) = elevator_seed {
                 entity.insert(seed);
+            }
+            // A transport's doodad def, owned by its GUID, holds the world query where it stands
+            // until its model is built: `0x5f4970` gives types 11 and 15 one, and `0x6707c0`
+            // builds a doodad def for a model that is not a `.wmo` (the shipped lifts' `.mdx`);
+            // a `.wmo` (the ships and zeppelins) becomes a map object def instead, with no owner
+            // pair. It is filed from the create's pose, where the reference files it at the
+            // transport tick's placement (`0x6709a0`).
+            let doodad_model = display_id
+                .and_then(|d| sc.gameobjects.as_deref()?.is_wmo(d))
+                .is_some_and(|wmo| !wmo);
+            if matches!(go_type, Some(11 | 15)) && doodad_model {
+                entity.insert(benilla_world::terrain_stream::UnloadedObjectDef);
             }
             if let Some(r) = rider {
                 entity.insert(r);

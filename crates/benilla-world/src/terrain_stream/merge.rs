@@ -733,6 +733,9 @@ mod tests {
             portal_instance,
             refs: 1,
             owner: (0, 0),
+            map_box: None,
+            chunks: Vec::new(),
+            root_entities: 0,
         }
     }
 

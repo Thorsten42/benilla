@@ -33,10 +33,13 @@ pub enum ShadeResolve {
 
 /// A doodad's ground shade by a global position → tile → chunk MCSH lookup at its origin (the
 /// reference's `0x69b350`), not a sample of the tile that registered it. A tile outside the loaded
-/// set reads lit, as the reference's null tile does.
+/// set reads lit, as the reference's null tile does. A tile whose ADT failed to load reads lit too,
+/// which is benilla's: the reference ends the process on that open, and benilla walks on without
+/// the tile (the residency module's `Deviation:`).
 pub fn doodad_ground_shade(
     streamer: &TerrainStreamer,
     adt_tiles: &Assets<AdtTile>,
+    server: &AssetServer,
     bevy_pos: Vec3,
 ) -> ShadeResolve {
     let wow = bevy_to_wow(bevy_pos);
@@ -44,6 +47,7 @@ pub fn doodad_ground_shade(
     match streamer.tiles.get(&(tx as i32, ty as i32)) {
         None => ShadeResolve::Ready(false),
         Some(ts) => match adt_tiles.get(&ts.handle) {
+            None if server.load_state(&ts.handle).is_failed() => ShadeResolve::Ready(false),
             None => ShadeResolve::Pending,
             Some(adt) => ShadeResolve::Ready(mcsh_shadowed_at(&adt.chunks, wow).unwrap_or(false)),
         },

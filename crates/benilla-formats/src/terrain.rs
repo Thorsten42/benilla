@@ -69,6 +69,9 @@ pub struct ChunkMesh {
     pub impassable: bool,
     /// The chunk's MCLQ liquid surfaces, one per block; a river mouth has a stream and a sea.
     pub liquids: Vec<crate::liquid::LiquidMesh>,
+    /// The unique ids of the doodads the chunk lists (MCRF, `+0xdc`), the defs the world query's
+    /// doodad leg waits on (`0x6abc40`).
+    pub doodad_uids: Vec<u32>,
 }
 
 impl ChunkMesh {
@@ -267,6 +270,25 @@ pub struct WmoInstance {
     pub doodad_set: u16,
     /// MODF name-set index, the placement's `WMOAreaTable.NameSetID`.
     pub name_set: u16,
+    /// The world box `(min, max)` the reference gives the placement from MODF's extents
+    /// (`0x695650`, [`modf_world_box`]), the box a world query tests it by (`0x6aaab0`).
+    pub bounds: [[f32; 3]; 2],
+}
+
+/// The map's centre on x and y (yd), the origin an ADT's placements are made from (`0x6b0100`
+/// passes `(17066.666, 17066.666, 0)`).
+pub const MAP_CENTER: f32 = 32.0 * TILE_SIZE;
+
+/// A MODF entry's world box `(min, max)` from its file-axis extents, as `0x695650` builds it from
+/// the origin it is given (`0x695854`-`0x6958b9`): min `(o − hi.z, o − hi.x, lo.y)`, max
+/// `(o − lo.z, o − lo.x, hi.y)`. The axis remap negates x and y, so each takes the other corner's
+/// value. An ADT's origin is [`MAP_CENTER`]; a WDT's map-global entry is made from origin 0
+/// (`0x6948a6`-`0x6948c5`).
+pub fn modf_world_box([lo, hi]: [[f32; 3]; 2], origin: f32) -> [[f32; 3]; 2] {
+    [
+        [origin - hi[2], origin - hi[0], lo[1]],
+        [origin - lo[2], origin - lo[0], hi[1]],
+    ]
 }
 
 /// One ADT tile: its chunk meshes, placed doodads and buildings.
@@ -457,6 +479,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
             area_id: h.area_id,
             impassable: h.impassable(),
             liquids,
+            doodad_uids: mcnk.doodad_uids.clone(),
         });
     }
 
@@ -465,7 +488,6 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
     }
 
     // MDDF positions are corner-origin: X = 32·TILE − mddf.z, Y = 32·TILE − mddf.x, Z = mddf.y.
-    const MAP_CENTER: f32 = 32.0 * TILE_SIZE;
     let doodads = root
         .doodad_placements
         .iter()
@@ -502,6 +524,7 @@ pub fn adt_to_tile_mesh(adt_bytes: &[u8]) -> Result<TileMesh> {
                 unique_id: w.unique_id,
                 doodad_set: w.doodad_set,
                 name_set: w.name_set,
+                bounds: modf_world_box(w.extents, MAP_CENTER),
             })
         })
         .collect();
@@ -653,6 +676,26 @@ pub fn load_tiles_around(
 mod tests {
     use super::*;
 
+    /// The box comes out ordered on every axis, each world axis from its file axis as the
+    /// placement's position is (`0x695650`).
+    #[test]
+    fn a_modf_box_maps_its_corners_into_world_axes() {
+        let o = MAP_CENTER;
+        let extents = [[10.0, -5.0, 20.0], [30.0, 15.0, 50.0]];
+        let [min, max] = modf_world_box(extents, o);
+        assert_eq!(min, [o - 50.0, o - 30.0, -5.0]);
+        assert_eq!(max, [o - 20.0, o - 10.0, 15.0]);
+        assert!((0..3).all(|i| min[i] <= max[i]));
+        // A WDT's entry, from origin 0.
+        let [min, max] = modf_world_box(extents, 0.0);
+        assert_eq!((min, max), ([-50.0, -30.0, -5.0], [-20.0, -10.0, 15.0]));
+        assert_eq!(
+            MAP_CENTER.to_bits(),
+            0x4685_5555,
+            "the origin 0x6b0100 passes"
+        );
+    }
+
     /// A chunk with only `positions` and `indices` set.
     fn chunk(positions: Vec<[f32; 3]>, indices: Vec<u32>) -> ChunkMesh {
         ChunkMesh {
@@ -673,6 +716,7 @@ mod tests {
             area_id: 0,
             impassable: false,
             liquids: Vec::new(),
+            doodad_uids: Vec::new(),
         }
     }
 

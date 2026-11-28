@@ -29,6 +29,17 @@ impl GameObjectCatalog {
         self.models.is_empty()
     }
 
+    /// A catalog of exactly these `(displayId, model path)` pairs, for other crates' tests.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn from_paths<'a>(pairs: impl IntoIterator<Item = (u32, &'a str)>) -> Self {
+        Self {
+            models: pairs
+                .into_iter()
+                .map(|(id, p)| (id, p.to_string()))
+                .collect(),
+        }
+    }
+
     /// Every `(displayId, model path)` pair, in no order.
     pub fn iter(&self) -> impl Iterator<Item = (u32, &str)> {
         self.models.iter().map(|(&id, p)| (id, p.as_str()))
