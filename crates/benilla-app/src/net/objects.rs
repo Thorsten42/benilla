@@ -1166,6 +1166,7 @@ fn object_create(
             // stands.
             if matches!(kind, EntityKind::Unit | EntityKind::Player) {
                 write_pose(commands, &mut sc.transforms, e, position, placement);
+                commands.entity(e).insert(super::motion::spline::FromBlock);
             }
             e
         }
@@ -1226,6 +1227,9 @@ fn object_create(
             if let Some(motion) = motion {
                 entity.insert(motion);
             }
+            if matches!(kind, EntityKind::Unit | EntityKind::Player) {
+                entity.insert(super::motion::spline::FromBlock);
+            }
             // Our own player is the active one from its write: the reference finds it by its guid
             // (`0x468550`), here by the tag, given in the same commands as the entity.
             if sc.self_guid.0 == Some(guid) {
@@ -1257,7 +1261,12 @@ pub(super) fn object_move(
         if movers.contains(e) {
             return;
         }
-        commands.entity(e).remove::<Spline>();
+        // The block's status: its pose, and for an idle mover a fall from it (`0x467110` →
+        // `0x5ff030` → `0x619320`).
+        commands
+            .entity(e)
+            .remove::<Spline>()
+            .insert(super::motion::spline::FromBlock);
         // A yaw only: the GameObjects that get one are transports, which their tick then owns.
         write_pose(commands, transforms, e, position, wire_yaw(orientation));
         // A unit's mover stands there too, its dead-reckoning going on from the block's pose.
@@ -1422,15 +1431,14 @@ fn unit_move(
         // clamp a path handed it to ([`super::motion::spline::ground_derived`]), and its swim
         // state from the water-at-feet mark: the relay's word carries it (`0x618de7`). The mark's
         // stamp goes too, so a body the mark still derives asks again. The pose stands, starting
-        // no fall (`0x618c30`).
+        // no fall (`0x618c30`): only a create or movement block does (`0x619320`).
         commands
             .entity(e)
             .remove::<Spline>()
             .remove::<HeldSpline>()
             .remove::<super::motion::spline::GroundClamped>()
             .remove::<super::motion::CreatureSwimming>()
-            .remove::<super::motion::spline::SwimEvaluated>()
-            .insert(super::motion::spline::RelayPosed);
+            .remove::<super::motion::spline::SwimEvaluated>();
         if let Ok(mut rm) = remote_motion.get_mut(e) {
             // The chain reads the state before this move applies, as the reference times the
             // packet off the live `[esi+0x40]`/`[esi+0x150]`.

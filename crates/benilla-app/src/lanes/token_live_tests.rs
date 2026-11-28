@@ -1115,9 +1115,10 @@ fn a_relayed_move_drops_the_swim_mark_a_path_left() {
     );
 }
 
-/// A relayed stop's pose stands where its packet put it, where a create's starts a fall: the
-/// relay's status apply starts none (`0x618c30`), the post-create path does (`0x619320`). No
-/// terrain is resident here, so a fall hangs where it starts (`0x634154`).
+/// A relayed stop's pose stands where its packet put it, where a create's, a re-create's or a
+/// movement block's starts a fall: the relay's status apply starts none (`0x618c30`), the block's
+/// status does (`0x5ff04a` → `0x619320`). No terrain is resident here, so a fall hangs where it
+/// starts (`0x634154`).
 #[test]
 fn a_relayed_stop_stands_where_its_packet_put_it() {
     const STAG: u64 = 0xF130_0000_0050_0007;
@@ -1152,6 +1153,29 @@ fn a_relayed_stop_stands_where_its_packet_put_it() {
     assert_eq!(fall(&c), Some(None), "the relayed pose starts none");
     let t = c.app.world().get::<Transform>(stag).expect("a transform");
     assert_eq!(benilla_assets::coords::bevy_to_wow(t.translation)[2], 50.0);
+    // A re-create of the held unit runs the create's status again (`0x466498` → `0x5ff070`).
+    c.frame(vec![vec![placed(
+        created(STAG, EntityKind::Unit, &[]),
+        at,
+        0.0,
+        None,
+    )]]);
+    c.frame(vec![]);
+    assert!(matches!(fall(&c), Some(Some(_))), "a re-create starts one");
+    c.frame(vec![vec![heartbeat(STAG, at, 0, None)]]);
+    c.frame(vec![]);
+    assert_eq!(fall(&c), Some(None));
+    // So does a movement block (`0x467110` → `0x5ff030`).
+    c.frame(vec![vec![SessionEvent::ObjectMove {
+        guid: STAG,
+        position: at,
+        orientation: 0.0,
+    }]]);
+    c.frame(vec![]);
+    assert!(
+        matches!(fall(&c), Some(Some(_))),
+        "a movement block starts one"
+    );
 }
 
 /// `SMSG_MONSTER_MOVE` stopping `guid` at `at`.

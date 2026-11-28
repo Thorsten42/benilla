@@ -837,10 +837,11 @@ pub(crate) fn grounded_y(
 /// stands where its pose puts it, but its create starts a fall from there, whatever is below
 /// ([`IdleFall`]): `0x619320` runs `0x617b00` for a mover with no bit of 0x20ff (`0x61943c`), or,
 /// for a nonzero `a3`, queues it as tag 6 (`0x617ac0`), whose replay runs `0x7c61c0`. So does
-/// the end of a swim (`0x7c6e80` → `0x7c61c0`). A relayed pose stands as sent: the relay's status
-/// apply starts no fall (`0x618c30`). A ground path's end starts none either (`0x7c6c00` falls only
-/// for a spline with 0x200), and keeps the walked Z unless the end point stands 3 yd or more from
-/// it (`0x61a912` → `0x616d60`, `fcomp 9.0` at `0x616d90`). Skipped: flying
+/// the end of a swim (`0x7c6e80` → `0x7c61c0`) and of a flying path (`0x7c6c00` jumps to `0x7c61c0`
+/// for spline flag 0x200, vmangos's Flying). A relayed pose stands as sent: the relay's status
+/// apply starts no fall (`0x618c30`). A ground path's end starts none, and keeps the walked Z
+/// unless the end point stands 3 yd or more from it (`0x61a863` → `0x7c6c00`, then `0x61a874` →
+/// `0x616d60`, `fcomp 9.0` at `0x616d90`). Skipped: a flying path's frames
 /// and deck paths, and a swimming unit, whose wire Z is its depth (vmangos paths it in 3D without
 /// the flying flag, `MoveSplineInit.cpp:191`; the reference keeps Δz under SWIMMING,
 /// `[CMovement+0x40] & 0x200000` at `0x616cfa`).
@@ -876,8 +877,8 @@ pub(in crate::net) fn ground_clamp_creatures(
             // A rider's pose is composed on its deck (`crate::transport::compose_riders`), so the
             // clamp starts it no fall.
             Has<crate::transport::TransportRider>,
-            // The relay set this pose: it stands, starting no fall.
-            Has<RelayPosed>,
+            // A create or movement block posed it this frame.
+            Has<FromBlock>,
         ),
         // A mount is a model of its unit with no movement of its own (`0x607a00`), and its
         // `Transform` is host-local: a world probe there would sink it under the rider.
@@ -910,10 +911,15 @@ pub(in crate::net) fn ground_clamp_creatures(
         embodied,
         mut motion,
         rider,
-        relay_posed,
+        from_block,
     ) in &mut q
     {
         visited += 1;
+        // The block's fall start is the status's, taken at this visit or not at all: a mover the
+        // block left moving, swimming or on a path starts none (`0x61943c`).
+        if from_block {
+            commands.entity(entity).remove::<FromBlock>();
+        }
         let self_moving = motion.as_deref().is_some_and(moves_itself);
         if !ground_derived(
             net.kind,
@@ -926,8 +932,27 @@ pub(in crate::net) fn ground_clamp_creatures(
             continue; // somebody else owns this body's Z
         }
         if spline.is_some_and(|s| !s.grounded) {
+            // A flying path is authoritative on Z; its end starts a fall (`0x7c6c00`).
+            let state = GroundClamped {
+                xz: [t.translation.x, t.translation.z],
+                seat_y: t.translation.y,
+                y_written: t.translation.y,
+                hit: true,
+                epoch: epoch.get(),
+                modes: modes.copied().unwrap_or_default(),
+                path: None,
+                fall: None,
+                swam: false,
+                flew: true,
+            };
+            match clamped.as_deref_mut() {
+                Some(c) => *c = state,
+                None => {
+                    commands.entity(entity).insert(state);
+                }
+            }
             skipped += 1;
-            continue; // a flying path is authoritative on Z
+            continue;
         }
         if spline.is_some_and(|s| s.deck.is_some()) {
             skipped += 1;
@@ -966,24 +991,33 @@ pub(in crate::net) fn ground_clamp_creatures(
         // `0x63162e`).
         let water_walking =
             granted.water_walking() && motion.as_deref().is_none_or(|m| m.pitch > WATER_WALK_PITCH);
-        let water = water_walking
-            .then(|| {
-                let wow = bevy_to_wow(t.translation);
-                let who = benilla_world::world_point::Subject::Unit(entity);
-                points
-                    .liquid_at(who, wow)
-                    .map(|l| t.translation.y + (l.surface_z - wow[2]))
-            })
-            .flatten();
+        // A water-walker's floor is the surface, asked only where a step needs it.
+        let water_at = |at: Vec3| {
+            water_walking
+                .then(|| {
+                    let wow = bevy_to_wow(at);
+                    let who = benilla_world::world_point::Subject::Unit(entity);
+                    points
+                        .liquid_at(who, wow)
+                        .map(|l| at.y + (l.surface_z - wow[2]))
+                })
+                .flatten()
+        };
         let hover = granted.hovering();
         if spline.is_none() {
+            // What starts a fall here: a block's status (`0x619320`), a swim's end (`0x7c6e80`)
+            // or a flying path's (`0x7c6c00`), each refused as `0x7c61c0` refuses it.
+            let swim_ended = clamped.as_deref().is_some_and(|c| c.swam);
+            let flight_ended = clamped.as_deref().is_some_and(|c| c.flew);
+            let starts = from_block || swim_ended || flight_ended;
             // A ground path's end: the last step walks to the end point, and its Z stands unless
             // the end point is 3 yd or more from it, which snaps the mover there (`0x616d60`).
             let ended = clamped
                 .as_deref()
-                .filter(|c| !legacy && c.path.is_some())
+                .filter(|c| !legacy && !starts && c.path.is_some())
                 .map(|c| (c.xz, c.y_written));
             if let Some(from) = ended {
+                let water = water_at(t.translation);
                 let raw = t.translation.y;
                 let walked = walker_step(&world, &capsule.0, from, xz, hover, water).y;
                 let y = walked
@@ -1007,12 +1041,12 @@ pub(in crate::net) fn ground_clamp_creatures(
                         path: None,
                         fall: None,
                         swam: false,
+                        flew: false,
                     };
                 }
                 continue;
             }
-            let swim_ended = clamped.as_deref().is_some_and(|c| c.swam);
-            if let Some(fall) = same_pose.and_then(|c| c.fall).filter(|_| !swim_ended) {
+            if let Some(fall) = same_pose.and_then(|c| c.fall).filter(|_| !starts) {
                 let class = benilla_world::collision::WorldCollision::UNIT_MOVER_CLASS
                     | if water_walking {
                         benilla_world::collision::WorldCollision::WATER_WALK_CLASS
@@ -1020,6 +1054,7 @@ pub(in crate::net) fn ground_clamp_creatures(
                         0
                     };
                 let feather = move_word & crate::creature_anim::move_flags::SAFE_FALL != 0;
+                let water = water_at(t.translation);
                 let (y, fall) = match step_idle_fall(
                     &world,
                     fall,
@@ -1055,14 +1090,12 @@ pub(in crate::net) fn ground_clamp_creatures(
                 }
                 continue;
             }
-            if same_pose.is_some() && !swim_ended {
+            if same_pose.is_some() && !starts {
                 held += 1;
                 continue; // not integrated: it stands
             }
-            // A create, or a swim's end, starts a fall from here unless the mover refuses it
-            // (`0x7c61c0`). A pose the relay set, or any later one, stands as sent.
-            let created = clamped.is_none() && !relay_posed;
-            let starts = (created || swim_ended) && !rider && move_word & FALL_REFUSED == 0;
+            // Any other pose, the relay's among them, stands as sent.
+            let starts = starts && !rider && move_word & FALL_REFUSED == 0;
             let state = GroundClamped {
                 xz,
                 seat_y: t.translation.y,
@@ -1076,6 +1109,7 @@ pub(in crate::net) fn ground_clamp_creatures(
                     last_ms: now_ms,
                 }),
                 swam: false,
+                flew: false,
             };
             match clamped.as_deref_mut() {
                 Some(c) => *c = state,
@@ -1084,9 +1118,6 @@ pub(in crate::net) fn ground_clamp_creatures(
                 }
             }
             continue;
-        }
-        if relay_posed {
-            commands.entity(entity).remove::<RelayPosed>(); // a path drives it now
         }
         // The cast gate: same XZ, same collider epoch, same modes, and our own answer still the Y
         // standing here, so the ray cannot answer differently. A miss never caches.
@@ -1108,6 +1139,7 @@ pub(in crate::net) fn ground_clamp_creatures(
                 }
             }
         }
+        let water = water_at(t.translation);
         // A continuing walker takes the swept step from last frame's pose with Δz = 0 (step-up
         // `H` 2.0) and keeps only Y, so it rides a hill its chord cuts under. A new path settles
         // down from its seat (`0x636dcd`-`0x636e45`, `d·1.849 + 1/36`).
@@ -1204,6 +1236,7 @@ pub(in crate::net) fn ground_clamp_creatures(
             path,
             fall: None,
             swam: false,
+            flew: false,
         };
         match clamped.as_deref_mut() {
             Some(c) => *c = state,
@@ -1296,11 +1329,11 @@ const CREATURE_SWIM_EXIT_BAND: f32 = 1.0 / 36.0;
 #[derive(Component)]
 pub(crate) struct CreatureSwimming;
 
-/// A body whose pose the relay set since the clamp last held it ([`crate::net::objects`]): its
-/// next idle pose stands as sent, as the relay's status apply starts no fall (`0x618c30`). A path
-/// taking the body drops it.
+/// A body a create or movement block has just posed ([`crate::net::objects`]): the block's status
+/// runs `0x619320` (`0x5ff04a`, from the create's `0x466498` → `0x5ff070` and the movement block's
+/// `0x467110` → `0x5ff030`), which starts an idle mover's fall. The clamp's next visit takes it.
 #[derive(Component)]
-pub(in crate::net) struct RelayPosed;
+pub(in crate::net) struct FromBlock;
 
 /// The last ground clamp this unit took: its seat and the cast gate's inputs, each compared by bit.
 #[derive(Component, Clone, Copy)]
@@ -1326,6 +1359,8 @@ pub(crate) struct GroundClamped {
     fall: Option<IdleFall>,
     /// The creature marker has it swimming; the swim's end starts a fall (`0x7c6e80`).
     swam: bool,
+    /// A flying path drove it; the path's end starts a fall (`0x7c6c00`).
+    flew: bool,
 }
 
 impl GroundClamped {
@@ -1420,9 +1455,10 @@ mod under_floor {
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
 
-    use super::{ground_clamp_creatures, GroundClamped};
+    use super::{ground_clamp_creatures, GroundClamped, Spline};
     use crate::net::NetEntity;
     use benilla_world::collision::ColliderEpoch;
+    use std::time::{Duration, Instant};
 
     /// Auberdine's geometry: terrain, the building's floor 2.08 above it, and the server's Z for
     /// the NPCs inside 0.08 above that.
@@ -1482,6 +1518,7 @@ mod under_floor {
                     scale: 1.0,
                 },
                 Transform::from_xyz(0.0, WIRE_Y, 0.0),
+                super::FromBlock,
             ))
             .id();
         app.update(); // seats Position/Rotation and the collider trees
@@ -1663,6 +1700,7 @@ mod under_floor {
                     scale: 1.0,
                 },
                 Transform::from_xyz(1.0, high, 1.0),
+                super::FromBlock,
                 crate::net::RemoteMotion {
                     wow_pos: [0.0, 0.0, 0.0],
                     orientation: 0.0,
@@ -1745,17 +1783,62 @@ mod under_floor {
         assert_eq!(y_of(&app, npc), landed, "it stands");
     }
 
-    /// A pose the relay set stands as sent, wherever it is (`0x618c30` starts no fall).
+    /// A pose the relay set stands as sent, wherever it is (`0x618c30` starts no fall); the relay
+    /// takes the clamp's memo, as `unit_move` does. A movement block's pose falls again
+    /// (`0x5ff030` → `0x619320`).
     #[test]
-    fn a_relayed_pose_stands_as_sent() {
+    fn a_relayed_pose_stands_and_a_blocks_falls() {
         let (mut app, _) = half_arrived_world();
         let high = TERRAIN_Y + 5.8;
         let npc = mover_at(&mut app, high, 0);
-        app.world_mut().entity_mut(npc).insert(super::RelayPosed);
         app.update();
         clamp(&mut app);
+        frames(&mut app, 60, 16);
+        assert!(
+            (y_of(&app, npc) - TERRAIN_Y).abs() < 1.0e-3,
+            "its create falls"
+        );
+        app.world_mut().entity_mut(npc).remove::<GroundClamped>();
+        set_y(&mut app, npc, high);
         frames(&mut app, 30, 16);
-        assert_eq!(y_of(&app, npc), high);
+        assert_eq!(y_of(&app, npc), high, "the relay's pose stands");
+        app.world_mut().entity_mut(npc).insert(super::FromBlock);
+        set_y(&mut app, npc, high + 1.0);
+        frames(&mut app, 60, 16);
+        assert!(
+            (y_of(&app, npc) - TERRAIN_Y).abs() < 1.0e-3,
+            "the block's falls"
+        );
+    }
+
+    /// A flying path's end starts a fall from where it ends (`0x7c6c00` → `0x7c61c0` for spline
+    /// flag 0x200).
+    #[test]
+    fn a_flying_paths_end_falls() {
+        let (mut app, npc) = half_arrived_world();
+        clamp(&mut app);
+        frames(&mut app, 40, 16);
+        assert_eq!(y_of(&app, npc), TERRAIN_Y, "its create lands");
+        let high = TERRAIN_Y + 5.0;
+        app.world_mut().entity_mut(npc).insert(Spline {
+            deck: None,
+            final_facing: benilla_protocol::MonsterMoveFacing::None,
+            points: vec![[0.0, 0.0, high], [0.0, 0.0, high]],
+            start: Instant::now(),
+            duration: Duration::from_secs(1),
+            id: 3,
+            grounded: false,
+            run_mode: true,
+        });
+        set_y(&mut app, npc, high);
+        frames(&mut app, 5, 16);
+        assert_eq!(y_of(&app, npc), high, "the flight owns its Z");
+        app.world_mut().entity_mut(npc).remove::<Spline>();
+        frames(&mut app, 60, 16);
+        assert!(
+            (y_of(&app, npc) - TERRAIN_Y).abs() < 1.0e-3,
+            "its end falls"
+        );
     }
 
     /// A hovering unit's fall sweeps a volume reaching up to a yard below its feet (`0x632ba0`
@@ -2399,6 +2482,7 @@ mod server_moved_players {
                 },
                 // Mid-chord: what the sampler writes half-way between the two rims.
                 Transform::from_translation(wow_to_bevy([0.0, 0.0, RIM_Z])),
+                super::FromBlock,
             ))
             .id();
         app.update(); // seats Position/Rotation and the collider trees
@@ -2627,7 +2711,7 @@ mod server_moved_players {
             let (mut app, body) = hollow(EntityKind::Unit);
             app.world_mut()
                 .entity_mut(body)
-                .insert((RemoteMotion { flags, ..relayed() }, super::RelayPosed));
+                .insert(RemoteMotion { flags, ..relayed() });
             clamp(&mut app);
             assert_eq!(y_of(&app, body), RIM_Z, "{flags:#x}: its own step's height");
             assert_eq!(mover_z(&app, body), RIM_Z, "{flags:#x}: and its mover's");
@@ -2878,6 +2962,7 @@ mod inside_a_hull {
                     scale: 1.0,
                 },
                 Transform::from_translation(at),
+                super::FromBlock,
             ))
             .id()
     }
