@@ -131,8 +131,8 @@ pub fn init_world_point_resources(world: &mut bevy::prelude::World) {
 }
 
 /// Indexes every spawned [`crate::liquid::WaterChunkInfo`] for the point queries, as the liquid
-/// plugin does each frame, for an app that spawns surfaces without it. Not `#[cfg(test)]`: the
-/// tests that need it are a dependent crate's.
+/// plugin does each frame, for a test app that spawns surfaces without it.
+#[cfg(feature = "test-support")]
 pub fn index_spawned_liquids(world: &mut bevy::prelude::World) {
     use bevy::ecs::system::RunSystemOnce;
     world
