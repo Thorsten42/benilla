@@ -108,7 +108,7 @@ impl RangeUnits<'_, '_> {
         let flags = if driven {
             self.player.as_deref().map_or(0, Player::move_flags)
         } else {
-            unify(None, remote, spline, swimming, modes).flags
+            unify(None, remote, spline, swimming, modes, None).flags
         };
         Some(RangeUnit {
             reach: store.0.unit_combat_reach(),

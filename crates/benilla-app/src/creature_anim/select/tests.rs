@@ -927,11 +927,11 @@ fn unify_stamps_flying_from_the_live_spline_on_every_leg() {
     // Self leg: the live spline says flying, not the stored state, as the client reads the
     // spline flags at select time.
     let m = moving_forward(32.0);
-    assert!(unify(Some(&m), None, Some(&spline(false)), false, None).flying);
-    assert!(!unify(Some(&m), None, Some(&spline(true)), false, None).flying);
-    assert!(!unify(Some(&m), None, None, false, None).flying);
+    assert!(unify(Some(&m), None, Some(&spline(false)), false, None, None).flying);
+    assert!(!unify(Some(&m), None, Some(&spline(true)), false, None, None).flying);
+    assert!(!unify(Some(&m), None, None, false, None, None).flying);
     // Spline leg (a remote taxi): flying, FORWARD and a speed.
-    let v = unify(None, None, Some(&spline(false)), false, None);
+    let v = unify(None, None, Some(&spline(false)), false, None, None);
     assert!(v.flying && v.flags & move_flags::FORWARD != 0 && v.speed > 0.0);
 }
 
@@ -948,7 +948,7 @@ fn the_granted_modes_fold_into_the_flags_word_on_every_leg_but_our_own() {
     let walking = UnitMoveModes(move_flags::WALK_MODE);
 
     // Creature leg: a standing NPC the server rooted.
-    let v = unify(None, None, None, false, Some(&rooted));
+    let v = unify(None, None, None, false, Some(&rooted), None);
     assert_eq!(v.flags & move_flags::ROOT, move_flags::ROOT);
 
     // Creature leg on a path: the granted bit rides alongside the spline's own FORWARD.
@@ -962,7 +962,7 @@ fn the_granted_modes_fold_into_the_flags_word_on_every_leg_but_our_own() {
         grounded: true,
         run_mode: true,
     };
-    let v = unify(None, None, Some(&spline), false, Some(&walking));
+    let v = unify(None, None, Some(&spline), false, Some(&walking), None);
     assert_eq!(
         v.flags,
         move_flags::WALK_MODE | move_flags::FORWARD,
@@ -985,13 +985,13 @@ fn the_granted_modes_fold_into_the_flags_word_on_every_leg_but_our_own() {
         last_apply_pos: [0.0; 3],
         fired_at_ms: None,
     };
-    let v = unify(None, Some(&rm), None, false, Some(&walking));
+    let v = unify(None, Some(&rm), None, false, Some(&walking), None);
     assert_eq!(v.flags, move_flags::FORWARD | move_flags::WALK_MODE);
 
     // Self leg: untouched.
     let m = moving_forward(32.0);
     assert_eq!(
-        unify(Some(&m), None, None, false, Some(&rooted)).flags,
+        unify(Some(&m), None, None, false, Some(&rooted), None).flags,
         m.flags,
         "our own mover's modes are the ack'd family's; this word is the controller's"
     );
@@ -1114,4 +1114,57 @@ fn the_demotion_drop_pairs_swings_and_ready_stances_with_stand_and_their_kin() {
     assert!(!demotion_drops(53, 28), "a ready stance over a cast plays");
     // Neither: a run, an emote, Stand over Stand's neighbours.
     assert!(!demotion_drops(5, 0) && !demotion_drops(68, 0) && !demotion_drops(0, 28));
+}
+
+/// An idle unit's fall reads as the reference's arc: FALLING from the start (`0x7c61f0`),
+/// FALLING_FAR once the clock passes 500 ms (`0x633240`) unless under feather fall, and a downward
+/// speed that freezes the gait (`0x5fd8e8`).
+#[test]
+fn an_idle_fall_raises_falling_then_falling_far() {
+    let rm = |flags: u32| crate::net::RemoteMotion {
+        wow_pos: [0.0; 3],
+        pending: std::collections::VecDeque::new(),
+        orientation: 0.0,
+        flags,
+        pitch: 0.0,
+        speed: 0.0,
+        vertical_velocity: 0.0,
+        jump_xy_vel: [0.0; 2],
+        fall_start: None,
+        relay: Default::default(),
+        last_apply_ms: 0.0,
+        last_apply_pos: [0.0; 3],
+        fired_at_ms: None,
+    };
+    let standing = rm(0);
+    let v = unify(None, Some(&standing), None, false, None, None);
+    assert_eq!(v.flags & move_flags::FALLING, 0, "no fall, no bit");
+    let v = unify(None, Some(&standing), None, false, None, Some(100));
+    assert_eq!(
+        v.flags & (move_flags::FALLING | move_flags::FALLING_FAR),
+        move_flags::FALLING
+    );
+    assert!(v.vertical_speed < 0.0, "falling: {}", v.vertical_speed);
+    assert_eq!(
+        current_special(&v, false),
+        None,
+        "a short drop plays no Fall"
+    );
+    let v = unify(None, Some(&standing), None, false, None, Some(500));
+    assert_ne!(
+        v.flags & move_flags::FALLING_FAR,
+        0,
+        "500 ms latches FALLING_FAR"
+    );
+    assert_eq!(current_special(&v, false), Some(Special::Fall));
+    let feather = rm(move_flags::SAFE_FALL);
+    let v = unify(None, Some(&feather), None, false, None, Some(900));
+    assert_eq!(
+        v.flags & move_flags::FALLING_FAR,
+        0,
+        "not under feather fall"
+    );
+    // No mover at all: the fall still reads.
+    let v = unify(None, None, None, false, None, Some(600));
+    assert_ne!(v.flags & move_flags::FALLING_FAR, 0);
 }

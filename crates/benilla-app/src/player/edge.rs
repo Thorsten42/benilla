@@ -20,7 +20,7 @@ const MIN_TRAVEL: f32 = 1.0 / 1_048_576.0;
 
 /// Which growth rule the swept box takes, the first matching mode of `0x633840`.
 #[derive(Clone, Copy, Debug)]
-pub(super) enum Sweep {
+pub(crate) enum Sweep {
     /// FALLING (0x2000), with the arc's further drop this step (yd, down positive).
     Fall { drop: f32 },
     /// SWIMMING (0x200000): the travel keeps its vertical.
@@ -32,7 +32,7 @@ pub(super) enum Sweep {
 /// The swept box's x and y extent in WoW space for a body with feet at `feet` (Bevy) moving by
 /// `travel` (Bevy, this step's displacement), as `0x633840` grows it ("Swept box growth"). Only x
 /// and y are built: the terrain gate reads no z (`0x6aa930`–`0x6aa964`).
-pub(super) fn swept_xy(feet: Vec3, travel: Vec3, sweep: Sweep) -> ([f32; 2], [f32; 2]) {
+pub(crate) fn swept_xy(feet: Vec3, travel: Vec3, sweep: Sweep) -> ([f32; 2], [f32; 2]) {
     let p = bevy_to_wow(feet);
     let d = bevy_to_wow(travel);
     let r = CAPSULE_RADIUS;

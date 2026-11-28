@@ -78,6 +78,9 @@ pub(crate) mod move_flags {
     /// `MOVEFLAG_LEVITATING`: the swim decision `0x6030c0` bails on it first (`0x6030d2`), so
     /// liquid can neither latch nor clear [`SWIMMING`]; GM flight sets both (`Player.cpp:4595`).
     pub const LEVITATING: u32 = 0x400;
+    /// `MOVEFLAG_FIXED_Z`: a mover with it never starts a fall (`0x7c61d6`); vmangos sets it on a
+    /// floating creature at spawn (`Creature.cpp:629`).
+    pub const FIXED_Z: u32 = 0x800;
     /// JUMPING/FALLING: set for the whole airborne arc.
     pub const FALLING: u32 = 0x2000;
     /// `MOVEFLAG_FALLINGFAR` (`0x633220`/`0x633240`): a jump latches it 1/9 yd below its launch
@@ -824,12 +827,38 @@ pub(super) fn scaled_rate(clip: &AnimClip, speed: f32, model_scale: f32) -> Opti
 /// mover state it rides on: the spline drives the mover while it lives.
 /// `creature_swimming` supplies the `SWIMMING` the wire never sends for a creature; `modes`, the
 /// `SMSG_SPLINE_MOVE_*` grants, join the remote and creature flags (one word in the reference).
+/// The fall clock past which a fall from rest latches FALLING_FAR (ms): `0x633240` tests
+/// `+0x78` ≥ 500 for an arc with no launch speed (`0x633280`), and sets nothing under feather fall
+/// (`0x633243`).
+const FALLING_FAR_MS: u32 = 500;
+
+/// The flag bits and vertical speed (yd/s, up) of an idle unit's fall `ms` into its arc from rest
+/// (`crate::net::motion::spline::IdleFall`): FALLING from the start (`0x7c61f0`), FALLING_FAR
+/// once the clock passes [`FALLING_FAR_MS`], and the arc's speed `0x7c5d20`.
+fn idle_fall_state(ms: u32, word: u32) -> (u32, f32) {
+    let feather = word & move_flags::SAFE_FALL != 0;
+    let far = if ms >= FALLING_FAR_MS && !feather {
+        move_flags::FALLING_FAR
+    } else {
+        0
+    };
+    let terminal = if feather {
+        crate::player::FEATHER_TERMINAL_VELOCITY
+    } else {
+        crate::player::TERMINAL_VELOCITY
+    };
+    let down = (crate::player::GRAVITY * ms as f32 * 0.001).min(terminal);
+    (move_flags::FALLING | far, -down)
+}
+
+/// `idle_fall_ms` is an idle unit's fall clock while the ground clamp plays its arc.
 pub(crate) fn unify(
     movement: Option<&MovementState>,
     remote: Option<&RemoteMotion>,
     spline: Option<&Spline>,
     creature_swimming: bool,
     modes: Option<&crate::net::UnitMoveModes>,
+    idle_fall_ms: Option<u32>,
 ) -> MovementState {
     // Every leg reads the flying spline live, as the selector does at select time (`0x5fd19c`).
     let flying = spline.is_some_and(|s| !s.grounded);
@@ -843,10 +872,22 @@ pub(crate) fn unify(
         0
     };
     if let Some(r) = remote.filter(|_| spline.is_none()) {
+        let word = r.flags | granted | swim;
+        let (fall, vertical) =
+            idle_fall_ms.map_or((0, r.vertical_velocity), |ms| idle_fall_state(ms, word));
         return MovementState {
             speed: r.speed,
-            flags: r.flags | granted | swim,
-            vertical_speed: r.vertical_velocity,
+            flags: word | fall,
+            vertical_speed: vertical,
+            flying,
+            ..default()
+        };
+    }
+    if let Some(ms) = idle_fall_ms.filter(|_| spline.is_none()) {
+        let (fall, vertical) = idle_fall_state(ms, granted | swim);
+        return MovementState {
+            flags: granted | swim | fall,
+            vertical_speed: vertical,
             flying,
             ..default()
         };

@@ -1115,6 +1115,86 @@ fn a_relayed_move_drops_the_swim_mark_a_path_left() {
     );
 }
 
+/// A relayed stop's pose stands where its packet put it, where a create's, a re-create's or a
+/// movement block's starts a fall: the relay's status apply starts none (`0x618c30`), the block's
+/// status does (`0x5ff04a` → `0x619320`). No terrain is resident here, so a fall hangs where it
+/// starts (`0x634154`).
+#[test]
+fn a_relayed_stop_stands_where_its_packet_put_it() {
+    const STAG: u64 = 0xF130_0000_0050_0007;
+    let mut c = client();
+    c.app
+        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(16),
+        ));
+    let at = [500.0, 600.0, 50.0];
+    c.frame(vec![vec![placed(
+        created(STAG, EntityKind::Unit, &[]),
+        at,
+        0.0,
+        None,
+    )]]);
+    let stag = c.app.world().resource::<crate::net::GuidIndex>().0[&STAG];
+    let fall = |c: &Client| {
+        c.app
+            .world()
+            .get::<crate::net::motion::spline::GroundClamped>(stag)
+            .map(|g| g.fall_ms())
+    };
+    c.frame(vec![]);
+    assert!(
+        matches!(fall(&c), Some(Some(_))),
+        "its create starts a fall"
+    );
+    c.frame(vec![vec![heartbeat(STAG, at, 0, None)]]);
+    for _ in 0..5 {
+        c.frame(vec![]);
+    }
+    assert_eq!(fall(&c), Some(None), "the relayed pose starts none");
+    let t = c.app.world().get::<Transform>(stag).expect("a transform");
+    assert_eq!(benilla_assets::coords::bevy_to_wow(t.translation)[2], 50.0);
+    // A re-create of the held unit runs the create's status again (`0x466498` → `0x5ff070`).
+    c.frame(vec![vec![placed(
+        created(STAG, EntityKind::Unit, &[]),
+        at,
+        0.0,
+        None,
+    )]]);
+    c.frame(vec![]);
+    assert!(matches!(fall(&c), Some(Some(_))), "a re-create starts one");
+    c.frame(vec![vec![heartbeat(STAG, at, 0, None)]]);
+    c.frame(vec![]);
+    assert_eq!(fall(&c), Some(None));
+    // A create and an idle relayed move in one frame: the relay's status replaces the create's,
+    // so it stands, as the same relay a frame later does (`0x618c30`).
+    const HIND: u64 = 0xF130_0000_0051_0008;
+    c.frame(vec![
+        vec![placed(created(HIND, EntityKind::Unit, &[]), at, 0.0, None)],
+        vec![heartbeat(HIND, at, 0, None)],
+    ]);
+    c.frame(vec![]);
+    let hind = c.app.world().resource::<crate::net::GuidIndex>().0[&HIND];
+    assert_eq!(
+        c.app
+            .world()
+            .get::<crate::net::motion::spline::GroundClamped>(hind)
+            .map(|g| g.fall_ms()),
+        Some(None),
+        "a create and a stop in one frame stand"
+    );
+    // So does a movement block (`0x467110` → `0x5ff030`).
+    c.frame(vec![vec![SessionEvent::ObjectMove {
+        guid: STAG,
+        position: at,
+        orientation: 0.0,
+    }]]);
+    c.frame(vec![]);
+    assert!(
+        matches!(fall(&c), Some(Some(_))),
+        "a movement block starts one"
+    );
+}
+
 /// `SMSG_MONSTER_MOVE` stopping `guid` at `at`.
 fn halt(guid: u64, at: [f32; 3]) -> SessionEvent {
     SessionEvent::MonsterMove {

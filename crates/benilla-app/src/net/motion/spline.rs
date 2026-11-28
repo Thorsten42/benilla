@@ -651,13 +651,162 @@ pub(crate) fn ground_derived(
     }
 }
 
-/// How far above the seat an idle unit's settle probe starts (yd): the swept-prism TOI
-/// (`0x632830`) still counts a face up to `1/36` yd (`[0x7ff9c8]`) behind the probe as a hit.
-const IDLE_UP_BAND: f32 = 1.0 / 36.0;
-/// How far below the seat the settle probe reaches (yd). The reference's settle reaches
-/// `d·1.849 + 1/36` and a body beyond it falls; an idle unit here has no fall, so a miss leaves it
-/// at its seat, which is also the airborne gate.
-const GROUND_CLAMP_DOWN: f32 = 4.0;
+/// How far below its seat a new path's first frame settles (yd).
+const PATH_SETTLE_DOWN: f32 = 4.0;
+/// How far behind the foot's bevel a face still counts as met (yd): the sweep's contact test
+/// compares with −1/36 (`0x632910`).
+const FOOT_SLACK: f32 = 1.0 / 36.0;
+/// The squared distance (yd²) from the walked pose at which a ground path's end point snaps the
+/// mover onto itself: `0x616d60` compares with 9.0 (`0x80c5bc`, at `0x616d90`).
+const PATH_END_SNAP_SQ: f32 = 9.0;
+/// The pitch (rad) a water-walker must exceed to gather the liquid: −37° (`0x80dfe8`, `0x63161e`).
+const WATER_WALK_PITCH: f32 = -0.645_771_8;
+/// The most a hovering faller's sweep reaches below its feet (yd): `0x632ba0` measures the drop
+/// to the floor from 1.0 (`0x632c8c`, `0x632a30`) and extends the volume down by it.
+const HOVER_FALL_DROP: f32 = 1.0;
+/// The height of the mover volume's foot over its apex, per yard of radius: its four bevels rise
+/// 1.849399 per yard out from the feet (`0x631440`).
+const FOOT_RISE: f32 = 1.849_399;
+/// The mover flags that refuse a fall (`0x7c61c0` tests 0x203800 at `0x7c61d6`): swimming,
+/// falling, root and fixed height.
+const FALL_REFUSED: u32 = crate::creature_anim::move_flags::SWIMMING
+    | crate::creature_anim::move_flags::FALLING
+    | crate::creature_anim::move_flags::ROOT
+    | crate::creature_anim::move_flags::FIXED_Z;
+/// The most of a frame the movement tick integrates per mover (ms, `0x616642`); `0x616620`
+/// skips the rest.
+const TICK_WINDOW_MAX_MS: u64 = 250;
+
+/// An idle unit's fall from where it stands, played frame by frame as the reference's movement
+/// tick integrates it (`0x616620`): the arc's clock `+0x78` from rest at the seat `+0x7c`
+/// (`0x7c61f0`), the drop `D(t)` in closed form (`0x7c5e70`). It ends on a floor, landing at the
+/// sweep's contact (`0x635a00` → `0x7c6290`), which for a hovering unit is up to a yard above the
+/// floor (`0x632ba0`); a landed idle mover is not integrated again (`0x6166f5`). It also ends when
+/// the creature marker starts the unit
+/// swimming, which runs on the stepped feet before the next step, as the swim decision runs after
+/// the tick's integration (`0x616795` → `0x6030c0`) and its swim start lands the fall (`0x7c6e50`
+/// → `0x7c6290`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct IdleFall {
+    /// The arc's clock (ms): every frame's window, at most [`TICK_WINDOW_MAX_MS`] of it.
+    elapsed_ms: u32,
+    /// The frame clock (ms) the last step ran at.
+    last_ms: u64,
+}
+
+/// What one frame of an [`IdleFall`] did.
+enum FallStep {
+    /// The world query under the step failed: the body hangs, its clock kept (`0x634154`).
+    Hang(IdleFall),
+    /// In the air at this Y.
+    Falling(IdleFall, f32),
+    /// The step met this floor.
+    Landed(f32),
+}
+
+/// One frame of `fall` for a body at `xz` that fell from `seat_y` and stands at `prev_y`, the
+/// frame clock at `now_ms`. The step's world query is the fall's swept box under the mover's
+/// class word `class` (`0x633840`, the x and y of [`crate::player::edge::swept_xy`], z from the
+/// step's end to the body's top), and a face crossed on the way down, or a water-walker's surface
+/// (the 0x30000 liquid facets its class word gathers, `0x63162e`), lands it.
+#[allow(clippy::too_many_arguments)] // the step's whole state
+fn step_idle_fall(
+    world: &benilla_world::collision::WorldCollision,
+    fall: IdleFall,
+    xz: [f32; 2],
+    seat_y: f32,
+    prev_y: f32,
+    now_ms: u64,
+    feather: bool,
+    water: Option<f32>,
+    hover: bool,
+    class: u32,
+) -> FallStep {
+    // A hovering faller's volume reaches up to a yard below its feet (`0x632ba0`, under FALLING
+    // and HOVER), so it lands that far above what it meets, and stays put within a yard of it.
+    let reach = if hover { HOVER_FALL_DROP } else { 0.0 };
+    let window = now_ms.saturating_sub(fall.last_ms).min(TICK_WINDOW_MAX_MS) as u32;
+    let elapsed_ms = fall.elapsed_ms.saturating_add(window);
+    let next_y = (seat_y - super::remote::fall_drop(0.0, elapsed_ms, feather)).min(prev_y);
+    let feet = Vec3::new(xz[0], prev_y, xz[1]);
+    let (lo, hi) = crate::player::edge::swept_xy(
+        feet,
+        Vec3::new(0.0, next_y - prev_y, 0.0),
+        crate::player::edge::Sweep::Fall {
+            drop: prev_y - next_y,
+        },
+    );
+    let top = prev_y + crate::player::CAPSULE_HEIGHT;
+    if !world.gather_ready([lo[0], lo[1], next_y - reach], [hi[0], hi[1], top], class) {
+        return FallStep::Hang(IdleFall {
+            last_ms: now_ms,
+            ..fall
+        });
+    }
+    let band = FOOT_RISE * crate::player::CAPSULE_RADIUS + FOOT_SLACK;
+    let origin = Vec3::new(xz[0], prev_y + band, xz[1]);
+    let floor = world
+        .ray_body(origin, Dir3::NEG_Y, band + (prev_y - next_y) + reach)
+        .map(|h| origin.y - h.distance);
+    let surface = water.filter(|w| *w >= next_y - reach && *w <= prev_y);
+    match floor.into_iter().chain(surface).reduce(f32::max) {
+        Some(f) => FallStep::Landed((f + reach).min(prev_y)),
+        None => FallStep::Falling(
+            IdleFall {
+                elapsed_ms,
+                last_ms: now_ms,
+            },
+            next_y,
+        ),
+    }
+}
+
+/// One walker step's answer: the Y it ends at, `None` when the sweep found no floor, and whether
+/// it stood on ground.
+struct WalkStep {
+    y: Option<f32>,
+    ground: bool,
+}
+
+/// The walker's swept step from `from` (last frame's xz and Y) to `xz` with Δz = 0, step-up `H`
+/// 2.0, keeping only Y (`0x6367b0`, the ground step zeroing Δz at `0x616cb0`).
+fn walker_step(
+    world: &benilla_world::collision::WorldCollision,
+    capsule: &avian3d::prelude::Collider,
+    (pxz, py): ([f32; 2], f32),
+    xz: [f32; 2],
+    hover: bool,
+    water: Option<f32>,
+) -> WalkStep {
+    let half_h = Vec3::Y * (crate::player::CAPSULE_HEIGHT * 0.5);
+    let from = Vec3::new(pxz[0], py, pxz[1]) + half_h;
+    // The frame's horizontal displacement as a one-second velocity: `grounded_step` travels
+    // `speed · dt`, and the reference's walk step takes a distance and a direction (`0x6367b0`).
+    let delta = Vec3::new(xz[0] - pxz[0], 0.0, xz[1] - pxz[1]);
+    let g = crate::player::mover::grounded_step(
+        world,
+        capsule,
+        from,
+        delta,
+        Duration::from_secs(1),
+        crate::player::mover::Support {
+            rise: crate::player::CREATURE_STEP_UP_HEIGHT,
+            offset: if hover {
+                crate::player::HOVER_HEIGHT
+            } else {
+                0.0
+            },
+            water,
+            // Per-frame state the memo does not keep; the path's next sample corrects a miss on a
+            // steep face.
+            steep: false,
+        },
+    );
+    WalkStep {
+        y: g.unsupported.is_none().then_some(g.center.y - half_h.y),
+        ground: g.ground.is_some(),
+    }
+}
 
 /// The Y a grounded mover ends its frame at (`0x634040`'s walk resolve), shared by the clamp and
 /// [`crate::player::server_ride`]; a probe miss returns `seat_y`.
@@ -683,12 +832,19 @@ pub(crate) fn grounded_y(
 }
 
 /// Grounds every [`ground_derived`] body on benilla's world: the 1.12 client zeroes a ground
-/// spline's Δz and takes Z from the world trace, and an idle unit reads grounded too, by an
-/// untraced path. Every probe starts at the body, measured from the seat (the Z the unit's
-/// position owner last wrote), never from the clamp's last answer, so a late floor takes the unit
-/// back. Skipped: flying and deck paths, and a swimming unit, whose wire Z is its depth (vmangos
-/// paths it in 3D without the flying flag, `MoveSplineInit.cpp:191`; the reference keeps Δz under
-/// SWIMMING, `[CMovement+0x40] & 0x200000` at `0x616cfa`).
+/// spline's Δz and takes Z from the walk step's world trace, from the path's first frame on. An
+/// idle unit is not integrated at all (`0x6166f5` skips a mover with no bit of 0x20ff), so it
+/// stands where its pose puts it, but its create starts a fall from there, whatever is below
+/// ([`IdleFall`]): `0x619320` runs `0x617b00` for a mover with no bit of 0x20ff (`0x61943c`), or,
+/// for a nonzero `a3`, queues it as tag 6 (`0x617ac0`), whose replay runs `0x7c61c0`. So does
+/// the end of a swim (`0x7c6e80` → `0x7c61c0`) and of a flying path (`0x7c6c00` jumps to `0x7c61c0`
+/// for spline flag 0x200, vmangos's Flying). A relayed pose stands as sent: the relay's status
+/// apply starts no fall (`0x618c30`). A ground path's end starts none, and keeps the walked Z
+/// unless the end point stands 3 yd or more from it (`0x61a863` → `0x7c6c00`, then `0x61a874` →
+/// `0x616d60`, `fcomp 9.0` at `0x616d90`). Skipped: a flying path's frames
+/// and deck paths, and a swimming unit, whose wire Z is its depth (vmangos paths it in 3D without
+/// the flying flag, `MoveSplineInit.cpp:191`; the reference keeps Δz under SWIMMING,
+/// `[CMovement+0x40] & 0x200000` at `0x616cfa`).
 #[allow(clippy::type_complexity)] // one Bevy system's full input set
 pub(in crate::net) fn ground_clamp_creatures(
     world: benilla_world::collision::WorldCollision,
@@ -699,6 +855,10 @@ pub(in crate::net) fn ground_clamp_creatures(
     // unit's own `CreatureModelData` radius and height (`[CMovement+0xb0]`/`+0xb4`); per-unit
     // extents are not built.
     capsule: Res<crate::player::PlayerCapsule>,
+    // The frame clock an idle fall steps by, as the movement tick reads its own (`0x616800`).
+    time: Res<Time>,
+    // A fall's landing raises the fall height `0x602d00` reads (`0x7c60c0`).
+    mut landings: MessageWriter<crate::creature_anim::HardLanding>,
     mut commands: Commands,
     mut q: Query<
         (
@@ -714,6 +874,11 @@ pub(in crate::net) fn ground_clamp_creatures(
             Has<crate::net::Embodied>,
             // The mover state a re-grounded unit's dead-reckoning goes on from.
             Option<&mut crate::net::RemoteMotion>,
+            // A rider's pose is composed on its deck (`crate::transport::compose_riders`), so the
+            // clamp starts it no fall.
+            Has<crate::transport::TransportRider>,
+            // A create or movement block posed it this frame.
+            Has<FromBlock>,
         ),
         // A mount is a model of its unit with no movement of its own (`0x607a00`), and its
         // `Transform` is host-local: a world probe there would sink it under the rider.
@@ -722,6 +887,7 @@ pub(in crate::net) fn ground_clamp_creatures(
 ) {
     let cost = clamp_cost_enabled();
     let legacy = clamp_seat_disabled();
+    let now_ms = time.elapsed().as_millis() as u64;
     let t0 = cost.then(std::time::Instant::now);
     let (mut visited, mut skipped, mut held, mut cast, mut swept, mut hit_n, mut moved) =
         (0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32);
@@ -734,8 +900,26 @@ pub(in crate::net) fn ground_clamp_creatures(
     // (`armed`); a nonzero steady-state `armed` means the collider set is churning.
     let (mut reseat, mut armed) = (0u32, 0u32);
 
-    for (entity, net, spline, mut t, mut clamped, swimming, modes, embodied, mut motion) in &mut q {
+    for (
+        entity,
+        net,
+        spline,
+        mut t,
+        mut clamped,
+        swimming,
+        modes,
+        embodied,
+        mut motion,
+        rider,
+        from_block,
+    ) in &mut q
+    {
         visited += 1;
+        // The block's fall start is the status's, taken at this visit or not at all: a mover the
+        // block left moving, swimming or on a path starts none (`0x61943c`).
+        if from_block {
+            commands.entity(entity).remove::<FromBlock>();
+        }
         let self_moving = motion.as_deref().is_some_and(moves_itself);
         if !ground_derived(
             net.kind,
@@ -748,14 +932,41 @@ pub(in crate::net) fn ground_clamp_creatures(
             continue; // somebody else owns this body's Z
         }
         if spline.is_some_and(|s| !s.grounded) {
+            // A flying path is authoritative on Z; its end starts a fall (`0x7c6c00`).
+            let state = GroundClamped {
+                xz: [t.translation.x, t.translation.z],
+                seat_y: t.translation.y,
+                y_written: t.translation.y,
+                hit: true,
+                epoch: epoch.get(),
+                modes: modes.copied().unwrap_or_default(),
+                path: None,
+                fall: None,
+                swam: false,
+                flew: true,
+            };
+            match clamped.as_deref_mut() {
+                Some(c) => *c = state,
+                None => {
+                    commands.entity(entity).insert(state);
+                }
+            }
             skipped += 1;
-            continue; // a flying path is authoritative on Z
+            continue;
         }
         if spline.is_some_and(|s| s.deck.is_some()) {
             skipped += 1;
             continue; // a deck path: no terrain under a deck, and the wire Z is deck-local
         }
         if swimming {
+            // The swim start lands a fall (`0x7c6e50` → `0x7c6290`); its end will start one.
+            if let Some(c) = clamped
+                .as_deref_mut()
+                .filter(|c| c.fall.is_some() || !c.swam)
+            {
+                c.fall = None;
+                c.swam = true;
+            }
             skipped += 1;
             continue; // in-liquid: the wire Z is the creature's swim depth
         }
@@ -769,16 +980,154 @@ pub(in crate::net) fn ground_clamp_creatures(
             Some(c) if c.y_written == t.translation.y => c.seat_y,
             _ => t.translation.y,
         };
+        // The unit still stands where the clamp left it: no new pose from its position owner.
+        let same_pose = clamped
+            .as_deref()
+            .filter(|c| !legacy && c.xz == xz && c.y_written == t.translation.y);
+        // The mover's one flag word `+0x40`: the relayed word and the granted modes together, as
+        // the extrapolator reads it.
+        let move_word = motion.as_deref().map_or(0, |m| m.flags) | granted.0;
+        // The liquid joins the mover's world off the swim and pitched above −37° (`0x631610`-
+        // `0x63162e`).
+        let water_walking =
+            granted.water_walking() && motion.as_deref().is_none_or(|m| m.pitch > WATER_WALK_PITCH);
+        // A water-walker's floor is the surface, asked only where a step needs it.
+        let water_at = |at: Vec3| {
+            water_walking
+                .then(|| {
+                    let wow = bevy_to_wow(at);
+                    let who = benilla_world::world_point::Subject::Unit(entity);
+                    points
+                        .liquid_at(who, wow)
+                        .map(|l| at.y + (l.surface_z - wow[2]))
+                })
+                .flatten()
+        };
+        let hover = granted.hovering();
+        if spline.is_none() {
+            // What starts a fall here: a block's status (`0x619320`), a swim's end (`0x7c6e80`)
+            // or a flying path's (`0x7c6c00`), each refused as `0x7c61c0` refuses it.
+            let swim_ended = clamped.as_deref().is_some_and(|c| c.swam);
+            let flight_ended = clamped.as_deref().is_some_and(|c| c.flew);
+            let starts = from_block || swim_ended || flight_ended;
+            // A ground path's end: the last step walks to the end point, and its Z stands unless
+            // the end point is 3 yd or more from it, which snaps the mover there (`0x616d60`).
+            let ended = clamped
+                .as_deref()
+                .filter(|c| !legacy && !starts && c.path.is_some())
+                .map(|c| (c.xz, c.y_written));
+            if let Some(from) = ended {
+                let water = water_at(t.translation);
+                let raw = t.translation.y;
+                let walked = walker_step(&world, &capsule.0, from, xz, hover, water).y;
+                let y = walked
+                    .filter(|w| (raw - w).powi(2) < PATH_END_SNAP_SQ)
+                    .unwrap_or(raw);
+                if y != t.translation.y {
+                    moved += 1;
+                    t.translation.y = y;
+                    if let Some(rm) = motion.as_deref_mut() {
+                        rm.wow_pos = bevy_to_wow(t.translation);
+                    }
+                }
+                if let Some(c) = clamped.as_deref_mut() {
+                    *c = GroundClamped {
+                        xz,
+                        seat_y: raw,
+                        y_written: y,
+                        hit: true,
+                        epoch: epoch.get(),
+                        modes: granted,
+                        path: None,
+                        fall: None,
+                        swam: false,
+                        flew: false,
+                    };
+                }
+                continue;
+            }
+            if let Some(fall) = same_pose.and_then(|c| c.fall).filter(|_| !starts) {
+                let class = benilla_world::collision::WorldCollision::UNIT_MOVER_CLASS
+                    | if water_walking {
+                        benilla_world::collision::WorldCollision::WATER_WALK_CLASS
+                    } else {
+                        0
+                    };
+                let feather = move_word & crate::creature_anim::move_flags::SAFE_FALL != 0;
+                let water = water_at(t.translation);
+                let (y, fall) = match step_idle_fall(
+                    &world,
+                    fall,
+                    xz,
+                    seat_y,
+                    t.translation.y,
+                    now_ms,
+                    feather,
+                    water,
+                    hover,
+                    class,
+                ) {
+                    FallStep::Hang(f) => (t.translation.y, Some(f)),
+                    FallStep::Falling(f, y) => (y, Some(f)),
+                    FallStep::Landed(floor) => {
+                        landings.write(crate::creature_anim::HardLanding {
+                            entity,
+                            descent: seat_y - floor,
+                        });
+                        (floor, None)
+                    }
+                };
+                if y != t.translation.y {
+                    moved += 1;
+                    t.translation.y = y;
+                    if let Some(rm) = motion.as_deref_mut() {
+                        rm.wow_pos = bevy_to_wow(t.translation);
+                    }
+                }
+                if let Some(c) = clamped.as_deref_mut() {
+                    c.y_written = t.translation.y;
+                    c.fall = fall;
+                }
+                continue;
+            }
+            if same_pose.is_some() && !starts {
+                held += 1;
+                continue; // not integrated: it stands
+            }
+            // Any other pose, the relay's among them, stands as sent.
+            let starts = starts && !rider && move_word & FALL_REFUSED == 0;
+            let state = GroundClamped {
+                xz,
+                seat_y: t.translation.y,
+                y_written: t.translation.y,
+                hit: true,
+                epoch: epoch.get(),
+                modes: granted,
+                path: None,
+                fall: starts.then_some(IdleFall {
+                    elapsed_ms: 0,
+                    last_ms: now_ms,
+                }),
+                swam: false,
+                flew: false,
+            };
+            match clamped.as_deref_mut() {
+                Some(c) => *c = state,
+                None => {
+                    commands.entity(entity).insert(state);
+                }
+            }
+            continue;
+        }
         // The cast gate: same XZ, same collider epoch, same modes, and our own answer still the Y
-        // standing here, so the ray cannot answer differently. Testing the standing Y rather than
-        // the seat also re-grounds a re-sent identical wire pose. A miss never caches.
+        // standing here, so the ray cannot answer differently. A miss never caches.
         if let Some(c) = clamped.as_deref() {
             let same_question = if legacy {
                 c.y_written == t.translation.y
             } else {
                 c.y_written == t.translation.y && c.epoch == epoch.get() && c.modes == granted
             };
-            if c.hit && c.xz == xz && same_question {
+            if c.hit && c.path == spline.map(|s| (s.id, s.start)) && c.xz == xz && same_question {
                 held += 1;
                 continue;
             }
@@ -790,63 +1139,23 @@ pub(in crate::net) fn ground_clamp_creatures(
                 }
             }
         }
-        // Only for a unit not swimming: the reference takes this arm with the swim bit clear
-        // (`0x631617`). Deviation: its rate-limited hover climb (`0x636fa1`, 7 yd/s) is not
-        // reproduced, because the cache gate needs a pure function; it converges to this answer.
-        let water = granted
-            .water_walking()
-            .then(|| {
-                let wow = bevy_to_wow(t.translation);
-                let who = benilla_world::world_point::Subject::Unit(entity);
-                points
-                    .liquid_at(who, wow)
-                    .map(|l| t.translation.y + (l.surface_z - wow[2]))
-            })
-            .flatten();
-        let hover = granted.hovering();
+        let water = water_at(t.translation);
         // A continuing walker takes the swept step from last frame's pose with Δz = 0 (step-up
-        // `H` 2.0) and keeps only Y, so it rides a hill its chord cuts under; an idle unit or a new
-        // path settles down from the seat (`0x636dcd`-`0x636e45`, `d·1.849 + 1/36`).
+        // `H` 2.0) and keeps only Y, so it rides a hill its chord cuts under. A new path settles
+        // down from its seat (`0x636dcd`-`0x636e45`, `d·1.849 + 1/36`).
         let path = spline.map(|s| (s.id, s.start));
         let continuing = clamped
             .as_deref()
-            .filter(|c| path.is_some() && c.path == path)
+            .filter(|c| c.path == path)
             .map(|c| (c.xz, c.y_written));
         cast += 1;
         let (y, hit_ground) = if let Some((pxz, py)) = continuing {
             swept += 1;
-            let half_h = Vec3::Y * (crate::player::CAPSULE_HEIGHT * 0.5);
-            let from = Vec3::new(pxz[0], py, pxz[1]) + half_h;
-            // The frame's horizontal displacement as a one-second velocity: `grounded_step` travels
-            // `speed · dt`, and the reference's walk step takes a distance and a direction
-            // (`0x6367b0`).
+            let g = walker_step(&world, &capsule.0, (pxz, py), xz, hover, water);
             let delta = Vec3::new(xz[0] - pxz[0], 0.0, xz[1] - pxz[1]);
-            let g = crate::player::mover::grounded_step(
-                &world,
-                &capsule.0,
-                from,
-                delta,
-                Duration::from_secs(1),
-                crate::player::mover::Support {
-                    rise: crate::player::CREATURE_STEP_UP_HEIGHT,
-                    offset: if hover {
-                        crate::player::HOVER_HEIGHT
-                    } else {
-                        0.0
-                    },
-                    water,
-                    // Per-frame state the memo does not keep; the path's next sample corrects a
-                    // miss on a steep face.
-                    steep: false,
-                },
-            );
             // A sweep that finds no floor holds the server's pose, as `grounded_y` does: the step's
             // no-floor drop would ratchet below a surface the one-sided cast cannot find again.
-            let y = if g.unsupported.is_some() {
-                seat_y
-            } else {
-                g.center.y - half_h.y
-            };
+            let y = g.y.unwrap_or(seat_y);
             if benilla_assets::trace::enabled_for("clmp")
                 && clamp_trace_display().is_some_and(|d| net.display_id == Some(d))
             {
@@ -859,12 +1168,12 @@ pub(in crate::net) fn ground_clamp_creatures(
                         z_of(py),
                         z_of(seat_y),
                         delta.length(),
-                        g.ground.is_some() as u8,
+                        g.ground as u8,
                         z_of(y),
                     ),
                 );
             }
-            if g.unsupported.is_some() {
+            if g.y.is_none() {
                 noflr += 1;
                 if seat_y - y > 1.0e-4 {
                     ratchet += 1;
@@ -874,34 +1183,28 @@ pub(in crate::net) fn ground_clamp_creatures(
                     }
                 }
             }
-            (y, g.ground.is_some())
+            (y, g.ground)
         } else {
-            let origin = Vec3::new(t.translation.x, seat_y + IDLE_UP_BAND, t.translation.z);
-            let reach = IDLE_UP_BAND + GROUND_CLAMP_DOWN;
+            // A new path's first frame settles from its seat, at most [`PATH_SETTLE_DOWN`], and a
+            // miss holds the seat. The settle sweeps the mover volume, whose foot is a pyramid
+            // `1.849·r` tall on the feet (`0x631440`), a face up to 1/36 yd behind it still
+            // counting (`0x632910`): a face already inside it stops the sweep at once.
+            let band = FOOT_RISE * crate::player::CAPSULE_RADIUS + FOOT_SLACK;
+            let origin = Vec3::new(t.translation.x, seat_y + band, t.translation.z);
             // One-sided, as the player mover grounds: a face wound away is no floor.
-            let hit = world.ray_body(origin, Dir3::NEG_Y, reach);
-            let floor = hit.as_ref().map(|h| origin.y - h.distance);
+            let hit = world.ray_body(origin, Dir3::NEG_Y, band + PATH_SETTLE_DOWN);
+            let floor = hit.as_ref().map(|h| (origin.y - h.distance).min(seat_y));
             let y = grounded_y(seat_y, floor, water, hover);
-            // The `clmp` trace for one display (`WOW_CLAMP_TRACE=<display id>`): per cast, the
-            // seat, the ray origin, the hit and the Z written, in WoW coordinates.
             if benilla_assets::trace::enabled_for("clmp")
                 && clamp_trace_display().is_some_and(|d| net.display_id == Some(d))
             {
-                let seat = bevy_to_wow(Vec3::new(t.translation.x, seat_y, t.translation.z));
                 let z_of = |y: f32| bevy_to_wow(Vec3::new(0.0, y, 0.0))[2];
-                let hit_s = hit.as_ref().map_or("miss".to_string(), |h| {
-                    format!("hit d={:.3} n.y={:+.3}", h.distance, h.normal.y)
-                });
                 benilla_assets::trace::line(
                     "clmp",
                     &format!(
-                        "display={} idle seat=({:.2},{:.2},{:.3}) origin_z={:.3} reach={:.2} {hit_s} floor_z={} z={:.3}",
+                        "display={} path-start seat_z={:.3} floor_z={} z={:.3}",
                         net.display_id.unwrap_or(0),
-                        seat[0],
-                        seat[1],
-                        seat[2],
-                        z_of(origin.y),
-                        reach,
+                        z_of(seat_y),
                         floor.map_or("-".to_string(), |f| format!("{:.3}", z_of(f))),
                         z_of(y),
                     ),
@@ -931,6 +1234,9 @@ pub(in crate::net) fn ground_clamp_creatures(
             epoch: epoch.get(),
             modes: granted,
             path,
+            fall: None,
+            swam: false,
+            flew: false,
         };
         match clamped.as_deref_mut() {
             Some(c) => *c = state,
@@ -1023,6 +1329,14 @@ const CREATURE_SWIM_EXIT_BAND: f32 = 1.0 / 36.0;
 #[derive(Component)]
 pub(crate) struct CreatureSwimming;
 
+/// A body a create or movement block has just posed ([`crate::net::objects`]): the block's status
+/// runs `0x619320` (`0x5ff04a`), which starts an idle mover's fall. A new unit reaches it from
+/// `CGUnit_C::CGUnit_C` (`0x5fad50`, `0x5fb131` → `0x5ff070`), a re-create from `ObjectRecreate`
+/// (`0x466350`, `0x466498` → `0x5ff070`) and a movement block from `0x467110` → `0x5ff030`. The
+/// clamp's next visit takes it; a relayed move before then drops it.
+#[derive(Component)]
+pub(in crate::net) struct FromBlock;
+
 /// The last ground clamp this unit took: its seat and the cast gate's inputs, each compared by bit.
 #[derive(Component, Clone, Copy)]
 pub(crate) struct GroundClamped {
@@ -1033,7 +1347,8 @@ pub(crate) struct GroundClamped {
     pub(crate) seat_y: f32,
     /// The Y standing after that cast; a different Y here is an external write, which re-seats.
     pub(crate) y_written: f32,
-    /// Only a hit caches; a miss keeps casting until the collider streams in.
+    /// Whether the walker's last step found a floor: only a hit caches, a miss keeps casting until
+    /// the collider streams in. An idle pose casts nothing and reads `true`.
     pub(crate) hit: bool,
     /// The collider-set stamp the answer was computed against.
     epoch: u64,
@@ -1042,12 +1357,23 @@ pub(crate) struct GroundClamped {
     /// The walker's `(spline id, start)` this continues; a new path re-seats, as the reference
     /// re-bases on every inbound movement packet (`0x7c6420`).
     path: Option<(u32, Instant)>,
+    /// An idle unit's fall while it is in the air.
+    fall: Option<IdleFall>,
+    /// The creature marker has it swimming; the swim's end starts a fall (`0x7c6e80`).
+    swam: bool,
+    /// A flying path drove it; the path's end starts a fall (`0x7c6c00`).
+    flew: bool,
 }
 
 impl GroundClamped {
-    /// Whether the walker's swept step produced this answer rather than the idle settle.
+    /// Whether the walker's swept step produced this answer rather than an idle pose.
     pub(crate) fn walking(&self) -> bool {
         self.path.is_some()
+    }
+
+    /// An idle fall's clock (ms) while it is in the air, the arc the animation driver reads.
+    pub(crate) fn fall_ms(&self) -> Option<u32> {
+        self.fall.map(|f| f.elapsed_ms)
     }
 }
 
@@ -1122,8 +1448,8 @@ pub(in crate::net) fn mark_swimming_creatures(
     }
 }
 
-/// A unit created inside a building whose floor collider has not attached yet, and what happens
-/// to it when the floor lands: the seat lets the probe reach the floor, the epoch makes it re-ask.
+/// An idle unit's create fall: its arc, what refuses or hangs it, where it lands, and the swim it
+/// may end in.
 #[cfg(test)]
 mod under_floor {
     use avian3d::prelude::*;
@@ -1131,9 +1457,10 @@ mod under_floor {
     use bevy::ecs::system::RunSystemOnce;
     use bevy::prelude::*;
 
-    use super::{ground_clamp_creatures, GroundClamped};
+    use super::{ground_clamp_creatures, GroundClamped, Spline};
     use crate::net::NetEntity;
     use benilla_world::collision::ColliderEpoch;
+    use std::time::{Duration, Instant};
 
     /// Auberdine's geometry: terrain, the building's floor 2.08 above it, and the server's Z for
     /// the NPCs inside 0.08 above that.
@@ -1172,6 +1499,7 @@ mod under_floor {
             PhysicsPlugins::new(bevy::app::PostUpdate),
         ));
         app.init_asset::<Mesh>().init_resource::<ColliderEpoch>();
+        app.add_message::<crate::creature_anim::HardLanding>();
         // The liquid and room facade, seeded empty: no liquid anywhere.
         benilla_world::world_point::init_world_point_resources(app.world_mut());
         // The body a walker's swept step sweeps.
@@ -1192,6 +1520,7 @@ mod under_floor {
                     scale: 1.0,
                 },
                 Transform::from_xyz(0.0, WIRE_Y, 0.0),
+                super::FromBlock,
             ))
             .id();
         app.update(); // seats Position/Rotation and the collider trees
@@ -1208,72 +1537,495 @@ mod under_floor {
         app.world().get::<Transform>(e).unwrap().translation.y
     }
 
-    #[test]
-    fn a_unit_sunk_by_a_late_floor_stands_back_up_when_it_lands() {
-        let (mut app, npc) = half_arrived_world();
+    /// `n` frames of `ms` each: the frame clock moves on, the creature marker runs on the last
+    /// frame's pose, then the clamp, as in the schedule.
+    fn frames(app: &mut App, n: usize, ms: u64) {
+        for _ in 0..n {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_millis(ms));
+            app.world_mut()
+                .run_system_once(super::mark_swimming_creatures)
+                .expect("run the marker");
+            clamp(app);
+        }
+    }
 
-        // Only the terrain exists yet, so the clamp grounds onto it.
-        clamp(&mut app);
-        assert_eq!(
-            y_of(&app, npc),
-            TERRAIN_Y,
-            "with only terrain built, the clamp grounds onto terrain"
-        );
-        assert_eq!(
-            app.world().get::<GroundClamped>(npc).unwrap().seat_y,
-            WIRE_Y,
-            "the seat is the server's Z, not the answer the clamp just wrote"
-        );
+    fn set_y(app: &mut App, e: Entity, y: f32) {
+        app.world_mut()
+            .get_mut::<Transform>(e)
+            .unwrap()
+            .translation
+            .y = y;
+    }
 
-        // Nothing moves the NPC; the floor collider attaches and bumps the epoch.
-        floor_at(&mut app, FLOOR_Y);
-        app.world_mut().resource_mut::<ColliderEpoch>().bump();
-        app.update();
+    fn drop_at(ms: u32) -> f32 {
+        super::super::remote::fall_drop(0.0, ms, false)
+    }
 
-        // It comes back up on its own.
-        clamp(&mut app);
-        assert_eq!(
-            y_of(&app, npc),
-            FLOOR_Y,
-            "the floor arrived under an NPC that never moved; it belongs on it"
+    /// The building whose floor is [`FLOOR_Y`], as a map object's box (WoW XY (−5, −5)..(5, 5)).
+    const BUILDING: [[f32; 3]; 2] = [[-5.0, -5.0, TERRAIN_Y], [5.0, 5.0, FLOOR_Y + 3.0]];
+
+    fn building_loaded(app: &mut App, loaded: bool) {
+        let unready = if loaded { vec![] } else { vec![BUILDING] };
+        app.insert_resource(
+            benilla_world::terrain_stream::TerrainResidency::with_unready_map_objects(unready),
         );
     }
 
-    /// A hovering unit rests a yard over its floor and never climbs: the reference ends at
-    /// `z_before_snap − max(L − 1.0, 0)` (`0x636e81`-`0x636ea9`).
+    /// A unit created inside a building that has not loaded hangs at the server's pose, its fall's
+    /// world query failing (`0x6aaab0`), and lands on the floor once the building is in, not on the
+    /// terrain under it.
     #[test]
-    fn a_hovering_creature_floats_a_yard_and_never_climbs() {
+    fn a_unit_created_in_an_unloaded_building_lands_on_its_floor() {
+        let (mut app, npc) = half_arrived_world();
+        building_loaded(&mut app, false);
+        clamp(&mut app);
+        frames(&mut app, 30, 16);
+        assert_eq!(y_of(&app, npc), WIRE_Y, "it hangs while the building loads");
+        assert_eq!(
+            app.world().get::<GroundClamped>(npc).unwrap().seat_y,
+            WIRE_Y,
+            "the seat is the server's Z"
+        );
+        floor_at(&mut app, FLOOR_Y);
+        app.update();
+        building_loaded(&mut app, true);
+        frames(&mut app, 30, 16);
+        assert_eq!(y_of(&app, npc), FLOOR_Y, "it lands on the building's floor");
+    }
+
+    /// A unit the server seats above its floor falls onto it by the arc, however little the
+    /// drop: `0x619320` starts the fall for every idle create, with no floor test (`0x61943c`).
+    /// The landing raises the fall height (`0x7c60c0`).
+    #[test]
+    fn a_unit_seated_high_above_its_floor_falls_onto_it() {
+        let (mut app, npc) = half_arrived_world();
+        let high = TERRAIN_Y + 5.8;
+        set_y(&mut app, npc, high);
+        clamp(&mut app);
+        assert_eq!(y_of(&app, npc), high, "the fall starts from the seat");
+        frames(&mut app, 25, 16);
+        let mid = y_of(&app, npc);
+        assert!(
+            (mid - (high - drop_at(400))).abs() < 1.0e-4,
+            "0.4 s in, the arc stands {} under the seat: {mid}",
+            drop_at(400)
+        );
+        frames(&mut app, 30, 16);
+        assert!(
+            (y_of(&app, npc) - TERRAIN_Y).abs() < 1.0e-3,
+            "it lands: {}",
+            y_of(&app, npc)
+        );
+        assert!(app
+            .world()
+            .get::<GroundClamped>(npc)
+            .unwrap()
+            .fall
+            .is_none());
+        let landings = app
+            .world()
+            .resource::<bevy::ecs::message::Messages<crate::creature_anim::HardLanding>>();
+        assert!(
+            landings
+                .iter_current_update_messages()
+                .any(|l| l.entity == npc && (l.descent - 5.8).abs() < 1.0e-3),
+            "the landing carries the 5.8 yd fall height"
+        );
+
+        // A few hundredths up falls too, by the arc.
+        let (mut app, npc) = half_arrived_world();
+        set_y(&mut app, npc, TERRAIN_Y + 0.03);
+        clamp(&mut app);
+        frames(&mut app, 1, 16);
+        let y = y_of(&app, npc);
+        assert!(
+            y < TERRAIN_Y + 0.03 && y > TERRAIN_Y,
+            "16 ms in it is on its way down, not snapped: {y}"
+        );
+        frames(&mut app, 10, 16);
+        assert_eq!(y_of(&app, npc), TERRAIN_Y, "and lands");
+    }
+
+    /// A failed world query hangs the body with its fall clock kept (`0x634154`): the arc goes on
+    /// from where it hung, not from where the frame clock has got to.
+    #[test]
+    fn a_hang_keeps_the_fall_clock() {
+        let (mut app, npc) = half_arrived_world();
+        let high = TERRAIN_Y + 40.0;
+        set_y(&mut app, npc, high);
+        clamp(&mut app);
+        frames(&mut app, 10, 16); // 160 ms of arc
+        let at = y_of(&app, npc);
+        assert!((at - (high - drop_at(160))).abs() < 1.0e-4);
+        // A building over the whole column: every step hangs.
+        app.insert_resource(
+            benilla_world::terrain_stream::TerrainResidency::with_unready_map_objects([[
+                [-5.0, -5.0, -100.0],
+                [5.0, 5.0, 100.0],
+            ]]),
+        );
+        frames(&mut app, 30, 16);
+        assert_eq!(y_of(&app, npc), at, "it hangs");
+        building_loaded(&mut app, true);
+        frames(&mut app, 1, 16);
+        let next = y_of(&app, npc);
+        assert!(
+            (next - (high - drop_at(176))).abs() < 1.0e-4,
+            "one step on from 160 ms, not 656: {next}"
+        );
+    }
+
+    /// The tick integrates at most 250 ms of a frame (`0x616642`): a long frame's step is 250 ms.
+    #[test]
+    fn a_long_frame_steps_the_fall_250_ms() {
+        let (mut app, npc) = half_arrived_world();
+        let high = TERRAIN_Y + 40.0;
+        set_y(&mut app, npc, high);
+        clamp(&mut app);
+        frames(&mut app, 1, 1000);
+        assert!(
+            (y_of(&app, npc) - (high - drop_at(250))).abs() < 1.0e-4,
+            "{}",
+            y_of(&app, npc)
+        );
+    }
+
+    /// A ground-clamped unit standing at `high`, with a mover whose flags are `flags`.
+    fn mover_at(app: &mut App, high: f32, flags: u32) -> Entity {
+        app.world_mut()
+            .spawn((
+                NetEntity {
+                    kind: EntityKind::Unit,
+                    display_id: None,
+                    scale: 1.0,
+                },
+                Transform::from_xyz(1.0, high, 1.0),
+                super::FromBlock,
+                crate::net::RemoteMotion {
+                    wow_pos: [0.0, 0.0, 0.0],
+                    orientation: 0.0,
+                    flags,
+                    pitch: 0.0,
+                    speed: 0.0,
+                    vertical_velocity: 0.0,
+                    jump_xy_vel: [0.0; 2],
+                    fall_start: None,
+                    pending: std::collections::VecDeque::new(),
+                    relay: Default::default(),
+                    last_apply_ms: 0.0,
+                    last_apply_pos: [0.0; 3],
+                    fired_at_ms: None,
+                },
+            ))
+            .id()
+    }
+
+    /// `0x7c61c0` refuses a fall to a mover whose word `+0x40` has a bit of 0x203800: root (by the
+    /// wire or by a granted mode), fixed height and swimming, the wire's SWIMMING on a unit the
+    /// marker has not marked (falling never reaches the idle arm). Levitation is no refusal. The
+    /// clamp starts a rider, whose pose its deck composes, no fall.
+    #[test]
+    fn a_refused_or_riding_unit_keeps_its_seat_high_above_its_floor() {
+        use crate::creature_anim::move_flags::{FIXED_Z, LEVITATING, ROOT, SWIMMING};
+        let (mut app, _) = half_arrived_world();
+        let high = TERRAIN_Y + 5.8;
+        let rooted = mover_at(&mut app, high, ROOT);
+        let granted_root = mover_at(&mut app, high, 0);
+        app.world_mut()
+            .entity_mut(granted_root)
+            .insert(crate::net::UnitMoveModes(ROOT));
+        let fixed = mover_at(&mut app, high, FIXED_Z);
+        let swimming = mover_at(&mut app, high, SWIMMING);
+        let rider = mover_at(&mut app, high, 0);
+        app.world_mut()
+            .entity_mut(rider)
+            .insert(crate::transport::TransportRider {
+                transport_guid: 9,
+                local_pos: [0.0; 3],
+                local_orientation: 0.0,
+            });
+        let levitating = mover_at(&mut app, high, LEVITATING);
+        app.update();
+        clamp(&mut app);
+        frames(&mut app, 60, 16);
+        for (e, what) in [
+            (rooted, "a rooted mover"),
+            (granted_root, "a mover rooted by a granted mode"),
+            (fixed, "a fixed-height mover"),
+            (swimming, "a swimming mover"),
+            (rider, "a rider"),
+        ] {
+            assert_eq!(y_of(&app, e), high, "{what} never starts a fall");
+        }
+        assert!(
+            (y_of(&app, levitating) - TERRAIN_Y).abs() < 1.0e-3,
+            "levitation does not refuse a fall: {}",
+            y_of(&app, levitating)
+        );
+    }
+
+    /// A landed idle unit is not integrated again (`0x6166f5`): a collider batch, or a building
+    /// loading over it, moves nothing.
+    #[test]
+    fn a_landed_unit_stands() {
+        let (mut app, _) = half_arrived_world();
+        let high = TERRAIN_Y + 5.8;
+        let npc = mover_at(&mut app, high, 0);
+        app.update();
+        clamp(&mut app);
+        frames(&mut app, 60, 16);
+        let landed = y_of(&app, npc);
+        assert!((landed - TERRAIN_Y).abs() < 1.0e-3, "it lands: {landed}");
+
+        building_loaded(&mut app, false);
+        app.world_mut().resource_mut::<ColliderEpoch>().bump();
+        frames(&mut app, 3, 16);
+        assert_eq!(y_of(&app, npc), landed, "it stands");
+    }
+
+    /// A pose the relay set stands as sent, wherever it is (`0x618c30` starts no fall); the relay
+    /// takes the clamp's memo, as `unit_move` does. A movement block's pose falls again
+    /// (`0x5ff030` → `0x619320`).
+    #[test]
+    fn a_relayed_pose_stands_and_a_blocks_falls() {
+        let (mut app, _) = half_arrived_world();
+        let high = TERRAIN_Y + 5.8;
+        let npc = mover_at(&mut app, high, 0);
+        app.update();
+        clamp(&mut app);
+        frames(&mut app, 60, 16);
+        assert!(
+            (y_of(&app, npc) - TERRAIN_Y).abs() < 1.0e-3,
+            "its create falls"
+        );
+        app.world_mut().entity_mut(npc).remove::<GroundClamped>();
+        set_y(&mut app, npc, high);
+        frames(&mut app, 30, 16);
+        assert_eq!(y_of(&app, npc), high, "the relay's pose stands");
+        app.world_mut().entity_mut(npc).insert(super::FromBlock);
+        set_y(&mut app, npc, high + 1.0);
+        frames(&mut app, 60, 16);
+        assert!(
+            (y_of(&app, npc) - TERRAIN_Y).abs() < 1.0e-3,
+            "the block's falls"
+        );
+    }
+
+    /// A flying path's end starts a fall from where it ends (`0x7c6c00` → `0x7c61c0` for spline
+    /// flag 0x200).
+    #[test]
+    fn a_flying_paths_end_falls() {
         let (mut app, npc) = half_arrived_world();
         clamp(&mut app);
-        assert_eq!(y_of(&app, npc), TERRAIN_Y, "the plain snap, for reference");
+        frames(&mut app, 40, 16);
+        assert_eq!(y_of(&app, npc), TERRAIN_Y, "its create lands");
+        let high = TERRAIN_Y + 5.0;
+        app.world_mut().entity_mut(npc).insert(Spline {
+            deck: None,
+            final_facing: benilla_protocol::MonsterMoveFacing::None,
+            points: vec![[0.0, 0.0, high], [0.0, 0.0, high]],
+            start: Instant::now(),
+            duration: Duration::from_secs(1),
+            id: 3,
+            grounded: false,
+            run_mode: true,
+        });
+        set_y(&mut app, npc, high);
+        frames(&mut app, 5, 16);
+        assert_eq!(y_of(&app, npc), high, "the flight owns its Z");
+        app.world_mut().entity_mut(npc).remove::<Spline>();
+        frames(&mut app, 60, 16);
+        assert!(
+            (y_of(&app, npc) - TERRAIN_Y).abs() < 1.0e-3,
+            "its end falls"
+        );
+    }
 
-        // The grant alone must re-arm the cast.
-        app.world_mut()
-            .entity_mut(npc)
-            .insert(crate::net::UnitMoveModes(
-                crate::creature_anim::move_flags::HOVER,
+    /// A hovering unit's fall sweeps a volume reaching up to a yard below its feet (`0x632ba0`
+    /// under FALLING and HOVER, `0x632a30`), so it lands a yard above the floor, and one seated
+    /// within a yard of it stays put.
+    #[test]
+    fn a_hovering_units_fall_lands_a_yard_above_its_floor() {
+        let hover = |app: &mut App, e: Entity| {
+            app.world_mut()
+                .entity_mut(e)
+                .insert(crate::net::UnitMoveModes(
+                    crate::creature_anim::move_flags::HOVER,
+                ));
+        };
+        let (mut app, npc) = half_arrived_world();
+        hover(&mut app, npc);
+        clamp(&mut app);
+        frames(&mut app, 40, 16);
+        let y = y_of(&app, npc);
+        assert!((y - (TERRAIN_Y + 1.0)).abs() < 1.0e-3, "a yard up: {y}");
+
+        let (mut app, npc) = half_arrived_world();
+        hover(&mut app, npc);
+        set_y(&mut app, npc, TERRAIN_Y + 0.6);
+        clamp(&mut app);
+        frames(&mut app, 20, 16);
+        assert_eq!(y_of(&app, npc), TERRAIN_Y + 0.6, "within a yard: it stays");
+    }
+
+    /// A fall into water stops where the marker starts the unit swimming, on the first frame's
+    /// step past `0.75·h` (`0x616795` → `0x6030c0`, strict at `0x603106`), whatever its hover; a
+    /// unit that may not swim falls through to the bed. When the swim ends, the unit falls on from
+    /// where it swam (`0x7c6e80` → `0x7c61c0`), never back up to its seat.
+    #[test]
+    fn a_fall_into_water_stops_where_the_unit_starts_swimming() {
+        use benilla_world::liquid::{LiquidSource, WaterChunkInfo};
+        let (mut app, _) = half_arrived_world();
+        let surface = TERRAIN_Y + 3.0;
+        // Still water over the WoW XY square (−5, −5)..(5, 5).
+        app.world_mut().spawn(WaterChunkInfo::new(
+            LiquidSource::AdtChunk,
+            benilla_formats::LiquidKind::Still,
+            [2, 2],
+            vec![
+                [-5.0, -5.0, surface],
+                [5.0, -5.0, surface],
+                [-5.0, 5.0, surface],
+                [5.0, 5.0, surface],
+            ],
+            vec![true],
+        ));
+        benilla_world::world_point::index_spawned_liquids(app.world_mut());
+        let seat = surface + 4.09;
+        let h = 2.0; // the swim boundary 1.5 under the surface
+        let store = |unit_flags: u32| {
+            crate::net::ObjectStore(benilla_protocol::ObjectFields::from_pairs(&[(
+                46, // UNIT_FIELD_FLAGS
+                unit_flags,
+            )]))
+        };
+        let unit = |app: &mut App, unit_flags: u32, hover: bool| {
+            let e = mover_at(app, seat, 0);
+            let mut e = app.world_mut().entity_mut(e);
+            e.insert((
+                crate::entities::CollisionHeight(h),
+                store(unit_flags),
+                benilla_world::wmo_portal::UnitWmoRoom::default(), // outdoors
             ));
+            if hover {
+                e.insert(crate::net::UnitMoveModes(
+                    crate::creature_anim::move_flags::HOVER,
+                ));
+            }
+            e.id()
+        };
+        let swimmer = unit(&mut app, 0x8000, false);
+        let hovering = unit(&mut app, 0x8000, true);
+        let walker = unit(&mut app, 0, false);
+        app.update();
         clamp(&mut app);
+        frames(&mut app, 120, 16);
+        let boundary = 0.75 * h;
+        for (e, what) in [(swimmer, "a swimmer"), (hovering, "a hovering swimmer")] {
+            assert!(
+                app.world().get::<super::CreatureSwimming>(e).is_some(),
+                "{what} swims"
+            );
+            let depth = surface - y_of(&app, e);
+            // At about 15 yd/s a 16 ms step is about 0.24 yd.
+            assert!(
+                depth > boundary && depth < boundary + 0.3,
+                "{what} stops one step past the boundary: {depth}"
+            );
+        }
         assert_eq!(
-            y_of(&app, npc),
-            TERRAIN_Y + crate::player::HOVER_HEIGHT,
-            "a yard clear of the floor — and the grant alone re-armed the cast"
+            y_of(&app, swimmer),
+            y_of(&app, hovering),
+            "no hover lift in water"
+        );
+        assert!(
+            (y_of(&app, walker) - TERRAIN_Y).abs() < 1.0e-3,
+            "a unit that may not swim falls to the bed: {}",
+            y_of(&app, walker)
         );
 
-        // Seated under a yard over its floor, it stays at its seat.
-        let near = TERRAIN_Y + 0.25;
-        app.world_mut()
-            .entity_mut(npc)
-            .get_mut::<Transform>()
-            .unwrap()
-            .translation
-            .y = near;
-        clamp(&mut app);
-        assert_eq!(
-            y_of(&app, npc),
-            near,
-            "inside the clearance the reference subtracts nothing — it must not climb"
+        // The swim permit goes: the mark clears and the unit falls on to the bed.
+        let swam_at = y_of(&app, swimmer);
+        app.world_mut().entity_mut(swimmer).insert(store(0));
+        for _ in 0..60 {
+            frames(&mut app, 1, 16);
+            assert!(y_of(&app, swimmer) <= swam_at, "never back up to the seat");
+        }
+        assert!(
+            (y_of(&app, swimmer) - TERRAIN_Y).abs() < 1.0e-3,
+            "it lands on the bed: {}",
+            y_of(&app, swimmer)
         );
+    }
+
+    /// A unit seated just under a floor stays at its seat: the face lies inside the volume's foot,
+    /// so its fall's first step meets it at once and it neither climbs onto the floor nor falls
+    /// through it.
+    #[test]
+    fn a_unit_seated_just_under_a_floor_stays_at_its_seat() {
+        // The foot `1.849·r` tall plus the 1/36 yd behind its bevel (`0x632910`): 0.644 yd.
+        for under in [0.05, 0.63] {
+            let (mut app, npc) = half_arrived_world();
+            let deck = TERRAIN_Y + 10.0;
+            floor_at(&mut app, deck);
+            let seat = deck - under;
+            set_y(&mut app, npc, seat);
+            app.update();
+            clamp(&mut app);
+            frames(&mut app, 30, 16);
+            assert_eq!(
+                y_of(&app, npc),
+                seat,
+                "{under} yd under: the deck is inside the foot, no climb and no fall through"
+            );
+        }
+    }
+
+    /// A water-walker's fall lands on the surface only pitched above −37° (`0x63161e`): pitched
+    /// further down, the liquid is not in its world and it falls to the bed.
+    #[test]
+    fn a_water_walker_pitched_steeply_down_falls_through_the_surface() {
+        use benilla_world::liquid::{LiquidSource, WaterChunkInfo};
+        let (mut app, _) = half_arrived_world();
+        let surface = TERRAIN_Y + 3.0;
+        app.world_mut().spawn(WaterChunkInfo::new(
+            LiquidSource::AdtChunk,
+            benilla_formats::LiquidKind::Still,
+            [2, 2],
+            vec![
+                [-5.0, -5.0, surface],
+                [5.0, -5.0, surface],
+                [-5.0, 5.0, surface],
+                [5.0, 5.0, surface],
+            ],
+            vec![true],
+        ));
+        benilla_world::world_point::index_spawned_liquids(app.world_mut());
+        let walker = |app: &mut App, pitch: f32| {
+            let e = mover_at(app, surface + 4.0, 0);
+            app.world_mut()
+                .get_mut::<crate::net::RemoteMotion>(e)
+                .unwrap()
+                .pitch = pitch;
+            app.world_mut()
+                .entity_mut(e)
+                .insert(crate::net::UnitMoveModes(
+                    crate::creature_anim::move_flags::WATER_WALKING,
+                ));
+            e
+        };
+        let level = walker(&mut app, 0.0);
+        let down = walker(&mut app, -0.7);
+        app.update();
+        clamp(&mut app);
+        frames(&mut app, 60, 16);
+        assert!(
+            (y_of(&app, level) - surface).abs() < 1.0e-3,
+            "on the surface"
+        );
+        assert!((y_of(&app, down) - TERRAIN_Y).abs() < 1.0e-3, "on the bed");
     }
 
     /// A mount child is a model of its unit (`0x607a00`) with a host-local `Transform`: the clamp
@@ -1299,6 +2051,7 @@ mod under_floor {
             ))
             .id();
         clamp(&mut app);
+        frames(&mut app, 40, 16);
         assert_eq!(y_of(&app, npc), TERRAIN_Y, "the mounted unit is grounded");
         assert_eq!(
             y_of(&app, mount),
@@ -1308,29 +2061,7 @@ mod under_floor {
         assert!(app.world().get::<GroundClamped>(mount).is_none());
     }
 
-    /// A re-sent identical pose (same seat) is re-grounded, not held at the wire Z.
-    #[test]
-    fn a_pose_re_sent_unchanged_is_re_grounded_not_held() {
-        let (mut app, npc) = half_arrived_world();
-        clamp(&mut app);
-        assert_eq!(y_of(&app, npc), TERRAIN_Y);
-
-        // The wire restates its pose: the same seat, but no longer the Y the clamp left.
-        app.world_mut()
-            .entity_mut(npc)
-            .get_mut::<Transform>()
-            .unwrap()
-            .translation
-            .y = WIRE_Y;
-        clamp(&mut app);
-        assert_eq!(
-            y_of(&app, npc),
-            TERRAIN_Y,
-            "the question was unchanged, but the answer was no longer applied"
-        );
-    }
-
-    /// With no liquid, water walking changes nothing: the `max` must not meet a sentinel surface.
+    /// With no liquid, water walking changes nothing: the fall lands on the terrain.
     #[test]
     fn water_walking_with_no_liquid_changes_nothing() {
         let (mut app, npc) = half_arrived_world();
@@ -1340,6 +2071,7 @@ mod under_floor {
                 crate::creature_anim::move_flags::WATER_WALKING,
             ));
         clamp(&mut app);
+        frames(&mut app, 40, 16);
         assert_eq!(
             y_of(&app, npc),
             TERRAIN_Y,
@@ -1349,11 +2081,12 @@ mod under_floor {
 
     #[test]
     fn a_settled_unit_is_not_re_cast_while_the_world_holds_still() {
-        // The gate holds an answer whose inputs are unchanged.
+        // A landed idle unit is held: its memo is untouched.
         let (mut app, npc) = half_arrived_world();
         clamp(&mut app);
+        frames(&mut app, 40, 16);
         let before = *app.world().get::<GroundClamped>(npc).unwrap();
-        clamp(&mut app);
+        frames(&mut app, 2, 16);
         let after = *app.world().get::<GroundClamped>(npc).unwrap();
         assert_eq!(
             (before.seat_y, before.y_written, before.epoch),
@@ -1362,21 +2095,24 @@ mod under_floor {
         );
     }
 
+    /// With nothing below, the fall goes on: no floor ever puts the unit back at its seat.
     #[test]
-    fn a_unit_with_no_ground_in_reach_sits_where_the_server_put_it() {
-        // The whole reach below the seat is empty air: the miss leaves the unit at its seat.
+    fn a_unit_with_no_ground_below_falls_on() {
         let (mut app, npc) = half_arrived_world();
+        let seat = TERRAIN_Y + 40.0;
+        set_y(&mut app, npc, seat);
+        // Out of the terrain's XY square: nothing below.
         app.world_mut()
             .get_mut::<Transform>(npc)
             .unwrap()
             .translation
-            .y = TERRAIN_Y + 40.0;
+            .x = 50.0;
         clamp(&mut app);
-        assert_eq!(
-            y_of(&app, npc),
-            TERRAIN_Y + 40.0,
-            "no surface in reach ⇒ the wire's Z stands"
-        );
+        frames(&mut app, 10, 16);
+        let y = y_of(&app, npc);
+        assert!(y < seat, "it falls: {y}");
+        frames(&mut app, 10, 16);
+        assert!(y_of(&app, npc) < y, "and keeps falling");
     }
 }
 
@@ -1723,6 +2459,7 @@ mod server_moved_players {
             PhysicsPlugins::new(bevy::app::PostUpdate),
         ));
         app.init_asset::<Mesh>().init_resource::<ColliderEpoch>();
+        app.add_message::<crate::creature_anim::HardLanding>();
         benilla_world::world_point::init_world_point_resources(app.world_mut());
         // The body a walker's swept step sweeps.
         app.insert_resource(crate::player::PlayerCapsule(Collider::capsule(
@@ -1747,6 +2484,7 @@ mod server_moved_players {
                 },
                 // Mid-chord: what the sampler writes half-way between the two rims.
                 Transform::from_translation(wow_to_bevy([0.0, 0.0, RIM_Z])),
+                super::FromBlock,
             ))
             .id();
         app.update(); // seats Position/Rotation and the collider trees
@@ -1851,6 +2589,8 @@ mod server_moved_players {
 
     /// Between paths a bot stays grounded: once `sample_splines` drops the finished spline, the
     /// [`GroundClamped`] memo carries membership, as nothing is known to undo `0x619ca0`'s link.
+    /// The path's end keeps the walked Z, its end point 2.5 yd up being under 3 yd from it
+    /// (`0x616d60`, `fcomp 9.0` at `0x616d90`).
     #[test]
     fn a_bot_stays_grounded_between_paths() {
         let (mut app, body) = hollow(EntityKind::Player);
@@ -1858,21 +2598,52 @@ mod server_moved_players {
         clamp(&mut app);
         assert_grounded(&app, body, "mid-path");
 
-        // The path finished: the sampler has taken the spline away.
+        // The path finished: the sampler wrote its end point, at the chord's level, and took the
+        // spline away.
         app.world_mut().entity_mut(body).remove::<Spline>();
-        // The server puts it somewhere new, still on the chord's level.
-        app.world_mut()
-            .entity_mut(body)
-            .get_mut::<Transform>()
-            .unwrap()
-            .translation
-            .y = RIM_Z;
+        set_y(&mut app, body, RIM_Z);
+        clamp(&mut app);
+        assert_grounded(&app, body, "the path's end keeps its walked Z");
+        clamp(&mut app);
+        assert_grounded(&app, body, "and stands");
+        // Still ours: the next path is grounded from its first frame.
+        walking(&mut app, body);
         clamp(&mut app);
         assert_grounded(
             &app,
             body,
             "a body the server has moved once stays ours to ground until the relay takes it back",
         );
+    }
+
+    /// A path whose end point stands 3 yd or more from the walked pose snaps the mover onto it
+    /// (`0x616da3`-`0x616db7`).
+    #[test]
+    fn a_path_ending_3_yd_from_its_walk_snaps_to_its_end_point() {
+        let (mut app, body) = hollow(EntityKind::Unit);
+        walking(&mut app, body);
+        clamp(&mut app);
+        assert_grounded(&app, body, "mid-path");
+        app.world_mut().entity_mut(body).remove::<Spline>();
+        let far = FLOOR_Y + 3.01;
+        set_y(&mut app, body, far);
+        clamp(&mut app);
+        assert_eq!(y_of(&app, body), far, "3 yd on: the end point");
+        let near = FLOOR_Y + 2.99;
+        walking(&mut app, body);
+        clamp(&mut app);
+        app.world_mut().entity_mut(body).remove::<Spline>();
+        set_y(&mut app, body, near);
+        clamp(&mut app);
+        assert_grounded(&app, body, "under 3 yd: the walked Z");
+    }
+
+    fn set_y(app: &mut App, e: Entity, y: f32) {
+        app.world_mut()
+            .get_mut::<Transform>(e)
+            .unwrap()
+            .translation
+            .y = y;
     }
 
     /// The body we steer is the controller's, spline or not (`player::server_ride` owns its Y).
@@ -1932,7 +2703,8 @@ mod server_moved_players {
 
     /// A creature whose mover moves itself keeps the height its own step gave it, its mover's
     /// included: a fall's is the arc's (`0x635b00`), and a clamp that wrote it would flatten the
-    /// arc. Standing, or under a path, it is the clamp's again.
+    /// arc. Stopped by the relay, it stands where it was sent (`0x618c30` starts no fall); under a
+    /// path it is the clamp's again.
     #[test]
     fn a_creature_moving_itself_keeps_its_own_height() {
         use crate::creature_anim::move_flags::{FALLING, FORWARD};
@@ -1948,12 +2720,18 @@ mod server_moved_players {
 
             app.world_mut().get_mut::<RemoteMotion>(body).unwrap().flags = 0;
             clamp(&mut app);
-            assert_grounded(&app, body, &format!("{flags:#x}, then standing"));
+            for _ in 0..60 {
+                app.world_mut()
+                    .resource_mut::<Time>()
+                    .advance_by(Duration::from_millis(16));
+                clamp(&mut app);
+            }
             assert_eq!(
-                mover_z(&app, body),
-                benilla_assets::coords::bevy_to_wow(Vec3::new(0.0, FLOOR_Y, 0.0))[2],
-                "{flags:#x}: a standing mover stands where the clamp put it"
+                y_of(&app, body),
+                RIM_Z,
+                "{flags:#x}, then stopped: it stands"
             );
+            assert_eq!(mover_z(&app, body), RIM_Z, "{flags:#x}: and its mover");
         }
 
         let (mut app, body) = hollow(EntityKind::Unit);
@@ -2151,6 +2929,7 @@ mod inside_a_hull {
             PhysicsPlugins::new(bevy::app::PostUpdate),
         ));
         app.init_asset::<Mesh>().init_resource::<ColliderEpoch>();
+        app.add_message::<crate::creature_anim::HardLanding>();
         benilla_world::world_point::init_world_point_resources(app.world_mut());
         // The body a walker's swept step sweeps.
         app.insert_resource(crate::player::PlayerCapsule(Collider::capsule(
@@ -2185,8 +2964,19 @@ mod inside_a_hull {
                     scale: 1.0,
                 },
                 Transform::from_translation(at),
+                super::FromBlock,
             ))
             .id()
+    }
+
+    /// `n` frames of 16 ms: the frame clock moves on, then the clamp; an idle create's fall plays.
+    fn fall_frames(app: &mut App, n: usize) {
+        for _ in 0..n {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(Duration::from_millis(16));
+            clamp(app);
+        }
     }
 
     fn clamp(app: &mut App) {
@@ -2213,11 +3003,13 @@ mod inside_a_hull {
         });
     }
 
-    /// Idle inside the box, the down-ray passes its backface floor to the terrain, never the lid.
+    /// Idle inside the box, its create's fall passes the box's backface floor to the terrain,
+    /// never the lid.
     #[test]
     fn an_idle_unit_inside_a_closed_hull_is_never_put_on_its_lid() {
         let (mut app, npc) = caged();
         clamp(&mut app);
+        fall_frames(&mut app, 60);
         let y = y_of(&app, npc);
         assert!(
             y < BOX_FLOOR_Y + 0.1,
@@ -2225,7 +3017,7 @@ mod inside_a_hull {
         );
         assert!(
             (y - TERRAIN_Y).abs() < 1e-3,
-            "a down-ray from the seat passes the box's backface floor to the terrain: got {y}"
+            "the fall passes the box's backface floor to the terrain: got {y}"
         );
         assert_eq!(
             app.world().get::<GroundClamped>(npc).unwrap().seat_y,
@@ -2238,7 +3030,8 @@ mod inside_a_hull {
     #[test]
     fn a_walker_inside_a_closed_hull_keeps_its_floor() {
         let (mut app, npc) = caged();
-        clamp(&mut app); // the first frame: from the seat
+        clamp(&mut app);
+        fall_frames(&mut app, 60); // its create's fall lands it
         let start = y_of(&app, npc);
         path(&mut app, npc, 1, [0.0, 0.0, SEAT_Y], [0.0, 1.0, SEAT_Y], 2);
         // Twelve "frames" of a slow walk across the box, the chord at the seat's height.
@@ -2350,10 +3143,11 @@ mod inside_a_hull {
         let npc = spawn_unit(&mut app, wow_to_bevy([-9898.53, -3724.63, 22.4164]));
         app.update();
         clamp(&mut app);
+        fall_frames(&mut app, 30);
         let y = y_of(&app, npc);
         assert!(
             (y - TERRAIN).abs() < 1e-3,
-            "from his seat the ray passes the cage's own floor to the terrain: got {y} (seat 22.4164, lid 24.667)"
+            "the fall passes the cage's own floor to the terrain: got {y} (seat 22.42, lid 24.67)"
         );
     }
 

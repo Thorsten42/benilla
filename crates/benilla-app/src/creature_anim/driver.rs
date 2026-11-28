@@ -284,6 +284,8 @@ pub(super) fn drive_animations(
             Option<&StateKitPins>,
             // The unit's `[+0xd40]`, which outlives this driver.
             &mut CommittedSheath,
+            // An idle unit's fall, which the ground clamp plays and the selector reads as FALLING.
+            Option<&crate::net::motion::spline::GroundClamped>,
         ),
     )>,
     // A mount child's movement view is its host's, fetched through `MountBody.host`.
@@ -301,6 +303,7 @@ pub(super) fn drive_animations(
         Has<SelfPlayer>,
         // The rider's pins: `0x5fde80` writes the kit id into the mount's working state too.
         Option<&StateKitPins>,
+        Option<&crate::net::motion::spline::GroundClamped>,
     )>,
     mut swings: MessageReader<SwingMessage>,
     mut impacts: MessageReader<SwingImpact>,
@@ -483,6 +486,7 @@ pub(super) fn drive_animations(
             aura_nodes,
             state_pins,
             mut committed,
+            clamped,
         ),
     ) in &mut units
     {
@@ -500,12 +504,15 @@ pub(super) fn drive_animations(
             host_scale,
             ridden_by_self,
             state_pins,
+            clamped,
         ) = match mount_body {
             Some(mb) => match mount_hosts.get(mb.host) {
-                Ok((s, r, m, sp, f, sw, md, t, host_self, pins)) => {
-                    (s, r, m, sp, f, sw, md, t.scale.x, host_self, pins)
+                Ok((s, r, m, sp, f, sw, md, t, host_self, pins, c)) => {
+                    (s, r, m, sp, f, sw, md, t.scale.x, host_self, pins, c)
                 }
-                Err(_) => (None, None, None, None, None, false, None, 1.0, false, None),
+                Err(_) => (
+                    None, None, None, None, None, false, None, 1.0, false, None, None,
+                ),
             },
             None => (
                 spline,
@@ -518,8 +525,10 @@ pub(super) fn drive_animations(
                 1.0,
                 false,
                 state_pins,
+                clamped,
             ),
         };
+        let idle_fall = clamped.and_then(|c| c.fall_ms());
         // The `0x5fe2f0` rate divisor's `|modelScale|`: a mount child's display column composes
         // under the rider's scale.
         let model_scale = transform.scale.x * host_scale;
@@ -541,7 +550,14 @@ pub(super) fn drive_animations(
         let mount_edge = std::mem::replace(&mut drv.mount_display, mount_display) != mount_display;
         // Nothing chosen yet: a corpse streamed in settles on its end pose.
         let first = drv.gait.is_none() && drv.mode == Mode::Gait;
-        let mut mv = unify(movement, remote, spline, creature_swimming, move_modes);
+        let mut mv = unify(
+            movement,
+            remote,
+            spline,
+            creature_swimming,
+            move_modes,
+            idle_fall,
+        );
         // A unit without a controller poses from its `UNIT_FIELD_BYTES_1` stand-state byte; our own
         // avatar's controller overlays its in-flight request.
         if movement.is_none() {
