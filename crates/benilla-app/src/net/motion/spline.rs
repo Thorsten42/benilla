@@ -652,18 +652,31 @@ pub(crate) fn ground_derived(
 }
 
 /// How far below the seat the settle probe reaches (yd). The reference's settle reaches
-/// `d·1.849 + 1/36` and a body beyond it falls; a miss here lands the unit as its fall would,
-/// through a second probe [`FALL_REACH`] long.
+/// `d·1.849 + 1/36`; a miss here lands the unit as its fall would, through a second probe
+/// [`FALL_REACH`] long.
 const GROUND_CLAMP_DOWN: f32 = 4.0;
 /// How far below the seat an idle unit's fall looks for its landing (yd); the reference's fall has
 /// no bound, and a unit with nothing this far below keeps its seat.
 const FALL_REACH: f32 = 500.0;
-/// The settle box's height over the feet, per yard of body radius (`0x634960`, `0x80c740`).
-const IDLE_SETTLE_BOX: f32 = 1.849_399;
-/// How far past its swim depth a fall into liquid carries a unit (yd): the last fall step crosses
-/// the boundary. Measured in the 1.12 client (Turtle, Windrunner Pier): two night elf females
-/// (enter depth 1.69) fell from 4.05 and 4.09 to 1.74 and 1.78 under the surface.
-const FALL_SWIM_OVERSHOOT: f32 = 0.05;
+/// The height of the mover volume's foot over its apex, per yard of radius: its four bevels rise
+/// 1.849399 per yard out from the feet (`0x631440`).
+const FOOT_RISE: f32 = 1.849_399;
+/// The mover flags that refuse a fall (`0x7c61c0` tests 0x203800 at `0x7c61d6`): swimming,
+/// falling, root and fixed height.
+const FALL_REFUSED: u32 = crate::creature_anim::move_flags::SWIMMING
+    | crate::creature_anim::move_flags::FALLING
+    | crate::creature_anim::move_flags::ROOT
+    | crate::creature_anim::move_flags::FIXED_Z;
+
+/// The Y a swimmer's fall from `seat_y` onto `floor` ends at: where its feet pass `depth` under
+/// the liquid `surface` over that floor, as the swim decision starts swimming there (`0x6030c0`);
+/// else the floor.
+fn fall_end(floor: f32, seat_y: f32, surface: Option<f32>, depth: f32) -> f32 {
+    surface
+        .map(|s| s - depth)
+        .filter(|y| *y > floor && *y < seat_y)
+        .unwrap_or(floor)
+}
 
 /// The Y a grounded mover ends its frame at (`0x634040`'s walk resolve), shared by the clamp and
 /// [`crate::player::server_ride`]; a probe miss returns `seat_y`.
@@ -689,10 +702,10 @@ pub(crate) fn grounded_y(
 }
 
 /// Grounds every [`ground_derived`] body on benilla's world: the 1.12 client zeroes a ground
-/// spline's Δz and takes Z from the world trace, and an idle unit reads grounded too, by an
-/// untraced path. Every probe starts at the body, measured from the seat (the Z the unit's
-/// position owner last wrote), never from the clamp's last answer, so a late floor takes the unit
-/// back. Skipped: flying and deck paths, and a swimming unit, whose wire Z is its depth (vmangos
+/// spline's Δz and takes Z from the world trace, and an idle unit falls onto it from the pose its
+/// create or movement block gives (`0x619320` starts the fall through `0x617b00`). Every probe
+/// starts at the body, measured from the seat (the Z the unit's position owner last wrote), never
+/// from the clamp's last answer, so a late floor takes the unit back. Skipped: flying and deck paths, and a swimming unit, whose wire Z is its depth (vmangos
 /// paths it in 3D without the flying flag, `MoveSplineInit.cpp:191`; the reference keeps Δz under
 /// SWIMMING, `[CMovement+0x40] & 0x200000` at `0x616cfa`).
 #[allow(clippy::type_complexity)] // one Bevy system's full input set
@@ -905,37 +918,37 @@ pub(in crate::net) fn ground_clamp_creatures(
             }
             (y, g.ground.is_some())
         } else {
-            // The settle sweeps a box whose top corners stand `1.849·r` over the feet
-            // (`0x634960`): a face already inside it is a hit at distance 0, so a unit seated just
-            // under a floor stays at its seat and never climbs onto it.
-            let band = IDLE_SETTLE_BOX * crate::player::CAPSULE_RADIUS;
+            // The settle sweeps the mover volume, whose foot is a pyramid `1.849·r` tall on the
+            // feet (`0x631440`): a face already inside it stops the sweep at once, so a unit
+            // seated just under a floor stays at its seat and never climbs onto it.
+            let band = FOOT_RISE * crate::player::CAPSULE_RADIUS;
             let origin = Vec3::new(t.translation.x, seat_y + band, t.translation.z);
             let reach = band + GROUND_CLAMP_DOWN;
             // One-sided, as the player mover grounds: a face wound away is no floor.
             let mut hit = world.ray_body(origin, Dir3::NEG_Y, reach);
             let mut floor = hit.as_ref().map(|h| (origin.y - h.distance).min(seat_y));
-            // Nothing within the settle's reach: the walk step sets its no-floor flag and the
-            // mover falls (`0x7c61f0`) until it lands, or until liquid takes it past its swim
-            // depth (`0x6030c0`). Deviation: the fall's arc is not drawn; the unit lands at once.
-            // A levitating mover does not walk, so it keeps its seat; so does one with nothing
-            // below, and every unit while the world around the view is still streaming in.
-            let levitating = motion
-                .as_deref()
-                .is_some_and(|m| m.flags & crate::creature_anim::move_flags::LEVITATING != 0);
-            if hit.is_none() && !levitating && world_arrived {
+            // Nothing within the settle's reach: an idle mover's block starts a fall
+            // (`0x619320` → `0x7c61c0`), which lands it, or stops where the swim decision takes it
+            // (`0x6030c0`). Deviation: the fall's arc is not drawn; the unit lands at once. No
+            // fall on a path, under a refusing flag, with nothing below, or while the world
+            // around the view is still streaming in.
+            let move_flags = motion.as_deref().map_or(0, |m| m.flags);
+            if hit.is_none() && spline.is_none() && move_flags & FALL_REFUSED == 0 && world_arrived
+            {
                 hit = world.ray_body(origin, Dir3::NEG_Y, FALL_REACH);
                 floor = hit.as_ref().map(|h| origin.y - h.distance);
                 let flags = store.map_or(0, |s| s.0.unit_flags());
-                if let Some(f) = floor.filter(|_| crate::player::may_swim(flags)) {
+                // The swim decision bails on a levitating mover first (`0x6030d2`).
+                let swims = crate::player::may_swim(flags)
+                    && move_flags & crate::creature_anim::move_flags::LEVITATING == 0;
+                if let Some(f) = floor.filter(|_| swims) {
                     let wow = bevy_to_wow(t.translation);
                     let who = benilla_world::world_point::Subject::Unit(entity);
-                    let depth = swim_enter_depth(collision.copied().unwrap_or_default().0)
-                        + FALL_SWIM_OVERSHOOT;
-                    let swim_y = points
+                    let surface = points
                         .liquid_at(who, wow)
-                        .map(|l| t.translation.y + (l.surface_z - wow[2]) - depth)
-                        .filter(|s| *s > f && *s < seat_y);
-                    floor = Some(swim_y.unwrap_or(f));
+                        .map(|l| t.translation.y + (l.surface_z - wow[2]));
+                    let depth = swim_enter_depth(collision.copied().unwrap_or_default().0);
+                    floor = Some(fall_end(f, seat_y, surface, depth));
                 }
             }
             let y = grounded_y(seat_y, floor, water, hover);
@@ -1334,8 +1347,8 @@ mod under_floor {
     }
 
     /// A unit the server seats farther above its floor than the settle reaches falls onto it, as
-    /// the reference's no-floor fall does (`0x7c61f0`); a levitating one keeps its seat. Seen at
-    /// Turtle's Windrunner Pier: an Alah'Thalas Sentinel seated 5.8 yd above the deck.
+    /// an idle mover's create block starts a fall (`0x619320`, `0x7c61c0`). Seen at Turtle's
+    /// Windrunner Pier: an Alah'Thalas Sentinel seated 5.8 yd above the deck.
     #[test]
     fn a_unit_seated_high_above_its_floor_falls_onto_it() {
         let (mut app, npc) = half_arrived_world();
@@ -1363,10 +1376,22 @@ mod under_floor {
             "past the settle's reach the unit falls, and lands on the floor below: {}",
             y_of(&app, npc)
         );
+    }
 
-        let levitating = app
-            .world_mut()
-            .spawn((
+    /// `0x7c61c0` refuses a fall to a mover with a live spline or a flag of 0x203800 (root and
+    /// fixed height here; swimming and falling never reach the idle arm); levitation is no
+    /// refusal, so a levitating unit falls.
+    #[test]
+    fn a_rooted_fixed_height_or_pathed_unit_keeps_its_seat_high_above_its_floor() {
+        use crate::creature_anim::move_flags::{FIXED_Z, LEVITATING, ROOT};
+        let (mut app, _) = half_arrived_world();
+        app.insert_resource(benilla_world::terrain_stream::WorldLoadProgress {
+            scene_ready: true,
+            ..Default::default()
+        });
+        let high = TERRAIN_Y + super::GROUND_CLAMP_DOWN + 1.8;
+        let mut unit = |flags: u32, pathed: bool| {
+            let mut e = app.world_mut().spawn((
                 NetEntity {
                     kind: EntityKind::Unit,
                     display_id: None,
@@ -1376,7 +1401,7 @@ mod under_floor {
                 crate::net::RemoteMotion {
                     wow_pos: [0.0, 0.0, 0.0],
                     orientation: 0.0,
-                    flags: crate::creature_anim::move_flags::LEVITATING,
+                    flags,
                     pitch: 0.0,
                     speed: 0.0,
                     vertical_velocity: 0.0,
@@ -1388,20 +1413,60 @@ mod under_floor {
                     last_apply_pos: [0.0; 3],
                     fired_at_ms: None,
                 },
-            ))
-            .id();
+            ));
+            if pathed {
+                // A ground path's first frame takes the idle arm: the settle, never a fall.
+                e.insert(super::Spline {
+                    deck: None,
+                    final_facing: benilla_protocol::MonsterMoveFacing::None,
+                    points: vec![[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]],
+                    start: std::time::Instant::now(),
+                    duration: std::time::Duration::from_secs(4),
+                    id: 9,
+                    grounded: true,
+                    run_mode: true,
+                });
+            }
+            e.id()
+        };
+        let rooted = unit(ROOT, false);
+        let fixed = unit(FIXED_Z, false);
+        let pathed = unit(0, true);
+        let levitating = unit(LEVITATING, false);
         app.update();
         clamp(&mut app);
         assert_eq!(
-            y_of(&app, levitating),
+            y_of(&app, rooted),
             high,
-            "a levitating mover does not walk, so it never falls"
+            "a rooted mover never starts a fall"
+        );
+        assert_eq!(
+            y_of(&app, fixed),
+            high,
+            "a fixed-height mover never starts a fall"
+        );
+        assert_eq!(y_of(&app, pathed), high, "a live spline refuses the fall");
+        assert!(
+            (y_of(&app, levitating) - TERRAIN_Y).abs() < 1.0e-3,
+            "levitation does not refuse a fall: {}",
+            y_of(&app, levitating)
         );
     }
 
-    /// A unit seated just under a floor stays at its seat: the face lies inside the settle box,
-    /// a hit at distance 0, so it neither climbs onto the floor nor falls through it. The 1.12
-    /// client keeps Captain Velari Shadelain (Windrunner Pier) at her seat 5 cm under the deck.
+    /// A swimmer's fall into liquid ends at its swim depth under the surface, a floor above that
+    /// depth takes it first, and with no liquid it lands on the floor (`0x6030c0`).
+    #[test]
+    fn a_swimmers_fall_into_liquid_ends_at_its_swim_depth() {
+        // Windrunner Pier: a night elf female (enter depth 1.69) seated 4.09 over the water.
+        let (seat, surface, depth) = (4.09, 0.0, 1.69);
+        assert_eq!(super::fall_end(-10.0, seat, Some(surface), depth), -1.69);
+        assert_eq!(super::fall_end(-1.0, seat, Some(surface), depth), -1.0);
+        assert_eq!(super::fall_end(-10.0, seat, None, depth), -10.0);
+    }
+
+    /// A unit seated just under a floor stays at its seat: the face lies inside the volume's foot,
+    /// so it neither climbs onto the floor nor falls through it. The 1.12 client keeps Captain
+    /// Velari Shadelain (Windrunner Pier) at her seat 5 cm under the deck.
     #[test]
     fn a_unit_seated_just_under_a_floor_stays_at_its_seat() {
         let (mut app, npc) = half_arrived_world();
@@ -1419,7 +1484,7 @@ mod under_floor {
         assert_eq!(
             y_of(&app, npc),
             seat,
-            "the deck is inside the settle box: no climb, and no fall to the terrain below"
+            "the deck is inside the foot: no climb, and no fall to the terrain below"
         );
     }
 

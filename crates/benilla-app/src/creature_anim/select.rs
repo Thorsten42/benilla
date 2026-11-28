@@ -78,6 +78,9 @@ pub(crate) mod move_flags {
     /// `MOVEFLAG_LEVITATING`: the swim decision `0x6030c0` bails on it first (`0x6030d2`), so
     /// liquid can neither latch nor clear [`SWIMMING`]; GM flight sets both (`Player.cpp:4595`).
     pub const LEVITATING: u32 = 0x400;
+    /// `MOVEFLAG_FIXED_Z`: a mover with it never starts a fall (`0x7c61d6`); vmangos sets it on a
+    /// floating creature at spawn (`Creature.cpp:629`).
+    pub const FIXED_Z: u32 = 0x800;
     /// JUMPING/FALLING: set for the whole airborne arc.
     pub const FALLING: u32 = 0x2000;
     /// `MOVEFLAG_FALLINGFAR` (`0x633220`/`0x633240`): a jump latches it 1/9 yd below its launch
