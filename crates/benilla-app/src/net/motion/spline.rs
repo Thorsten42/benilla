@@ -668,14 +668,38 @@ const FALL_REFUSED: u32 = crate::creature_anim::move_flags::SWIMMING
     | crate::creature_anim::move_flags::ROOT
     | crate::creature_anim::move_flags::FIXED_Z;
 
-/// The Y a swimmer's fall from `seat_y` onto `floor` ends at: where its feet pass `depth` under
-/// the liquid `surface` over that floor, as the swim decision starts swimming there (`0x6030c0`);
-/// else the floor.
-fn fall_end(floor: f32, seat_y: f32, surface: Option<f32>, depth: f32) -> f32 {
-    surface
-        .map(|s| s - depth)
-        .filter(|y| *y > floor && *y < seat_y)
-        .unwrap_or(floor)
+/// The most of a frame the movement tick integrates per mover (ms, `0x616642`); `0x616620`
+/// skips the rest.
+const TICK_WINDOW_MAX_MS: f32 = 250.0;
+
+/// The Y a swimmer's fall from `seat_y` onto `floor` ends at, `frame_ms` a frame. The reference
+/// integrates the fall over each frame's window (`0x616620`) and runs the swim decision once, at
+/// the window's end, on the stepped feet (`0x616795` → `0x6030c0`), which starts a swim only for
+/// a depth strictly past `depth` (`0x603106`). So the fall stops at the first frame's step past
+/// the boundary under the water `surface`, or on the floor when it reaches that first.
+fn fall_end(
+    floor: f32,
+    seat_y: f32,
+    surface: Option<f32>,
+    depth: f32,
+    frame_ms: u32,
+    feather: bool,
+) -> f32 {
+    let Some(s) = surface else {
+        return floor;
+    };
+    let mut fall_ms = 0u32;
+    loop {
+        fall_ms = fall_ms.saturating_add(frame_ms.max(1));
+        let y = seat_y - super::remote::fall_drop(0.0, fall_ms, feather);
+        if y <= floor {
+            return floor;
+        }
+        // The marker's own test (`creature_swim_state`) on the same numbers: Bevy Y is WoW Z.
+        if s - y > depth {
+            return y;
+        }
+    }
 }
 
 /// The Y a grounded mover ends its frame at (`0x634040`'s walk resolve), shared by the clamp and
@@ -705,9 +729,10 @@ pub(crate) fn grounded_y(
 /// spline's Δz and takes Z from the world trace, and an idle unit falls onto it from the pose its
 /// create or movement block gives (`0x619320` starts the fall through `0x617b00`). Every probe
 /// starts at the body, measured from the seat (the Z the unit's position owner last wrote), never
-/// from the clamp's last answer, so a late floor takes the unit back. Skipped: flying and deck paths, and a swimming unit, whose wire Z is its depth (vmangos
-/// paths it in 3D without the flying flag, `MoveSplineInit.cpp:191`; the reference keeps Δz under
-/// SWIMMING, `[CMovement+0x40] & 0x200000` at `0x616cfa`).
+/// from the clamp's last answer, so a late floor takes the unit back. Skipped: flying and deck
+/// paths, and a swimming unit, whose wire Z is its depth (vmangos paths it in 3D without the
+/// flying flag, `MoveSplineInit.cpp:191`; the reference keeps Δz under SWIMMING,
+/// `[CMovement+0x40] & 0x200000` at `0x616cfa`).
 #[allow(clippy::type_complexity)] // one Bevy system's full input set
 pub(in crate::net) fn ground_clamp_creatures(
     world: benilla_world::collision::WorldCollision,
@@ -722,6 +747,8 @@ pub(in crate::net) fn ground_clamp_creatures(
     // and the mover's step is skipped, while the map object, terrain chunk or doodad under it is
     // not ready (`0x6aa8b0`). Deviation: benilla waits for the whole view neighbourhood instead.
     progress: Option<Res<benilla_world::terrain_stream::WorldLoadProgress>>,
+    // A fall into water steps by the frame, as the reference's movement tick does (`0x616620`).
+    time: Res<Time>,
     mut commands: Commands,
     mut q: Query<
         (
@@ -751,6 +778,11 @@ pub(in crate::net) fn ground_clamp_creatures(
     let world_arrived = progress
         .as_deref()
         .is_some_and(|p| p.scene_ready && p.colliders_pending == 0 && p.placements_pending == 0);
+    // The tick's window in whole milliseconds (`0x616620` takes `now − previous` as a uint32);
+    // a zero window, as on a first frame, strides 1 ms.
+    let frame_ms = (time.delta_secs() * 1000.0)
+        .round()
+        .clamp(1.0, TICK_WINDOW_MAX_MS) as u32;
     let t0 = cost.then(std::time::Instant::now);
     let (mut visited, mut skipped, mut held, mut cast, mut swept, mut hit_n, mut moved) =
         (0u32, 0u32, 0u32, 0u32, 0u32, 0u32, 0u32);
@@ -811,6 +843,12 @@ pub(in crate::net) fn ground_clamp_creatures(
             Some(c) if c.y_written == t.translation.y => c.seat_y,
             _ => t.translation.y,
         };
+        // Where this seat's fall landed, while the unit stands where the clamp left it: no new
+        // pose from its position owner since.
+        let landed_before = clamped
+            .as_deref()
+            .filter(|c| !legacy && c.xz == xz && c.y_written == t.translation.y)
+            .and_then(|c| c.landed);
         // The cast gate: same XZ, same collider epoch, same modes, and our own answer still the Y
         // standing here, so the ray cannot answer differently. Testing the standing Y rather than
         // the seat also re-grounds a re-sent identical wire pose. A miss never caches.
@@ -855,7 +893,7 @@ pub(in crate::net) fn ground_clamp_creatures(
             .filter(|c| path.is_some() && c.path == path)
             .map(|c| (c.xz, c.y_written));
         cast += 1;
-        let (y, hit_ground) = if let Some((pxz, py)) = continuing {
+        let (y, hit_ground, landed) = if let Some((pxz, py)) = continuing {
             swept += 1;
             let half_h = Vec3::Y * (crate::player::CAPSULE_HEIGHT * 0.5);
             let from = Vec3::new(pxz[0], py, pxz[1]) + half_h;
@@ -916,7 +954,7 @@ pub(in crate::net) fn ground_clamp_creatures(
                     }
                 }
             }
-            (y, g.ground.is_some())
+            (y, g.ground.is_some(), None)
         } else {
             // The settle sweeps the mover volume, whose foot is a pyramid `1.849·r` tall on the
             // feet (`0x631440`): a face already inside it stops the sweep at once, so a unit
@@ -930,11 +968,13 @@ pub(in crate::net) fn ground_clamp_creatures(
             // Nothing within the settle's reach: an idle mover's block starts a fall
             // (`0x619320` → `0x7c61c0`), which lands it, or stops where the swim decision takes it
             // (`0x6030c0`). Deviation: the fall's arc is not drawn; the unit lands at once. No
-            // fall on a path, under a refusing flag, with nothing below, or while the world
-            // around the view is still streaming in.
+            // fall under a refusing flag, with nothing below, or while the world around the view
+            // is still streaming in. `0x7c61c0` also refuses a live flying spline (`+0xa4`
+            // present, bit 0x4 clear, 0x200 set, `0x7c61c8`-`0x7c61d4`), which never reaches
+            // this arm; a ground path's first frame falls as an idle unit does.
             let move_flags = motion.as_deref().map_or(0, |m| m.flags);
-            if hit.is_none() && spline.is_none() && move_flags & FALL_REFUSED == 0 && world_arrived
-            {
+            let mut landed = None;
+            if hit.is_none() && move_flags & FALL_REFUSED == 0 && world_arrived {
                 hit = world.ray_body(origin, Dir3::NEG_Y, FALL_REACH);
                 floor = hit.as_ref().map(|h| origin.y - h.distance);
                 let flags = store.map_or(0, |s| s.0.unit_flags());
@@ -942,14 +982,23 @@ pub(in crate::net) fn ground_clamp_creatures(
                 let swims = crate::player::may_swim(flags)
                     && move_flags & crate::creature_anim::move_flags::LEVITATING == 0;
                 if let Some(f) = floor.filter(|_| swims) {
+                    // The water the creature marker latches on, as a WoW Z, which is Bevy Y.
                     let wow = bevy_to_wow(t.translation);
                     let who = benilla_world::world_point::Subject::Unit(entity);
-                    let surface = points
-                        .liquid_at(who, wow)
-                        .map(|l| t.translation.y + (l.surface_z - wow[2]));
+                    let surface = points.water_surface_at(who, wow);
                     let depth = swim_enter_depth(collision.copied().unwrap_or_default().0);
-                    floor = Some(fall_end(f, seat_y, surface, depth));
+                    let feather = move_flags & crate::creature_anim::move_flags::SAFE_FALL != 0;
+                    floor = Some(fall_end(f, seat_y, surface, depth, frame_ms, feather));
                 }
+                landed = floor;
+            }
+            // The fall is a one-shot (`0x619320`): a landed unit never returns to its seat, so a
+            // recast that cannot fall again (a refusing flag such as a later root, or the world
+            // streaming in after a collider batch) keeps the landing until a new pose arrives.
+            let kept = hit.is_none() && landed.is_none() && landed_before.is_some();
+            if kept {
+                landed = landed_before;
+                floor = landed_before;
             }
             let y = grounded_y(seat_y, floor, water, hover);
             // The `clmp` trace for one display (`WOW_CLAMP_TRACE=<display id>`): per cast, the
@@ -977,7 +1026,8 @@ pub(in crate::net) fn ground_clamp_creatures(
                     ),
                 );
             }
-            (y, hit.is_some())
+            // A kept landing caches once the world has arrived; while it streams, recast.
+            (y, hit.is_some() || (kept && world_arrived), landed)
         };
         if hit_ground {
             hit_n += 1;
@@ -1001,6 +1051,7 @@ pub(in crate::net) fn ground_clamp_creatures(
             epoch: epoch.get(),
             modes: granted,
             path,
+            landed,
         };
         match clamped.as_deref_mut() {
             Some(c) => *c = state,
@@ -1112,6 +1163,9 @@ pub(crate) struct GroundClamped {
     /// The walker's `(spline id, start)` this continues; a new path re-seats, as the reference
     /// re-bases on every inbound movement packet (`0x7c6420`).
     path: Option<(u32, Instant)>,
+    /// The floor this seat's fall landed on, before hover and water-walking; a new pose from the
+    /// position owner, a move or a floor in the settle's reach drops it.
+    landed: Option<f32>,
 }
 
 impl GroundClamped {
@@ -1378,20 +1432,10 @@ mod under_floor {
         );
     }
 
-    /// `0x7c61c0` refuses a fall to a mover with a live spline or a flag of 0x203800 (root and
-    /// fixed height here; swimming and falling never reach the idle arm); levitation is no
-    /// refusal, so a levitating unit falls.
-    #[test]
-    fn a_rooted_fixed_height_or_pathed_unit_keeps_its_seat_high_above_its_floor() {
-        use crate::creature_anim::move_flags::{FIXED_Z, LEVITATING, ROOT};
-        let (mut app, _) = half_arrived_world();
-        app.insert_resource(benilla_world::terrain_stream::WorldLoadProgress {
-            scene_ready: true,
-            ..Default::default()
-        });
-        let high = TERRAIN_Y + super::GROUND_CLAMP_DOWN + 1.8;
-        let mut unit = |flags: u32, pathed: bool| {
-            let mut e = app.world_mut().spawn((
+    /// A ground-clamped unit standing at `high`, with a mover whose flags are `flags`.
+    fn mover_at(app: &mut App, high: f32, flags: u32) -> Entity {
+        app.world_mut()
+            .spawn((
                 NetEntity {
                     kind: EntityKind::Unit,
                     display_id: None,
@@ -1413,26 +1457,41 @@ mod under_floor {
                     last_apply_pos: [0.0; 3],
                     fired_at_ms: None,
                 },
-            ));
-            if pathed {
-                // A ground path's first frame takes the idle arm: the settle, never a fall.
-                e.insert(super::Spline {
-                    deck: None,
-                    final_facing: benilla_protocol::MonsterMoveFacing::None,
-                    points: vec![[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]],
-                    start: std::time::Instant::now(),
-                    duration: std::time::Duration::from_secs(4),
-                    id: 9,
-                    grounded: true,
-                    run_mode: true,
-                });
-            }
-            e.id()
-        };
-        let rooted = unit(ROOT, false);
-        let fixed = unit(FIXED_Z, false);
-        let pathed = unit(0, true);
-        let levitating = unit(LEVITATING, false);
+            ))
+            .id()
+    }
+
+    fn arrived(app: &mut App, arrived: bool) {
+        app.insert_resource(benilla_world::terrain_stream::WorldLoadProgress {
+            scene_ready: true,
+            colliders_pending: if arrived { 0 } else { 1 },
+            ..Default::default()
+        });
+    }
+
+    /// `0x7c61c0` refuses a fall to a mover with a flag of 0x203800 (root and fixed height here;
+    /// swimming and falling never reach the idle arm) or a live flying spline, which never takes
+    /// the idle arm; a ground path's first frame and a levitating unit fall.
+    #[test]
+    fn a_rooted_or_fixed_height_unit_keeps_its_seat_high_above_its_floor() {
+        use crate::creature_anim::move_flags::{FIXED_Z, LEVITATING, ROOT};
+        let (mut app, _) = half_arrived_world();
+        arrived(&mut app, true);
+        let high = TERRAIN_Y + super::GROUND_CLAMP_DOWN + 1.8;
+        let rooted = mover_at(&mut app, high, ROOT);
+        let fixed = mover_at(&mut app, high, FIXED_Z);
+        let pathed = mover_at(&mut app, high, 0);
+        app.world_mut().entity_mut(pathed).insert(super::Spline {
+            deck: None,
+            final_facing: benilla_protocol::MonsterMoveFacing::None,
+            points: vec![[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]],
+            start: std::time::Instant::now(),
+            duration: std::time::Duration::from_secs(4),
+            id: 9,
+            grounded: true,
+            run_mode: true,
+        });
+        let levitating = mover_at(&mut app, high, LEVITATING);
         app.update();
         clamp(&mut app);
         assert_eq!(
@@ -1445,23 +1504,97 @@ mod under_floor {
             high,
             "a fixed-height mover never starts a fall"
         );
-        assert_eq!(y_of(&app, pathed), high, "a live spline refuses the fall");
-        assert!(
-            (y_of(&app, levitating) - TERRAIN_Y).abs() < 1.0e-3,
-            "levitation does not refuse a fall: {}",
-            y_of(&app, levitating)
-        );
+        for (e, what) in [(pathed, "a ground path"), (levitating, "levitation")] {
+            assert!(
+                (y_of(&app, e) - TERRAIN_Y).abs() < 1.0e-3,
+                "{what} does not refuse a fall: {}",
+                y_of(&app, e)
+            );
+        }
     }
 
-    /// A swimmer's fall into liquid ends at its swim depth under the surface, a floor above that
-    /// depth takes it first, and with no liquid it lands on the floor (`0x6030c0`).
+    /// The fall is a one-shot (`0x619320`): a landed unit keeps its landing across a collider
+    /// batch that finds the world still streaming, and across a root that refuses a second fall,
+    /// until its position owner writes a new pose.
     #[test]
-    fn a_swimmers_fall_into_liquid_ends_at_its_swim_depth() {
+    fn a_landed_unit_stays_landed_across_a_recast_that_cannot_fall() {
+        let (mut app, _) = half_arrived_world();
+        arrived(&mut app, true);
+        let high = TERRAIN_Y + super::GROUND_CLAMP_DOWN + 1.8;
+        let npc = mover_at(&mut app, high, 0);
+        app.update();
+        clamp(&mut app);
+        let landed = y_of(&app, npc);
+        assert!((landed - TERRAIN_Y).abs() < 1.0e-3, "it lands: {landed}");
+
+        // A collider batch attaches: the epoch bumps while the queue still holds more.
+        arrived(&mut app, false);
+        app.world_mut().resource_mut::<ColliderEpoch>().bump();
+        clamp(&mut app);
+        assert_eq!(
+            y_of(&app, npc),
+            landed,
+            "a streaming world keeps the landing"
+        );
+        clamp(&mut app);
+        assert_eq!(
+            y_of(&app, npc),
+            landed,
+            "and on every recast until it arrives"
+        );
+
+        // Then the server roots it, and the colliders change again.
+        arrived(&mut app, true);
+        app.world_mut()
+            .get_mut::<crate::net::RemoteMotion>(npc)
+            .unwrap()
+            .flags |= crate::creature_anim::move_flags::ROOT;
+        app.world_mut().resource_mut::<ColliderEpoch>().bump();
+        clamp(&mut app);
+        assert_eq!(
+            y_of(&app, npc),
+            landed,
+            "a root refuses a fall, not the landing"
+        );
+
+        // A new pose from the server is a new seat, and the root keeps it there.
+        app.world_mut()
+            .get_mut::<Transform>(npc)
+            .unwrap()
+            .translation
+            .y = high;
+        clamp(&mut app);
+        assert_eq!(y_of(&app, npc), high, "a new pose drops the old landing");
+    }
+
+    /// A swimmer's fall into water stops at the first frame's step past its swim depth, where the
+    /// creature marker then starts it swimming (`0x6030c0`, strict at `0x603106`); a floor reached
+    /// first takes it, and with no water it lands on the floor.
+    #[test]
+    fn a_swimmers_fall_into_water_stops_where_it_starts_swimming() {
         // Windrunner Pier: a night elf female (enter depth 1.69) seated 4.09 over the water.
-        let (seat, surface, depth) = (4.09, 0.0, 1.69);
-        assert_eq!(super::fall_end(-10.0, seat, Some(surface), depth), -1.69);
-        assert_eq!(super::fall_end(-1.0, seat, Some(surface), depth), -1.0);
-        assert_eq!(super::fall_end(-10.0, seat, None, depth), -10.0);
+        let (seat, surface, depth) = (4.09_f32, 0.0_f32, 1.69_f32);
+        let swim_flag = 0x8000; // UNIT_FLAG_USE_SWIM_ANIMATION
+        for frame_ms in [1, 7, 16, 33, 100, 250] {
+            let y = super::fall_end(-10.0, seat, Some(surface), depth, frame_ms, false);
+            assert!(
+                super::creature_swim_state(false, surface - y, depth, swim_flag),
+                "{frame_ms} ms frames: the marker starts the swim at {y}"
+            );
+            // Its last frame's step crossed the boundary; the one before had not.
+            let at = |ms: u32| seat - super::super::remote::fall_drop(0.0, ms, false);
+            let end_ms = (1..).map(|k| k * frame_ms).find(|&ms| at(ms) == y).unwrap();
+            let before = at(end_ms - frame_ms);
+            assert!(
+                surface - before <= depth,
+                "{frame_ms} ms: stopped late at {y}"
+            );
+        }
+        assert_eq!(
+            super::fall_end(-1.0, seat, Some(surface), depth, 16, false),
+            -1.0
+        );
+        assert_eq!(super::fall_end(-10.0, seat, None, depth, 16, false), -10.0);
     }
 
     /// A unit seated just under a floor stays at its seat: the face lies inside the volume's foot,
