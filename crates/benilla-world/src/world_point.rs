@@ -130,6 +130,16 @@ pub fn init_world_point_resources(world: &mut bevy::prelude::World) {
     world.init_resource::<CurrentAreaInterior>();
 }
 
+/// Indexes every spawned [`crate::liquid::WaterChunkInfo`] for the point queries, as the liquid
+/// plugin does each frame, for an app that spawns surfaces without it. Not `#[cfg(test)]`: the
+/// tests that need it are a dependent crate's.
+pub fn index_spawned_liquids(world: &mut bevy::prelude::World) {
+    use bevy::ecs::system::RunSystemOnce;
+    world
+        .run_system_once(crate::liquid::maintain_water_index)
+        .expect("index the liquid surfaces");
+}
+
 /// The nearest wet point of one liquid sound class ([`WorldPoint::nearest_liquid_per_class`]).
 pub struct NearestLiquid {
     /// Squared distance from the query point, in WoW yards.
