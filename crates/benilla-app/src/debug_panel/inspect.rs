@@ -547,8 +547,8 @@ pub(super) fn inspect_ui(
         });
     // The ground clamp's memo ([`crate::net::motion::spline::GroundClamped`]): `z` is drawn, `seat` the server's
     // last pose, `drop` = `seat - z` the clamp's correction, `terrain` the MCNK height. `walk` is
-    // the swept step on a server path and `idle` the settle from the seat; an idle miss stays at
-    // the seat, a walk miss descends.
+    // the swept step on a server path, with whether it found a floor; `idle` a unit off a path,
+    // standing or in its fall.
     let ground_line = net_entity
         .filter(|_| is_unit)
         .and_then(|p| motion.get(p).ok())
@@ -563,7 +563,12 @@ pub(super) fn inspect_ui(
                     .terrain_height_under(t.translation)
                     .map_or_else(|| "none".to_string(), |v| format!("{v:.2}")),
                 if c.walking() { "walk" } else { "idle" },
-                if c.hit { "hit" } else { "MISS" },
+                match (c.walking(), c.fall_ms()) {
+                    (true, _) if c.hit => "hit".to_string(),
+                    (true, _) => "MISS".to_string(),
+                    (false, Some(ms)) => format!("falling {ms} ms"),
+                    (false, None) => "standing".to_string(),
+                },
             )
         });
     // An `AnimationData` id by name, for both anim lines.

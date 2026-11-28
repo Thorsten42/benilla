@@ -1115,6 +1115,45 @@ fn a_relayed_move_drops_the_swim_mark_a_path_left() {
     );
 }
 
+/// A relayed stop's pose stands where its packet put it, where a create's starts a fall: the
+/// relay's status apply starts none (`0x618c30`), the post-create path does (`0x619320`). No
+/// terrain is resident here, so a fall hangs where it starts (`0x634154`).
+#[test]
+fn a_relayed_stop_stands_where_its_packet_put_it() {
+    const STAG: u64 = 0xF130_0000_0050_0007;
+    let mut c = client();
+    c.app
+        .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(16),
+        ));
+    let at = [500.0, 600.0, 50.0];
+    c.frame(vec![vec![placed(
+        created(STAG, EntityKind::Unit, &[]),
+        at,
+        0.0,
+        None,
+    )]]);
+    let stag = c.app.world().resource::<crate::net::GuidIndex>().0[&STAG];
+    let fall = |c: &Client| {
+        c.app
+            .world()
+            .get::<crate::net::motion::spline::GroundClamped>(stag)
+            .map(|g| g.fall_ms())
+    };
+    c.frame(vec![]);
+    assert!(
+        matches!(fall(&c), Some(Some(_))),
+        "its create starts a fall"
+    );
+    c.frame(vec![vec![heartbeat(STAG, at, 0, None)]]);
+    for _ in 0..5 {
+        c.frame(vec![]);
+    }
+    assert_eq!(fall(&c), Some(None), "the relayed pose starts none");
+    let t = c.app.world().get::<Transform>(stag).expect("a transform");
+    assert_eq!(benilla_assets::coords::bevy_to_wow(t.translation)[2], 50.0);
+}
+
 /// `SMSG_MONSTER_MOVE` stopping `guid` at `at`.
 fn halt(guid: u64, at: [f32; 3]) -> SessionEvent {
     SessionEvent::MonsterMove {
