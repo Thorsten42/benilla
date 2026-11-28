@@ -1330,8 +1330,10 @@ const CREATURE_SWIM_EXIT_BAND: f32 = 1.0 / 36.0;
 pub(crate) struct CreatureSwimming;
 
 /// A body a create or movement block has just posed ([`crate::net::objects`]): the block's status
-/// runs `0x619320` (`0x5ff04a`, from the create's `0x466498` → `0x5ff070` and the movement block's
-/// `0x467110` → `0x5ff030`), which starts an idle mover's fall. The clamp's next visit takes it.
+/// runs `0x619320` (`0x5ff04a`), which starts an idle mover's fall. A new unit reaches it from
+/// `CGUnit_C::CGUnit_C` (`0x5fad50`, `0x5fb131` → `0x5ff070`), a re-create from `ObjectRecreate`
+/// (`0x466350`, `0x466498` → `0x5ff070`) and a movement block from `0x467110` → `0x5ff030`. The
+/// clamp's next visit takes it; a relayed move before then drops it.
 #[derive(Component)]
 pub(in crate::net) struct FromBlock;
 

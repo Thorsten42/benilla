@@ -1165,6 +1165,23 @@ fn a_relayed_stop_stands_where_its_packet_put_it() {
     c.frame(vec![vec![heartbeat(STAG, at, 0, None)]]);
     c.frame(vec![]);
     assert_eq!(fall(&c), Some(None));
+    // A create and an idle relayed move in one frame: the relay's status replaces the create's,
+    // so it stands, as the same relay a frame later does (`0x618c30`).
+    const HIND: u64 = 0xF130_0000_0051_0008;
+    c.frame(vec![
+        vec![placed(created(HIND, EntityKind::Unit, &[]), at, 0.0, None)],
+        vec![heartbeat(HIND, at, 0, None)],
+    ]);
+    c.frame(vec![]);
+    let hind = c.app.world().resource::<crate::net::GuidIndex>().0[&HIND];
+    assert_eq!(
+        c.app
+            .world()
+            .get::<crate::net::motion::spline::GroundClamped>(hind)
+            .map(|g| g.fall_ms()),
+        Some(None),
+        "a create and a stop in one frame stand"
+    );
     // So does a movement block (`0x467110` → `0x5ff030`).
     c.frame(vec![vec![SessionEvent::ObjectMove {
         guid: STAG,

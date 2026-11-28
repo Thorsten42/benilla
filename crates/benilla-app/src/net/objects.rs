@@ -1437,6 +1437,8 @@ fn unit_move(
             .remove::<Spline>()
             .remove::<HeldSpline>()
             .remove::<super::motion::spline::GroundClamped>()
+            // A block's fall start not yet taken: the relay's status replaces it and starts none.
+            .remove::<super::motion::spline::FromBlock>()
             .remove::<super::motion::CreatureSwimming>()
             .remove::<super::motion::spline::SwimEvaluated>();
         if let Ok(mut rm) = remote_motion.get_mut(e) {
